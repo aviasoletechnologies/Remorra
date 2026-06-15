@@ -11,11 +11,32 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setSession(null);
       return;
     }
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, next) =>
+    const client = supabase;
+    void client.auth.getSession().then(async ({ data }) => {
+      if (!data.session) {
+        setSession(null);
+        return;
+      }
+      const { data: userData, error } = await client.auth.getUser();
+      if (error || !userData.user) {
+        const refreshed = await client.auth.refreshSession();
+        if (!refreshed.data.session) {
+          await client.auth.signOut({ scope: "local" });
+        }
+        setSession(refreshed.data.session);
+        return;
+      }
+      setSession(data.session);
+    });
+    const { data } = client.auth.onAuthStateChange((_event, next) =>
       setSession(next),
     );
-    return () => data.subscription.unsubscribe();
+    const expire = () => setSession(null);
+    window.addEventListener("remorra-session-expired", expire);
+    return () => {
+      data.subscription.unsubscribe();
+      window.removeEventListener("remorra-session-expired", expire);
+    };
   }, []);
 
   if (!supabaseConfigured) {

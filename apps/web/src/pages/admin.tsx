@@ -323,130 +323,118 @@ export function AdminPage() {
   });
 
   return (
-    <div className="page admin-page">
-      <section className="page-heading compact-heading">
+    <div className="page-container py-8 px-6 max-w-[1440px] mx-auto flex flex-col gap-6">
+      <section className="flex flex-col gap-2">
         <div>
           <Badge tone="red">Internal administration</Badge>
-          <h1>Platform Operations Console</h1>
-          <p>Durable templates, automated cost rates, and redaction-enforced support diagnostics.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-ink mt-3 mb-1">Platform Operations Console</h1>
+          <p className="text-sm text-muted">Durable templates, automated cost rates, and redaction-enforced support diagnostics.</p>
         </div>
       </section>
 
       {/* Tabs Menu */}
-      <div className="admin-tabs">
-        <button className={`admin-tab ${activeTab === "overview" ? "active" : ""}`} onClick={() => setActiveTab("overview")}>
-          <TrendingUp /> Overview Metrics
+      <div className="flex gap-2 border-b border-border-remorra/40 pb-2 overflow-x-auto mt-2">
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "overview" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("overview")}>
+          <TrendingUp size={16} /> Overview Metrics
         </button>
-        <button className={`admin-tab ${activeTab === "support" ? "active" : ""}`} onClick={() => setActiveTab("support")}>
-          <Users /> Support Workspace
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "support" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("support")}>
+          <Users size={16} /> Support Workspace
         </button>
-        <button className={`admin-tab ${activeTab === "templates" ? "active" : ""}`} onClick={() => setActiveTab("templates")}>
-          <FileText /> Document Templates
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "templates" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("templates")}>
+          <FileText size={16} /> Document Templates
         </button>
-        <button className={`admin-tab ${activeTab === "costs" ? "active" : ""}`} onClick={() => setActiveTab("costs")}>
-          <DollarSign /> Costs Manager
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "costs" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("costs")}>
+          <DollarSign size={16} /> Costs Manager
         </button>
-        <button className={`admin-tab ${activeTab === "system" ? "active" : ""}`} onClick={() => setActiveTab("system")}>
-          <Settings /> System Routing
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "system" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("system")}>
+          <Settings size={16} /> System Routing
         </button>
-        <button className={`admin-tab ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")}>
-          <Users /> Platform Users
+        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "users" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("users")}>
+          <Users size={16} /> Platform Users
         </button>
       </div>
 
       {/* Tab Content 1: Overview */}
       {activeTab === "overview" && (
         <>
-          <div className="admin-period-selector" style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <div className="flex gap-2 mb-4">
             {(["today", "week", "mtd", "ytd", "all"] as const).map((p) => (
               <button
                 key={p}
-                className={`admin-period-btn ${period === p ? "active" : ""}`}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide transition-colors ${period === p ? "bg-accent text-white border-transparent shadow-sm" : "bg-transparent text-muted border border-border-remorra/60 hover:text-ink"}`}
                 onClick={() => setPeriod(p)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: period === p ? "1px solid var(--accent, #23694a)" : "1px solid var(--border, #2a3a30)",
-                  background: period === p ? "var(--accent, #23694a)" : "transparent",
-                  color: period === p ? "#fff" : "var(--text-secondary, #8ca296)",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                }}
               >
                 {p === "mtd" ? "MTD" : p === "ytd" ? "YTD" : p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
-          <section className="admin-metrics">
-            <Card>
-              <Users />
-              <span>Total Users</span>
-              <strong>{overviewMetrics?.users ?? "-"}</strong>
+          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+              <div className="w-8 h-8 rounded bg-blue-soft/30 flex items-center justify-center text-blue"><Users size={16} /></div>
+              <span className="text-xs font-bold text-muted uppercase tracking-wide">Total Users</span>
+              <strong className="text-2xl font-bold text-ink">{overviewMetrics?.users ?? "-"}</strong>
             </Card>
-            <Card>
-              <Database />
-              <span>Projects (Active)</span>
-              <strong>
+            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+              <div className="w-8 h-8 rounded bg-green-soft/30 flex items-center justify-center text-green"><Database size={16} /></div>
+              <span className="text-xs font-bold text-muted uppercase tracking-wide">Projects (Active)</span>
+              <strong className="text-2xl font-bold text-ink">
                 {overviewMetrics?.projects ?? "-"} ({overviewMetrics?.activeProjects ?? "-"})
               </strong>
             </Card>
-            <Card>
-              <ShieldCheck />
-              <span>Failed Jobs (30d)</span>
-              <strong>{overviewMetrics?.failedJobs ?? "-"}</strong>
+            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+              <div className="w-8 h-8 rounded bg-red-soft/30 flex items-center justify-center text-red"><ShieldCheck size={16} /></div>
+              <span className="text-xs font-bold text-muted uppercase tracking-wide">Failed Jobs (30d)</span>
+              <strong className="text-2xl font-bold text-ink">{overviewMetrics?.failedJobs ?? "-"}</strong>
             </Card>
-            <Card>
-              <BrainCircuit />
-              <span>Tokens Cost / Revenue</span>
-              <strong>
+            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+              <div className="w-8 h-8 rounded bg-amber-soft/30 flex items-center justify-center text-amber"><BrainCircuit size={16} /></div>
+              <span className="text-xs font-bold text-muted uppercase tracking-wide">Tokens Cost / Revenue</span>
+              <strong className="text-2xl font-bold text-ink">
                 ${(((overviewMetrics?.totalCost ?? 0)) / 100).toFixed(2)}
               </strong>
-              <small>
+              <small className="text-[10px] text-muted">
                 Margin Estimate: {overviewMetrics?.margin ?? 100}%
               </small>
             </Card>
           </section>
 
-          <div className="admin-grid" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
-            <Card className="admin-table" style={{ gridColumn: "span 2" }}>
-              <h2>Token Usage Breakdown</h2>
-              <table className="admin-wide-table">
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="p-6 bg-surface shadow-sm border-border-remorra/70 overflow-x-auto">
+              <h2 className="text-base font-bold text-ink mb-4">Token Usage Breakdown</h2>
+              <table className="w-full text-left text-sm border-collapse min-w-[600px]">
                 <thead>
-                  <tr>
-                    <th>Model Tier / Key</th>
-                    <th>Input Tokens</th>
-                    <th>Output Tokens</th>
-                    <th>Estimated Cost (USD)</th>
-                    <th>Invocations count</th>
+                  <tr className="border-b border-border-remorra/60">
+                    <th className="pb-2 font-semibold text-muted">Model Tier / Key</th>
+                    <th className="pb-2 font-semibold text-muted">Input Tokens</th>
+                    <th className="pb-2 font-semibold text-muted">Output Tokens</th>
+                    <th className="pb-2 font-semibold text-muted">Estimated Cost (USD)</th>
+                    <th className="pb-2 font-semibold text-muted">Invocations count</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border-remorra/30">
                   {(usageMetrics?.byModel ?? []).map((m: any) => (
                     <tr key={m.model}>
-                      <td><strong>{m.model}</strong></td>
-                      <td>{m._sum.inputTokens}</td>
-                      <td>{m._sum.outputTokens}</td>
-                      <td>${((m._sum.costMinor ?? 0) / 100).toFixed(4)}</td>
-                      <td>{m._count}</td>
+                      <td className="py-3 font-semibold text-ink">{m.model}</td>
+                      <td className="py-3 text-muted">{m._sum.inputTokens}</td>
+                      <td className="py-3 text-muted">{m._sum.outputTokens}</td>
+                      <td className="py-3 text-muted">${((m._sum.costMinor ?? 0) / 100).toFixed(4)}</td>
+                      <td className="py-3 text-muted">{m._count}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </Card>
 
-            <Card className="admin-table" style={{ gridColumn: "span 2" }}>
-              <h2>Recent Failed Jobs Queue & Diagnostics</h2>
-              <table className="admin-wide-table">
+            <Card className="p-6 bg-surface shadow-sm border-border-remorra/70 overflow-x-auto">
+              <h2 className="text-base font-bold text-ink mb-4">Recent Failed Jobs Queue & Diagnostics</h2>
+              <table className="w-full text-left text-sm border-collapse min-w-[600px]">
                 <thead>
-                  <tr>
-                    <th>Job ID</th>
-                    <th>Queue</th>
-                    <th>Failure Reason</th>
-                    <th>Attempts</th>
-                    <th>Actions</th>
+                  <tr className="border-b border-border-remorra/60">
+                    <th className="pb-2 font-semibold text-muted">Job ID</th>
+                    <th className="pb-2 font-semibold text-muted">Queue</th>
+                    <th className="pb-2 font-semibold text-muted">Failure Reason</th>
+                    <th className="pb-2 font-semibold text-muted">Attempts</th>
+                    <th className="pb-2 font-semibold text-muted">Actions</th>
                   </tr>
                 </thead>
                 <tbody>

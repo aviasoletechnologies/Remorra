@@ -1,0 +1,4 @@
+ALTER TYPE "SessionStatus" ADD VALUE IF NOT EXISTS 'nav_away';
+
+ALTER TABLE "Profile"
+ADD COLUMN IF NOT EXISTS "tier" TEXT NOT NULL DEFAULT 'free';

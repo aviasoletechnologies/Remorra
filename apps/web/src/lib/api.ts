@@ -195,10 +195,8 @@ export function streamTextJob(
 async function authorizedFetch(
   path: string,
   init: RequestInit & { version?: number } = {},
-  allowRetry = true,
 ) {
-  const session = await supabase?.auth.getSession();
-  let token = session?.data.session?.access_token;
+  let token = await accessToken();
   const isForm = init.body instanceof FormData;
 
   const request = (accessToken?: string) =>
@@ -213,18 +211,36 @@ async function authorizedFetch(
     });
 
   let response = await request(token);
-  if (response.status === 401 && allowRetry && supabase) {
+  if (response.status === 401 && supabase) {
     const refreshed = await supabase.auth.refreshSession();
-    const refreshedToken = refreshed.data.session?.access_token;
-    if (!refreshedToken) {
-      await supabase.auth.signOut();
-      return response;
-    }
-    response = await request(refreshedToken);
+    token = refreshed.data.session?.access_token;
+    if (token) response = await request(token);
     if (response.status === 401) {
-      await supabase.auth.signOut();
+      await expireSession();
     }
   }
   return response;
 }
 
+async function accessToken() {
+  if (!supabase) return undefined;
+  const current = await supabase.auth.getSession();
+  const session = current.data.session;
+  if (!session) return undefined;
+  const expiresSoon =
+    typeof session.expires_at === "number" &&
+    session.expires_at * 1000 <= Date.now() + 30_000;
+  if (!expiresSoon) return session.access_token;
+  const refreshed = await supabase.auth.refreshSession();
+  if (!refreshed.data.session) {
+    await expireSession();
+    return undefined;
+  }
+  return refreshed.data.session.access_token;
+}
+
+async function expireSession() {
+  if (!supabase) return;
+  await supabase.auth.signOut({ scope: "local" });
+  window.dispatchEvent(new CustomEvent("remorra-session-expired"));
+}
