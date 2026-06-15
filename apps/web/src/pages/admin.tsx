@@ -13,6 +13,8 @@ import {
   Eye,
   Settings,
   ShieldAlert,
+  BookOpen,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
@@ -26,6 +28,12 @@ export function AdminPage() {
   const [skillDrafts, setSkillDrafts] = useState<Record<string, string>>({});
   const [knowledgeDrafts, setKnowledgeDrafts] = useState<Record<string, string>>({});
   const [reportDrafts, setReportDrafts] = useState<Record<string, string>>({});
+
+  // System sub-navigation states
+  const [systemSubTab, setSystemSubTab] = useState<"skills" | "routing" | "reports" | "knowledge" | "retention" | "users">("skills");
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
 
   // Tab 1: Overview & Metrics Queries
   const { data: actor } = useQuery<any>({ queryKey: ["me"], queryFn: () => api("/auth/me") });
@@ -720,131 +728,384 @@ export function AdminPage() {
         </Card>
       )}
 
-      {/* Tab Content 5: System Settings (Legacy views grouped here) */}
+      {/* Tab Content 5: System Settings (Sub-nav Layout) */}
       {activeTab === "system" && (
-        <div className="admin-grid">
-          <Card className="admin-table">
-            <h2>Skill Registry</h2>
-            {skills.map((skill) => {
-              const activeSkill = skill.versions.find((item: any) => item.active);
-              const newest = skill.versions[0];
-              const draft = skillDrafts[skill.id] ?? activeSkill?.systemPrompt ?? newest?.systemPrompt ?? "";
-              return (
-                <div className="admin-row admin-row--stack" key={skill.id}>
-                  <div>
-                    <strong>{skill.name}</strong>
-                    <small>{skill.id}</small>
-                  </div>
-                  <div className="inline-actions">
-                    {newest && newest.id !== activeSkill?.id ? (
-                      <Button variant="secondary" onClick={() => activate.mutate({ skillId: skill.id, versionId: newest.id })} disabled={!isAdmin}>
-                        Activate v{newest.version}
-                      </Button>
-                    ) : (
-                      <Badge tone={activeSkill ? "green" : "amber"}>
-                        {activeSkill ? `v${activeSkill.version}` : "inactive"}
-                      </Badge>
-                    )}
-                    <Button variant="secondary" onClick={() => createSkillVersion.mutate({ skillId: skill.id, systemPrompt: draft })} disabled={!isAdmin}>
-                      Create prompt version
-                    </Button>
-                  </div>
-                  <textarea className="admin-textarea" value={draft} onChange={(event) => setSkillDrafts((current) => ({ ...current, [skill.id]: event.target.value }))} disabled={!isAdmin} />
-                </div>
-              );
-            })}
-          </Card>
+        <div className="admin-sub-layout">
+          <aside className="admin-sub-sidebar">
+            <button
+              className={`admin-sub-tab ${systemSubTab === "skills" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("skills")}
+            >
+              <BrainCircuit size={16} />
+              <span>Skill Registry</span>
+            </button>
+            <button
+              className={`admin-sub-tab ${systemSubTab === "routing" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("routing")}
+            >
+              <Activity size={16} />
+              <span>Event Routing</span>
+            </button>
+            <button
+              className={`admin-sub-tab ${systemSubTab === "reports" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("reports")}
+            >
+              <FileText size={16} />
+              <span>Report Definitions</span>
+            </button>
+            <button
+              className={`admin-sub-tab ${systemSubTab === "knowledge" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("knowledge")}
+            >
+              <BookOpen size={16} />
+              <span>Knowledge Bases</span>
+            </button>
+            <button
+              className={`admin-sub-tab ${systemSubTab === "retention" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("retention")}
+            >
+              <Clock size={16} />
+              <span>Retention Policies</span>
+            </button>
+            <button
+              className={`admin-sub-tab ${systemSubTab === "users" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("users")}
+            >
+              <Users size={16} />
+              <span>Platform Users</span>
+            </button>
+          </aside>
 
-          <Card className="admin-table">
-            <h2>Automatic Skill Routing</h2>
-            {mappings.map((mapping) => (
-              <div className="admin-row" key={mapping.eventType}>
-                <div>
-                  <strong>{mapping.eventType}</strong>
-                  <small>Resolved when the worker starts the job</small>
+          <div className="admin-sub-content">
+            {systemSubTab === "skills" && (
+              <div className="admin-master-detail">
+                <div className="admin-master-list">
+                  <h3>Agent Skills</h3>
+                  {skills.map((skill) => {
+                    const isActive = (selectedSkillId || (skills[0] && skills[0].id)) === skill.id;
+                    const activeVer = skill.versions.find((item: any) => item.active);
+                    return (
+                      <div
+                        key={skill.id}
+                        className={`admin-list-item ${isActive ? "active" : ""}`}
+                        onClick={() => setSelectedSkillId(skill.id)}
+                      >
+                        <strong>{skill.name}</strong>
+                        <div className="item-meta">
+                          <span>{skill.id}</span>
+                          {activeVer && <Badge tone="green">v{activeVer.version}</Badge>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <select aria-label={`Skill for ${mapping.eventType}`} value={mapping.skillId} onChange={(event) => setMapping.mutate({ eventType: mapping.eventType, skillId: event.target.value })} disabled={!isAdmin}>
-                  {skills.map((skill) => (
-                    <option key={skill.id} value={skill.id}>
-                      {skill.name}
-                    </option>
+
+                <div className="admin-detail-editor">
+                  {(() => {
+                    const activeSkill = skills.find((s) => s.id === (selectedSkillId || (skills[0] && skills[0].id)));
+                    if (!activeSkill) return <div className="placeholder-detail">Select a skill to view and edit details</div>;
+
+                    const activeVer = activeSkill.versions.find((item: any) => item.active);
+                    const newest = activeSkill.versions[0];
+                    const draft = skillDrafts[activeSkill.id] ?? activeVer?.systemPrompt ?? newest?.systemPrompt ?? "";
+
+                    return (
+                      <Card className="detail-card">
+                        <div className="detail-header">
+                          <div>
+                            <h2>{activeSkill.name}</h2>
+                            <code className="id-badge">{activeSkill.id}</code>
+                          </div>
+                          <div className="detail-actions">
+                            {newest && newest.id !== activeVer?.id ? (
+                              <Button
+                                variant="secondary"
+                                onClick={() => activate.mutate({ skillId: activeSkill.id, versionId: newest.id })}
+                                disabled={!isAdmin}
+                              >
+                                Activate v{newest.version}
+                              </Button>
+                            ) : (
+                              <Badge tone={activeVer ? "green" : "amber"}>
+                                {activeVer ? `v${activeVer.version} Active` : "Inactive"}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="editor-section">
+                          <label>System Prompt Template</label>
+                          <textarea
+                            className="admin-textarea monospace"
+                            value={draft}
+                            onChange={(event) =>
+                              setSkillDrafts((current) => ({ ...current, [activeSkill.id]: event.target.value }))
+                            }
+                            disabled={!isAdmin}
+                          />
+                        </div>
+
+                        {isAdmin && (
+                          <div className="detail-footer">
+                            <Button
+                              onClick={() => createSkillVersion.mutate({ skillId: activeSkill.id, systemPrompt: draft })}
+                            >
+                              Create & Publish New Version
+                            </Button>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {systemSubTab === "routing" && (
+              <Card className="admin-table">
+                <h2>Automatic Skill Routing</h2>
+                <p className="section-description">
+                  Route specific workspace events to the appropriate AI skill registry handler.
+                </p>
+                <div className="routing-list">
+                  {mappings.map((mapping) => (
+                    <div className="routing-row" key={mapping.eventType}>
+                      <div className="routing-info">
+                        <strong>{mapping.eventType}</strong>
+                        <span>Resolved dynamically on job execution</span>
+                      </div>
+                      <div className="routing-action">
+                        <select
+                          aria-label={`Skill for ${mapping.eventType}`}
+                          value={mapping.skillId}
+                          onChange={(event) =>
+                            setMapping.mutate({ eventType: mapping.eventType, skillId: event.target.value })
+                          }
+                          disabled={!isAdmin}
+                          className="admin-select"
+                        >
+                          {skills.map((skill) => (
+                            <option key={skill.id} value={skill.id}>
+                              {skill.name} ({skill.id})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                   ))}
-                </select>
+                </div>
+              </Card>
+            )}
+
+            {systemSubTab === "reports" && (
+              <div className="admin-master-detail">
+                <div className="admin-master-list">
+                  <h3>Report Definitions</h3>
+                  {reports.map((report) => {
+                    const isActive = (selectedReportId || (reports[0] && reports[0].id)) === report.id;
+                    const activeVer = report.versions.find((item: any) => item.active) ?? report.versions[0];
+                    return (
+                      <div
+                        key={report.id}
+                        className={`admin-list-item ${isActive ? "active" : ""}`}
+                        onClick={() => setSelectedReportId(report.id)}
+                      >
+                        <strong>{report.name}</strong>
+                        <div className="item-meta">
+                          {activeVer?.requiresLlm ? <Badge tone="amber">LLM</Badge> : <Badge tone="blue">Deterministic</Badge>}
+                          <span>v{activeVer?.version ?? "-"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="admin-detail-editor">
+                  {(() => {
+                    const activeReport = reports.find((r) => r.id === (selectedReportId || (reports[0] && reports[0].id)));
+                    if (!activeReport) return <div className="placeholder-detail">Select a report to view and edit details</div>;
+
+                    const activeVer = activeReport.versions.find((item: any) => item.active) ?? activeReport.versions[0];
+                    const draft = reportDrafts[activeReport.id] ?? activeVer?.templateKey ?? "";
+
+                    return (
+                      <Card className="detail-card">
+                        <div className="detail-header">
+                          <div>
+                            <h2>{activeReport.name}</h2>
+                            <p className="subtitle">
+                              {activeVer?.requiresLlm ? "Requires Large Language Model processing" : "Generates deterministically via engine"}
+                            </p>
+                          </div>
+                          <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
+                        </div>
+
+                        <div className="editor-section">
+                          <label>Associated Document Template Key</label>
+                          <input
+                            type="text"
+                            className="admin-input"
+                            value={draft}
+                            onChange={(event) =>
+                              setReportDrafts((current) => ({ ...current, [activeReport.id]: event.target.value }))
+                            }
+                            disabled={!isAdmin}
+                          />
+                          <span className="input-help">Links this report definition to a layout template of the same key.</span>
+                        </div>
+
+                        {isAdmin && (
+                          <div className="detail-footer">
+                            <Button
+                              onClick={() => createReportVersion.mutate({ id: activeReport.id, templateKey: draft })}
+                            >
+                              Update Associated Template Key
+                            </Button>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })()}
+                </div>
               </div>
-            ))}
-          </Card>
+            )}
 
-          <Card className="admin-table">
-            <h2>Report Definitions</h2>
-            {reports.map((report) => {
-              const activeReport = report.versions.find((item: any) => item.active) ?? report.versions[0];
-              const draft = reportDrafts[report.id] ?? activeReport?.templateKey ?? "";
-              return (
-                <div className="admin-row admin-row--stack" key={report.id}>
-                  <div>
-                    <strong>{report.name}</strong>
-                    <small>
-                      {activeReport?.requiresLlm ? "LLM content" : "Deterministic"} · v{activeReport?.version ?? "-"}
-                    </small>
-                  </div>
-                  <input aria-label={`Template for ${report.name}`} value={draft} onChange={(event) => setReportDrafts((current) => ({ ...current, [report.id]: event.target.value }))} disabled={!isAdmin} />
-                  <Button variant="secondary" onClick={() => createReportVersion.mutate({ id: report.id, templateKey: draft })} disabled={!isAdmin}>
-                    Create active version
-                  </Button>
+            {systemSubTab === "knowledge" && (
+              <div className="admin-master-detail">
+                <div className="admin-master-list">
+                  <h3>Knowledge Bases</h3>
+                  {knowledge.map((base) => {
+                    const isActive = (selectedKbId || (knowledge[0] && knowledge[0].id)) === base.id;
+                    const activeVer = base.versions.find((item: any) => item.active) ?? base.versions[0];
+                    return (
+                      <div
+                        key={base.id}
+                        className={`admin-list-item ${isActive ? "active" : ""}`}
+                        onClick={() => setSelectedKbId(base.id)}
+                      >
+                        <strong>{base.name}</strong>
+                        <div className="item-meta">
+                          <span>{base.topic}</span>
+                          {activeVer && <Badge tone="green">v{activeVer.version}</Badge>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </Card>
 
-          <Card className="admin-table">
-            <h2>Knowledge Bases</h2>
-            {knowledge.map((base) => {
-              const activeKb = base.versions.find((item: any) => item.active) ?? base.versions[0];
-              const draft = knowledgeDrafts[base.id] ?? activeKb?.markdown ?? "";
-              return (
-                <div className="admin-row admin-row--stack" key={base.id}>
-                  <div>
-                    <strong>{base.name}</strong>
-                    <small>{base.topic}</small>
-                  </div>
-                  <textarea className="admin-textarea" value={draft} onChange={(event) => setKnowledgeDrafts((current) => ({ ...current, [base.id]: event.target.value }))} disabled={!isAdmin} />
-                  <Button variant="secondary" onClick={() => createKnowledgeVersion.mutate({ id: base.id, markdown: draft })} disabled={!isAdmin}>
-                    Create active version
-                  </Button>
-                </div>
-              );
-            })}
-          </Card>
+                <div className="admin-detail-editor">
+                  {(() => {
+                    const activeKb = knowledge.find((k) => k.id === (selectedKbId || (knowledge[0] && knowledge[0].id)));
+                    if (!activeKb) return <div className="placeholder-detail">Select a knowledge base to view and edit details</div>;
 
-          <Card className="admin-table">
-            <h2>Retention Policies</h2>
-            {retention.map((policy) => (
-              <div className="admin-row" key={policy.id}>
-                <div>
-                  <strong>{policy.description}</strong>
-                  <small>{policy.id}</small>
+                    const activeVer = activeKb.versions.find((item: any) => item.active) ?? activeKb.versions[0];
+                    const draft = knowledgeDrafts[activeKb.id] ?? activeVer?.markdown ?? "";
+
+                    return (
+                      <Card className="detail-card">
+                        <div className="detail-header">
+                          <div>
+                            <h2>{activeKb.name}</h2>
+                            <span className="topic-tag">{activeKb.topic}</span>
+                          </div>
+                          <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
+                        </div>
+
+                        <div className="editor-section">
+                          <label>Knowledge Base Markdown Content</label>
+                          <textarea
+                            className="admin-textarea monospace"
+                            value={draft}
+                            onChange={(event) =>
+                              setKnowledgeDrafts((current) => ({ ...current, [activeKb.id]: event.target.value }))
+                            }
+                            disabled={!isAdmin}
+                          />
+                        </div>
+
+                        {isAdmin && (
+                          <div className="detail-footer">
+                            <Button
+                              onClick={() => createKnowledgeVersion.mutate({ id: activeKb.id, markdown: draft })}
+                            >
+                              Publish & Activate Content Version
+                            </Button>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })()}
                 </div>
-                <input aria-label={`Days for ${policy.id}`} type="number" value={policy.retentionDays ?? ""} onChange={(event) => updateRetention.mutate({ id: policy.id, retentionDays: Number(event.target.value) })} disabled={!isAdmin} />
               </div>
-            ))}
-          </Card>
+            )}
 
-          <Card className="admin-table">
-            <h2>Platform Users</h2>
-            {users.slice(0, 20).map((user) => (
-              <div className="admin-row" key={user.id}>
-                <div>
-                  <strong>{user.preferredName || user.email}</strong>
-                  <small>{user.status}</small>
+            {systemSubTab === "retention" && (
+              <Card className="admin-table">
+                <h2>Retention Policies</h2>
+                <p className="section-description">
+                  Configure data retention and cleanup schedules for security and compliance requirements.
+                </p>
+                <div className="retention-list">
+                  {retention.map((policy) => (
+                    <div className="retention-row" key={policy.id}>
+                      <div className="retention-info">
+                        <strong>{policy.description}</strong>
+                        <code>{policy.id}</code>
+                      </div>
+                      <div className="retention-action">
+                        <input
+                          aria-label={`Days for ${policy.id}`}
+                          type="number"
+                          value={policy.retentionDays ?? ""}
+                          onChange={(event) =>
+                            updateRetention.mutate({ id: policy.id, retentionDays: Number(event.target.value) })
+                          }
+                          disabled={!isAdmin}
+                          className="admin-input-small"
+                          placeholder="Forever"
+                        />
+                        <span className="input-suffix">days</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <select value={user.platformRole} onChange={(event) => updateRole.mutate({ id: user.id, platformRole: event.target.value })} disabled={!isAdmin}>
-                  <option value="user">user</option>
-                  <option value="support">support</option>
-                  <option value="admin">admin</option>
-                </select>
-              </div>
-            ))}
-          </Card>
+              </Card>
+            )}
+
+            {systemSubTab === "users" && (
+              <Card className="admin-table">
+                <h2>Platform Users</h2>
+                <p className="section-description">
+                  Manage user accounts and assign administrative or support privileges.
+                </p>
+                <div className="user-grid">
+                  {users.slice(0, 40).map((user) => (
+                    <div className="user-card" key={user.id}>
+                      <div className="user-info">
+                        <strong>{user.preferredName || user.email.split("@")[0]}</strong>
+                        <span>{user.email}</span>
+                      </div>
+                      <div className="user-controls">
+                        <Badge tone={user.status === "active" ? "green" : "red"}>{user.status}</Badge>
+                        <select
+                          value={user.platformRole}
+                          onChange={(event) =>
+                            updateRole.mutate({ id: user.id, platformRole: event.target.value })
+                          }
+                          disabled={!isAdmin}
+                          className="admin-select"
+                        >
+                          <option value="user">User</option>
+                          <option value="support">Support</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
         </div>
       )}
     </div>
