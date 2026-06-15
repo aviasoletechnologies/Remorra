@@ -81,6 +81,9 @@ describe("Admin & Support Ops Console Tests", () => {
         skill: {
           findMany: vi.fn(),
           findUniqueOrThrow: vi.fn(),
+          findUnique: vi.fn(),
+          create: vi.fn(),
+          count: vi.fn(),
         },
       },
     };
@@ -356,6 +359,137 @@ describe("Admin & Support Ops Console Tests", () => {
         },
       });
       expect(res.active).toBe(true);
+    });
+  });
+
+  describe("Dynamic Skills & Event Mappings", () => {
+    it("retrieves skills in a paginated structure", async () => {
+      prismaMock.client.skill.findMany.mockResolvedValue([{ id: "skill-1", name: "Skill 1", versions: [] }]);
+      prismaMock.client.skill.count.mockResolvedValue(1);
+
+      const res = await adminService.skills({ platformRole: "admin" } as any, 1, 10);
+
+      expect(prismaMock.client.skill.findMany).toHaveBeenCalledWith({
+        include: { versions: { orderBy: { version: "desc" } } },
+        orderBy: { id: "asc" },
+        skip: 0,
+        take: 10,
+      });
+      expect(prismaMock.client.skill.count).toHaveBeenCalled();
+      expect(res).toEqual({
+        items: [{ id: "skill-1", name: "Skill 1", versions: [] }],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      });
+    });
+
+    it("transactionally creates a new skill with active v1 version", async () => {
+      prismaMock.client.skill.findUnique.mockResolvedValue(null);
+      prismaMock.client.skill.create.mockResolvedValue({
+        id: "test-skill",
+        name: "Test Skill",
+        description: "Test Desc",
+      });
+      prismaMock.client.skillVersion.create.mockResolvedValue({
+        id: "version-1-id",
+        skillId: "test-skill",
+        version: 1,
+        active: true,
+      });
+
+      const res = await adminService.createSkill(
+        { userId: "admin-1", platformRole: "admin" } as any,
+        {
+          id: "test-skill",
+          name: "Test Skill",
+          description: "Test Desc",
+          systemPrompt: "Test Prompt",
+        },
+      );
+
+      expect(prismaMock.client.skill.findUnique).toHaveBeenCalledWith({ where: { id: "test-skill" } });
+      expect(prismaMock.client.skill.create).toHaveBeenCalledWith({
+        data: {
+          id: "test-skill",
+          name: "Test Skill",
+          description: "Test Desc",
+        },
+      });
+      expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
+        data: {
+          skillId: "test-skill",
+          version: 1,
+          active: true,
+          modelTier: "model:claude-sonnet-4-6",
+          systemPrompt: "Test Prompt",
+          contextRequirements: {},
+          constraints: [],
+          examples: [],
+          retryPolicy: {},
+          tokenCeiling: 100000,
+        },
+      });
+      expect(prismaMock.client.platformAuditEvent.create).toHaveBeenCalledWith({
+        data: {
+          actorId: "admin-1",
+          eventType: "skill.created",
+          targetType: "skill",
+          targetId: "test-skill",
+          metadata: { name: "Test Skill", version: 1 },
+        },
+      });
+      expect(res.id).toBe("test-skill");
+      expect(res.versions[0].version).toBe(1);
+    });
+
+    it("throws BadRequestException if skill already exists", async () => {
+      prismaMock.client.skill.findUnique.mockResolvedValue({ id: "test-skill" });
+
+      await expect(
+        adminService.createSkill(
+          { userId: "admin-1", platformRole: "admin" } as any,
+          {
+            id: "test-skill",
+            name: "Test Skill",
+            description: "Test Desc",
+            systemPrompt: "Test Prompt",
+          },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("maps an event to a skill and registers platform audits", async () => {
+      prismaMock.client.skill.findUniqueOrThrow.mockResolvedValue({ id: "test-skill" });
+      prismaMock.client.skillEventMapping.upsert.mockResolvedValue({ id: "mapping-1" });
+
+      const res = await adminService.setMapping(
+        { userId: "admin-1", platformRole: "admin" } as any,
+        "custom.event",
+        "test-skill",
+      );
+
+      expect(prismaMock.client.skill.findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: "test-skill" } });
+      expect(prismaMock.client.skillEventMapping.updateMany).toHaveBeenCalledWith({
+        where: { eventType: "custom.event" },
+        data: { active: false },
+      });
+      expect(prismaMock.client.skillEventMapping.upsert).toHaveBeenCalledWith({
+        where: { eventType_skillId: { eventType: "custom.event", skillId: "test-skill" } },
+        create: { eventType: "custom.event", skillId: "test-skill", active: true },
+        update: { active: true },
+      });
+      expect(prismaMock.client.platformAuditEvent.create).toHaveBeenCalledWith({
+        data: {
+          actorId: "admin-1",
+          eventType: "skill.mapping.changed",
+          targetType: "skill_event_mapping",
+          targetId: "mapping-1",
+          metadata: { eventType: "custom.event", skillId: "test-skill" },
+        },
+      });
+      expect(res.id).toBe("mapping-1");
     });
   });
 });

@@ -23,17 +23,34 @@ import { api } from "../lib/api";
 export function AdminPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"overview" | "support" | "templates" | "costs" | "system" | "users">("overview");
+  const [userPage, setUserPage] = useState(1);
+  const USER_PAGE_SIZE = 10;
 
   // System drafts (Legacy states kept for compatibility)
   const [skillDrafts, setSkillDrafts] = useState<Record<string, string>>({});
   const [knowledgeDrafts, setKnowledgeDrafts] = useState<Record<string, string>>({});
   const [reportDrafts, setReportDrafts] = useState<Record<string, string>>({});
 
-  // System sub-navigation states
   const [systemSubTab, setSystemSubTab] = useState<"skills" | "routing" | "reports" | "knowledge" | "retention">("skills");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+
+  // Skill Creation States
+  const [isCreateSkillOpen, setIsCreateSkillOpen] = useState(false);
+  const [newSkillId, setNewSkillId] = useState("");
+  const [newSkillName, setNewSkillName] = useState("");
+  const [newSkillDesc, setNewSkillDesc] = useState("");
+  const [newSkillPrompt, setNewSkillPrompt] = useState("");
+  const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
+
+  // Skill Editing States
+  const [editingSkill, setEditingSkill] = useState<any | null>(null);
+  const [editPromptText, setEditPromptText] = useState("");
+
+  // Event Routing States
+  const [newEventRoutingType, setNewEventRoutingType] = useState("");
+  const [newEventRoutingSkillId, setNewEventRoutingSkillId] = useState("");
 
   // Tab 1: Overview & Metrics Queries
   const { data: actor } = useQuery<any>({ queryKey: ["me"], queryFn: () => api("/auth/me") });
@@ -137,11 +154,34 @@ export function AdminPage() {
   });
   const [costDrafts, setCostDrafts] = useState<Record<string, { name: string; inputCostMinor: number; outputCostMinor: number; flatCostMinor: number; active: boolean }>>({});
 
-  // System tab legacy queries
-  const { data: skills = [] } = useQuery<any[]>({ queryKey: ["admin-skills"], queryFn: () => api("/admin/skills"), enabled: activeTab === "system" });
+  // System tab queries
+  const [skillPage, setSkillPage] = useState(1);
+  const SKILL_PAGE_SIZE = 10;
+
+  const { data: skillsData } = useQuery<any>({
+    queryKey: ["admin-skills", skillPage],
+    queryFn: () => api(`/admin/skills?page=${skillPage}&limit=${SKILL_PAGE_SIZE}`),
+    enabled: activeTab === "system",
+  });
+  const skills = skillsData?.items ?? [];
+  const totalSkillPages = skillsData?.totalPages ?? 1;
+
+  const { data: allSkillsData } = useQuery<any>({
+    queryKey: ["admin-all-skills-list"],
+    queryFn: () => api("/admin/skills?limit=100"),
+    enabled: activeTab === "system",
+  });
+  const allSkills = allSkillsData?.items ?? [];
+
   const { data: mappings = [] } = useQuery<any[]>({ queryKey: ["admin-skill-mappings"], queryFn: () => api("/admin/skill-mappings"), enabled: activeTab === "system" });
   const { data: retention = [] } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
-  const { data: users = [] } = useQuery<any[]>({ queryKey: ["admin-users"], queryFn: () => api("/admin/users"), enabled: activeTab === "system" || activeTab === "users" });
+  const { data: usersData } = useQuery<any>({
+    queryKey: ["admin-users", userPage],
+    queryFn: () => api(`/admin/users?page=${userPage}&limit=${USER_PAGE_SIZE}`),
+    enabled: activeTab === "users",
+  });
+  const users = usersData?.items ?? [];
+  const totalPages = usersData?.totalPages ?? 1;
   const { data: reports = [] } = useQuery<any[]>({ queryKey: ["admin-reports"], queryFn: () => api("/admin/reports"), enabled: activeTab === "system" });
   const { data: knowledge = [] } = useQuery<any[]>({ queryKey: ["admin-knowledge"], queryFn: () => api("/admin/knowledge-bases"), enabled: activeTab === "system" });
 
@@ -196,7 +236,6 @@ export function AdminPage() {
     },
   });
 
-  // Legacy mutations
   const setMapping = useMutation({
     mutationFn: ({ eventType, skillId }: { eventType: string; skillId: string }) =>
       api(`/admin/skill-mappings/${encodeURIComponent(eventType)}`, { method: "PUT", body: JSON.stringify({ skillId }) }),
@@ -205,12 +244,39 @@ export function AdminPage() {
   const activate = useMutation({
     mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}/activate`, { method: "POST" }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-skills"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+    },
   });
   const createSkillVersion = useMutation({
     mutationFn: ({ skillId, systemPrompt }: { skillId: string; systemPrompt: string }) =>
       api(`/admin/skills/${skillId}/versions`, { method: "POST", body: JSON.stringify({ systemPrompt }) }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-skills"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+    },
+  });
+  const createSkillMutation = useMutation({
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string }) =>
+      api("/admin/skills", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      setIsCreateSkillOpen(false);
+      setNewSkillId("");
+      setNewSkillName("");
+      setNewSkillDesc("");
+      setNewSkillPrompt("");
+      setSkillCreateError(null);
+      alert("Skill created successfully!");
+    },
+    onError: (err: any) => {
+      setSkillCreateError(err.message || "Failed to create skill.");
+    }
   });
   const createKnowledgeVersion = useMutation({
     mutationFn: ({ id, markdown }: { id: string; markdown: string }) =>
@@ -774,87 +840,91 @@ export function AdminPage() {
 
           <div className="admin-sub-content">
             {systemSubTab === "skills" && (
-              <div className="admin-master-detail">
-                <div className="admin-master-list">
-                  <h3>Agent Skills</h3>
-                  {skills.map((skill) => {
-                    const isActive = (selectedSkillId || (skills[0] && skills[0].id)) === skill.id;
-                    const activeVer = skill.versions.find((item: any) => item.active);
-                    return (
-                      <div
-                        key={skill.id}
-                        className={`admin-list-item ${isActive ? "active" : ""}`}
-                        onClick={() => setSelectedSkillId(skill.id)}
-                      >
-                        <strong>{skill.name}</strong>
-                        <div className="item-meta">
-                          <span>{skill.id}</span>
-                          {activeVer && <Badge tone="green">v{activeVer.version}</Badge>}
-                        </div>
-                      </div>
-                    );
-                  })}
+              <Card className="admin-table">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <div>
+                    <h2>Skill Registry</h2>
+                    <p className="section-description" style={{ margin: 0 }}>
+                      Register agent skills, edit system prompt templates, and activate versions.
+                    </p>
+                  </div>
+                  {isAdmin && (
+                    <Button onClick={() => setIsCreateSkillOpen(true)}>
+                      Create Skill
+                    </Button>
+                  )}
                 </div>
 
-                <div className="admin-detail-editor">
-                  {(() => {
-                    const activeSkill = skills.find((s) => s.id === (selectedSkillId || (skills[0] && skills[0].id)));
-                    if (!activeSkill) return <div className="placeholder-detail">Select a skill to view and edit details</div>;
-
-                    const activeVer = activeSkill.versions.find((item: any) => item.active);
-                    const newest = activeSkill.versions[0];
-                    const draft = skillDrafts[activeSkill.id] ?? activeVer?.systemPrompt ?? newest?.systemPrompt ?? "";
-
-                    return (
-                      <Card className="detail-card">
-                        <div className="detail-header">
-                          <div>
-                            <h2>{activeSkill.name}</h2>
-                            <code className="id-badge">{activeSkill.id}</code>
-                          </div>
-                          <div className="detail-actions">
-                            {newest && newest.id !== activeVer?.id ? (
-                              <Button
-                                variant="secondary"
-                                onClick={() => activate.mutate({ skillId: activeSkill.id, versionId: newest.id })}
-                                disabled={!isAdmin}
-                              >
-                                Activate v{newest.version}
-                              </Button>
+                <table className="admin-wide-table">
+                  <thead>
+                    <tr>
+                      <th>Skill ID</th>
+                      <th>Name</th>
+                      <th>Description</th>
+                      <th>Active Version</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {skills.map((skill: any) => {
+                      const activeVer = skill.versions.find((v: any) => v.active);
+                      return (
+                        <tr key={skill.id}>
+                          <td><code>{skill.id}</code></td>
+                          <td><strong>{skill.name}</strong></td>
+                          <td>{skill.description}</td>
+                          <td>
+                            {activeVer ? (
+                              <Badge tone="green">v{activeVer.version}</Badge>
                             ) : (
-                              <Badge tone={activeVer ? "green" : "amber"}>
-                                {activeVer ? `v${activeVer.version} Active` : "Inactive"}
-                              </Badge>
+                              <Badge tone="amber">Inactive</Badge>
                             )}
-                          </div>
-                        </div>
-
-                        <div className="editor-section">
-                          <label>System Prompt Template</label>
-                          <textarea
-                            className="admin-textarea monospace"
-                            value={draft}
-                            onChange={(event) =>
-                              setSkillDrafts((current) => ({ ...current, [activeSkill.id]: event.target.value }))
-                            }
-                            disabled={!isAdmin}
-                          />
-                        </div>
-
-                        {isAdmin && (
-                          <div className="detail-footer">
+                          </td>
+                          <td>
                             <Button
-                              onClick={() => createSkillVersion.mutate({ skillId: activeSkill.id, systemPrompt: draft })}
+                              variant="secondary"
+                              onClick={() => {
+                                setEditingSkill(skill);
+                                const currentVer = skill.versions.find((v: any) => v.active) ?? skill.versions[0];
+                                setEditPromptText(currentVer?.systemPrompt ?? "");
+                              }}
                             >
-                              Create & Publish New Version
+                              Edit Prompt
                             </Button>
-                          </div>
-                        )}
-                      </Card>
-                    );
-                  })()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {skills.length === 0 && (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: "center", color: "#849289", padding: "20px 0" }}>
+                          No skills found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+                <div className="pagination-controls">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setSkillPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={skillPage <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="pagination-info">
+                    Page {skillPage} of {totalSkillPages}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setSkillPage((prev) => Math.min(prev + 1, totalSkillPages))}
+                    disabled={skillPage >= totalSkillPages}
+                  >
+                    Next
+                  </Button>
                 </div>
-              </div>
+              </Card>
             )}
 
             {systemSubTab === "routing" && (
@@ -863,6 +933,52 @@ export function AdminPage() {
                 <p className="section-description">
                   Route specific workspace events to the appropriate AI skill registry handler.
                 </p>
+
+                {isAdmin && (
+                  <div className="add-routing-row" style={{ display: "flex", gap: "12px", alignItems: "flex-end", marginBottom: "20px", padding: "12px", background: "#111b16", borderRadius: "8px", border: "1px solid #405048" }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Event Type</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. project.analyze"
+                        className="admin-input"
+                        style={{ width: "100%", background: "#1b2720", color: "#eef6f0", border: "1px solid #405048", borderRadius: "8px", padding: "8px" }}
+                        value={newEventRoutingType}
+                        onChange={(e) => setNewEventRoutingType(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Skill Handler</label>
+                      <select
+                        value={newEventRoutingSkillId}
+                        onChange={(e) => setNewEventRoutingSkillId(e.target.value)}
+                        className="admin-select"
+                        style={{ width: "100%", height: "35px" }}
+                      >
+                        <option value="">Select a skill...</option>
+                        {allSkills.map((skill: any) => (
+                          <option key={skill.id} value={skill.id}>
+                            {skill.name} ({skill.id})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        if (!newEventRoutingType || !newEventRoutingSkillId) {
+                          alert("Both event type and skill handler are required.");
+                          return;
+                        }
+                        setMapping.mutate({ eventType: newEventRoutingType, skillId: newEventRoutingSkillId });
+                        setNewEventRoutingType("");
+                        setNewEventRoutingSkillId("");
+                      }}
+                    >
+                      Add Routing
+                    </Button>
+                  </div>
+                )}
+
                 <div className="routing-list">
                   {mappings.map((mapping) => (
                     <div className="routing-row" key={mapping.eventType}>
@@ -880,7 +996,7 @@ export function AdminPage() {
                           disabled={!isAdmin}
                           className="admin-select"
                         >
-                          {skills.map((skill) => (
+                          {allSkills.map((skill: any) => (
                             <option key={skill.id} value={skill.id}>
                               {skill.name} ({skill.id})
                             </option>
@@ -1077,32 +1193,228 @@ export function AdminPage() {
           <p className="section-description">
             Manage user accounts and assign administrative or support privileges.
           </p>
-          <div className="user-grid">
-            {users.slice(0, 40).map((user) => (
-              <div className="user-card" key={user.id}>
-                <div className="user-info">
-                  <strong>{user.preferredName || user.email.split("@")[0]}</strong>
-                  <span>{user.email}</span>
-                </div>
-                <div className="user-controls">
-                  <Badge tone={user.status === "active" ? "green" : "red"}>{user.status}</Badge>
-                  <select
-                    value={user.platformRole}
-                    onChange={(event) =>
-                      updateRole.mutate({ id: user.id, platformRole: event.target.value })
-                    }
-                    disabled={!isAdmin}
-                    className="admin-select"
-                  >
-                    <option value="user">User</option>
-                    <option value="support">Support</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              </div>
-            ))}
+          <table className="admin-wide-table">
+            <thead>
+              <tr>
+                <th>Preferred Name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Platform Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user: any) => (
+                <tr key={user.id}>
+                  <td>
+                    <strong>{user.preferredName || user.email.split("@")[0]}</strong>
+                  </td>
+                  <td>{user.email}</td>
+                  <td>
+                    <Badge tone={user.status === "active" ? "green" : "red"}>{user.status}</Badge>
+                  </td>
+                  <td>
+                    <select
+                      value={user.platformRole}
+                      onChange={(event) =>
+                        updateRole.mutate({ id: user.id, platformRole: event.target.value })
+                      }
+                      disabled={!isAdmin}
+                      className="admin-select"
+                    >
+                      <option value="user">User</option>
+                      <option value="support">Support</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: "center", color: "#849289", padding: "20px 0" }}>
+                    No users found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          <div className="pagination-controls">
+            <Button
+              variant="secondary"
+              onClick={() => setUserPage((prev) => Math.max(prev - 1, 1))}
+              disabled={userPage <= 1}
+            >
+              Previous
+            </Button>
+            <span className="pagination-info">
+              Page {userPage} of {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              onClick={() => setUserPage((prev) => Math.min(prev + 1, totalPages))}
+              disabled={userPage >= totalPages}
+            >
+              Next
+            </Button>
           </div>
         </Card>
+      )}
+      {/* Skill Edit Modal */}
+      {editingSkill && (
+        <div className="admin-modal-overlay">
+          <Card className="admin-modal-content">
+            <div className="modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #334139", paddingBottom: "12px" }}>
+              <div>
+                <h2 style={{ margin: 0 }}>Edit Skill Prompt: {editingSkill.name}</h2>
+                <code style={{ background: "#111b16", padding: "2px 6px", borderRadius: "4px", fontSize: "11px" }}>{editingSkill.id}</code>
+              </div>
+              <Button variant="ghost" onClick={() => setEditingSkill(null)}>
+                Close
+              </Button>
+            </div>
+
+            <div className="modal-body" style={{ marginTop: "16px" }}>
+              {(() => {
+                const activeVer = editingSkill.versions.find((item: any) => item.active);
+                const newest = editingSkill.versions[0];
+                return (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", alignItems: "center" }}>
+                      <span>
+                        Active Version: {activeVer ? <Badge tone="green">v{activeVer.version}</Badge> : <Badge tone="amber">None</Badge>}
+                      </span>
+                      {newest && newest.id !== activeVer?.id && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            activate.mutate({ skillId: editingSkill.id, versionId: newest.id });
+                            setEditingSkill(null);
+                          }}
+                          disabled={!isAdmin}
+                        >
+                          Activate v{newest.version}
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="editor-section">
+                      <label style={{ display: "block", marginBottom: "6px", fontSize: "11px", color: "#849289" }}>System Prompt Template</label>
+                      <textarea
+                        className="admin-textarea monospace"
+                        style={{ minHeight: "240px", background: "#111b16", color: "#eef6f0", border: "1px solid #405048" }}
+                        value={editPromptText}
+                        onChange={(e) => setEditPromptText(e.target.value)}
+                        disabled={!isAdmin}
+                      />
+                    </div>
+
+                    {isAdmin && (
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                        <Button
+                          onClick={() => {
+                            createSkillVersion.mutate({ skillId: editingSkill.id, systemPrompt: editPromptText });
+                            setEditingSkill(null);
+                          }}
+                        >
+                          Create & Publish New Version
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Skill Create Modal */}
+      {isCreateSkillOpen && (
+        <div className="admin-modal-overlay">
+          <Card className="admin-modal-content">
+            <div className="modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #334139", paddingBottom: "12px" }}>
+              <h2 style={{ margin: 0 }}>Create New Agent Skill</h2>
+              <Button variant="ghost" onClick={() => {
+                setIsCreateSkillOpen(false);
+                setSkillCreateError(null);
+              }}>
+                Close
+              </Button>
+            </div>
+
+            <div className="modal-body" style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Skill ID (unique slug)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. risk-evaluator"
+                  className="admin-input"
+                  style={{ width: "100%", background: "#111b16", color: "#eef6f0", border: "1px solid #405048", borderRadius: "8px", padding: "8px" }}
+                  value={newSkillId}
+                  onChange={(e) => setNewSkillId(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Skill Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Risk Evaluator"
+                  className="admin-input"
+                  style={{ width: "100%", background: "#111b16", color: "#eef6f0", border: "1px solid #405048", borderRadius: "8px", padding: "8px" }}
+                  value={newSkillName}
+                  onChange={(e) => setNewSkillName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Description</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Evaluates project delivery risks"
+                  className="admin-input"
+                  style={{ width: "100%", background: "#111b16", color: "#eef6f0", border: "1px solid #405048", borderRadius: "8px", padding: "8px" }}
+                  value={newSkillDesc}
+                  onChange={(e) => setNewSkillDesc(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Initial System Prompt</label>
+                <textarea
+                  placeholder="You are an expert agent that..."
+                  className="admin-textarea monospace"
+                  style={{ minHeight: "150px", background: "#111b16", color: "#eef6f0", border: "1px solid #405048" }}
+                  value={newSkillPrompt}
+                  onChange={(e) => setNewSkillPrompt(e.target.value)}
+                />
+              </div>
+
+              {skillCreateError && (
+                <p style={{ color: "var(--red)", fontSize: "11px", margin: 0 }}>{skillCreateError}</p>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
+                <Button
+                  onClick={() => {
+                    if (!newSkillId || !newSkillName || !newSkillDesc || !newSkillPrompt) {
+                      setSkillCreateError("All fields are required.");
+                      return;
+                    }
+                    createSkillMutation.mutate({
+                      id: newSkillId,
+                      name: newSkillName,
+                      description: newSkillDesc,
+                      systemPrompt: newSkillPrompt
+                    });
+                  }}
+                >
+                  Create Skill
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

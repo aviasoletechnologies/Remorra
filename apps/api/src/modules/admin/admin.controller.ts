@@ -12,13 +12,33 @@ export class AdminController {
   }
 
   @Get("users")
-  users(@CurrentActor() actor: Actor) {
-    return this.admin.users(actor);
+  users(
+    @CurrentActor() actor: Actor,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.admin.users(actor, pageNum, limitNum);
   }
 
   @Get("skills")
-  skills(@CurrentActor() actor: Actor) {
-    return this.admin.skills(actor);
+  skills(
+    @CurrentActor() actor: Actor,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.admin.skills(actor, pageNum, limitNum);
+  }
+
+  @Post("skills")
+  createSkill(
+    @CurrentActor() actor: Actor,
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string },
+  ) {
+    return this.admin.createSkill(actor, body);
   }
 
   @Post("skills/:skillId/versions/:versionId/activate")

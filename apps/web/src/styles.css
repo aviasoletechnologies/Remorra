@@ -703,6 +703,81 @@ a { color: inherit; text-decoration: none; }
 .list-row > div { display: grid; gap: 3px; }
 .list-row small { color: var(--muted); }
 
+/* Pagination Controls */
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #334139;
+}
+
+.pagination-info {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: #849289;
+}
+
+.pagination-controls .button--secondary {
+  background: #111b16;
+  color: #eef6f0;
+  border: 1px solid #405048;
+}
+
+.pagination-controls .button--secondary:hover:not(:disabled) {
+  border-color: #7fb391;
+  background: #1b2720;
+}
+
+.pagination-controls .button--secondary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Modal Layouts */
+.admin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 25, 20, 0.85);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.admin-modal-content {
+  width: min(650px, calc(100vw - 32px));
+  background: #1b2720;
+  border: 1px solid #334139;
+  border-radius: 12px;
+  padding: 24px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  color: #dfe8e1;
+}
+
+.modal-header h2 {
+  font: 600 16px 'Manrope', sans-serif;
+  color: #eef6f0;
+}
+
+.admin-input {
+  background: #111b16;
+  color: #eef6f0;
+  border: 1px solid #405048;
+  border-radius: 8px;
+  padding: 8px;
+  outline: none;
+}
+
+.admin-input:focus {
+  border-color: #7fb391;
+}
+
 @media (max-width: 900px) {
   .venture-create-grid { grid-template-columns: 1fr; }
 }

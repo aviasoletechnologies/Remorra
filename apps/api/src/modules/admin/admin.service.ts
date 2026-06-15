@@ -73,18 +73,108 @@ export class AdminService {
     return { users, projects, failedJobs, tokens: tokens._sum, reports };
   }
 
-  users(actor: Actor) {
+  async users(actor: Actor, page: number = 1, limit: number = 10) {
     this.requireAdmin(actor);
-    return this.prisma.client.profile.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    const skip = (page - 1) * limit;
+    const take = limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.client.profile.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+      }),
+      this.prisma.client.profile.count(),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  skills(actor: Actor) {
+  async skills(actor: Actor, page: number = 1, limit: number = 10) {
     this.requireAdmin(actor);
-    return this.prisma.client.skill.findMany({
-      include: { versions: { orderBy: { version: "desc" } } },
+    const skip = (page - 1) * limit;
+    const take = limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.client.skill.findMany({
+        include: { versions: { orderBy: { version: "desc" } } },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+      this.prisma.client.skill.count(),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async createSkill(
+    actor: Actor,
+    body: { id: string; name: string; description: string; systemPrompt: string },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+
+    const { id, name, description, systemPrompt } = body;
+    if (!id || !name || !description || !systemPrompt) {
+      throw new BadRequestException("Missing required fields for skill creation.");
+    }
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      // Check if skill already exists
+      const existing = await tx.skill.findUnique({ where: { id } });
+      if (existing) {
+        throw new BadRequestException(`Skill with ID "${id}" already exists.`);
+      }
+
+      // Create skill
+      const skill = await tx.skill.create({
+        data: {
+          id,
+          name,
+          description,
+        },
+      });
+
+      // Create initial active version (v1)
+      const version = await tx.skillVersion.create({
+        data: {
+          skillId: id,
+          version: 1,
+          active: true,
+          modelTier: "model:claude-sonnet-4-6",
+          systemPrompt,
+          contextRequirements: {},
+          constraints: [],
+          examples: [],
+          retryPolicy: {},
+          tokenCeiling: 100000,
+        },
+      });
+
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "skill.created",
+          targetType: "skill",
+          targetId: id,
+          metadata: { name, version: 1 },
+        },
+      });
+
+      return { ...skill, versions: [version] };
     });
   }
 

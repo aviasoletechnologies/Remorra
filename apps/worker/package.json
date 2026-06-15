@@ -7,7 +7,7 @@
     "start": "node --env-file=.env --import tsx dist/main.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run src --passWithNoTests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.104.1",
