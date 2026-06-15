@@ -22,7 +22,7 @@ export function InitiatePage() {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
-  const score = data?.snapshot ?? data;
+  const score = data && "snapshot" in data ? data.snapshot : data;
   const config = data?.config;
   const components = score?.components && typeof score.components === "object"
     ? Object.entries(score.components)
