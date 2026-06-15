@@ -9,6 +9,7 @@ import { CryptoService } from "../../infrastructure/crypto.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 import { versionConflict } from "../../shared/http-errors.js";
+import { ViabilityService } from "../viability/viability.service.js";
 
 export function assertConversationAllowed(mode: "ideate" | "publish") {
   if (mode === "publish") {
@@ -23,6 +24,7 @@ export class EvolveService {
     private readonly crypto: CryptoService,
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
+    private readonly viability: ViabilityService,
   ) {}
 
   async create(input: unknown, userId: string) {
@@ -159,7 +161,7 @@ export class EvolveService {
         "Every conflict or block must be resolved before committing.",
       );
     }
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       const project = await tx.project.findUniqueOrThrow({
         where: { id: session.projectId },
         select: { version: true },
@@ -210,6 +212,12 @@ export class EvolveService {
         projectVersion: nextProject.version,
       };
     });
+
+    await this.viability.autoRecalculate(session.projectId, userId).catch((err) => {
+      console.error("Failed to trigger autoRecalculate in EvolveService", err);
+    });
+
+    return result;
   }
 
   async resolve(

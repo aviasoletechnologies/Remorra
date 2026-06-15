@@ -9,8 +9,10 @@ export interface SkillDefinition<TOutput = unknown> {
   modelTier: ModelTier;
   systemPrompt: string;
   contextRequirements: readonly string[];
-  outputSchema?: ZodType<TOutput>;
+  outputSchema?: any;
   constraints: readonly string[];
+  tokenCeiling?: number;
+  retryPolicy?: unknown;
 }
 
 export interface AiContextSection {
@@ -25,7 +27,8 @@ export interface AiInvocation {
   projectId: string;
   skill: SkillDefinition;
   sections: readonly AiContextSection[];
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
+  onDelta?: ((delta: string, accumulated: string) => void | Promise<void>) | undefined;
 }
 
 export interface AiUsage {
@@ -81,14 +84,26 @@ export class AiOrchestrator {
   ) {}
 
   async invoke<T>(
-    input: Omit<AiInvocation, "skill" | "sections"> & { skillId: string },
-  ): Promise<AiResult<T>> {
+    input: Omit<AiInvocation, "skill" | "sections"> & {
+      skillId: string;
+      additionalSections?: readonly AiContextSection[];
+    },
+  ): Promise<AiResult<T> & { skill: SkillDefinition }> {
     const skill = await this.registry.getActive<T>(input.skillId);
-    const sections = await this.context.assemble(
+    const assembledSections = await this.context.assemble(
       input.projectId,
       skill.contextRequirements,
     );
-    const invocation: AiInvocation = { ...input, skill, sections };
+    const sections = [...assembledSections, ...(input.additionalSections ?? [])];
+    const invocation: AiInvocation = {
+      requestId: input.requestId,
+      userId: input.userId,
+      projectId: input.projectId,
+      idempotencyKey: input.idempotencyKey,
+      onDelta: input.onDelta,
+      skill,
+      sections,
+    };
     const result = await this.gateway.invoke<T>(invocation);
     await this.tokens.record(invocation, result.usage);
     await this.audit.append({
@@ -99,6 +114,8 @@ export class AiOrchestrator {
       skillVersion: skill.version,
       payload: { requestId: input.requestId, usage: result.usage },
     });
-    return result;
+    return { ...result, skill };
   }
 }
+
+export { PrismaSkillRegistry, PrismaContextAssembler, PrismaTokenTracker, PrismaAuditLogger, ResponseParser } from "./prisma-implementations.js";

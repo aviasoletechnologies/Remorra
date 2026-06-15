@@ -11,6 +11,7 @@ import Ajv from "ajv";
 import { createPrismaClient } from "@remorra/database";
 import { PgBoss, type Job } from "pg-boss";
 import puppeteer from "puppeteer";
+import { AiOrchestrator, PrismaSkillRegistry, PrismaContextAssembler, PrismaTokenTracker, PrismaAuditLogger, ResponseParser } from "@remorra/ai-core";
 
 const databaseUrl = required("DATABASE_URL");
 const prisma = createPrismaClient(databaseUrl);
@@ -29,6 +30,72 @@ const supabase = createClient(
 );
 const bucket = process.env.SUPABASE_PRIVATE_BUCKET ?? "private-documents";
 const ajv = new Ajv({ allErrors: true, strict: false });
+
+const orchestrator = new AiOrchestrator(
+  new PrismaSkillRegistry(prisma),
+  new PrismaContextAssembler(prisma),
+  { // LlmGateway - delegates to Anthropic with retry
+    async invoke(invocation) {
+      const model = modelFor(invocation.skill.modelTier);
+      const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+      const rawRetry = invocation.skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
+      const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
+      const retryContext = { userId: invocation.userId, projectId: invocation.projectId, skillVersionId: `${invocation.skill.id}:v${invocation.skill.version}`, model };
+
+      let response;
+      if (invocation.onDelta) {
+        response = await withRetry(async () => {
+          const stream = anthropic.messages.stream({
+            model,
+            max_tokens: invocation.skill.tokenCeiling ?? 4096,
+            system: invocation.skill.systemPrompt,
+            messages: [{ role: "user", content: sections }],
+          });
+          let streamed = "";
+          stream.on("text", (delta) => {
+            streamed += delta;
+            void invocation.onDelta?.(delta, streamed);
+          });
+          return stream.finalMessage();
+        }, retryPolicy, retryContext);
+      } else {
+        response = await withRetry(
+          () => anthropic.messages.create({
+            model,
+            max_tokens: invocation.skill.tokenCeiling ?? 4096,
+            system: invocation.skill.systemPrompt,
+            messages: [{ role: "user", content: sections }],
+          }),
+          retryPolicy, retryContext,
+        );
+      }
+
+      const text = response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+      return {
+        value: text as any,
+        usage: { model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+        skillVersion: invocation.skill.version,
+      };
+    },
+    async *stream(invocation) {
+      const model = modelFor(invocation.skill.modelTier);
+      const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+      const stream = anthropic.messages.stream({
+        model,
+        max_tokens: invocation.skill.tokenCeiling ?? 4096,
+        system: invocation.skill.systemPrompt,
+        messages: [{ role: "user", content: sections }],
+      });
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && (event as any).delta?.text) {
+          yield (event as any).delta.text;
+        }
+      }
+    },
+  },
+  new PrismaTokenTracker(prisma),
+  new PrismaAuditLogger(prisma),
+);
 
 const queues = [
   "ai.conversation",
@@ -209,96 +276,47 @@ async function invokeSkill(input: {
     where: { skillId, active: true },
     orderBy: { version: "desc" },
   });
-  const model = modelFor(skill.modelTier);
 
-  // Smart context assembly based on skill's contextRequirements
+  const additionalSections: any[] = [];
+
+  // Legacy context fallback if requirements are empty
   const requirements = Array.isArray(skill.contextRequirements) ? skill.contextRequirements as string[] : [];
-  const contextData = requirements.length > 0
-    ? await assembleContext(input.projectId, requirements)
-    : `<application_context>${JSON.stringify(input.context)}</application_context>`;
+  if (requirements.length === 0) {
+    additionalSections.push({
+      tag: "application_context",
+      trust: "application",
+      content: JSON.stringify(input.context),
+    });
+  }
 
   // KB injection for evolve/document skills
   const kbSections = await injectKnowledgeBases(input.content, skillId);
-  const kbContent = kbSections.map((kb) => `<expertise_knowledge tag="${kb.tag}">${kb.markdown}</expertise_knowledge>`).join("\n");
-
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: contextData },
-  ];
-  if (kbContent) {
-    messages.push({ role: "user", content: kbContent });
+  for (const kb of kbSections) {
+    additionalSections.push({
+      tag: `expertise_knowledge tag="${kb.tag}"`,
+      trust: "trusted",
+      content: kb.markdown,
+    });
   }
-  messages.push({ role: "user", content: `<user_message>${input.content}</user_message>` });
 
-  const request: Anthropic.MessageCreateParamsNonStreaming = {
-    model,
-    max_tokens: skill.tokenCeiling,
-    system: skill.systemPrompt,
-    messages,
-  };
-
-  const rawRetry = skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
-  const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
-  const retryContext = { userId: input.userId, projectId: input.projectId, skillVersionId: skill.id, model };
-
-  let response;
-  if (input.onDelta) {
-    response = await withRetry(async () => {
-      const stream = anthropic.messages.stream(request);
-      let streamed = "";
-      stream.on("text", (delta) => {
-        streamed += delta;
-        void input.onDelta?.(delta, streamed);
-      });
-      return stream.finalMessage();
-    }, retryPolicy, retryContext);
-  } else {
-    response = await withRetry(
-      () => anthropic.messages.create(request),
-      retryPolicy, retryContext,
-    );
-  }
-  const text = response.content
-    .filter((item) => item.type === "text")
-    .map((item) => item.text)
-    .join("\n");
-  const costConfig = await prisma.costConfig.findFirst({
-    where: { key: `model:${model}`, active: true },
+  // User message
+  additionalSections.push({
+    tag: "user_message",
+    trust: "user",
+    content: input.content,
   });
-  let costMinor = 0;
-  if (costConfig) {
-    if (costConfig.unit === "per_1m_tokens") {
-      costMinor = Math.round(
-        (response.usage.input_tokens * costConfig.inputCostMinor +
-          response.usage.output_tokens * costConfig.outputCostMinor) /
-          1000000
-      );
-    } else if (costConfig.unit === "flat") {
-      costMinor = costConfig.flatCostMinor;
-    }
-  } else {
-    // Default fallback rates (per 1M tokens)
-    const standardInputRate = model.includes("opus") ? 1500 : 300;
-    const standardOutputRate = model.includes("opus") ? 7500 : 1500;
-    costMinor = Math.round(
-      (response.usage.input_tokens * standardInputRate +
-        response.usage.output_tokens * standardOutputRate) /
-        1000000
-    );
-  }
 
-  await prisma.tokenUsage.create({
-    data: {
-      userId: input.userId,
-      projectId: input.projectId,
-      skillVersionId: skill.id,
-      requestId: randomUUID(),
-      model,
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      costMinor,
-    },
+  // Call the centralized orchestrator
+  const result = await orchestrator.invoke<string>({
+    requestId: randomUUID(),
+    userId: input.userId,
+    projectId: input.projectId,
+    skillId,
+    additionalSections,
+    onDelta: input.onDelta,
   });
-  return { text, skill };
+
+  return { text: result.value, skill: result.skill };
 }
 
 async function resolveSkillId(eventType?: string) {
@@ -402,7 +420,7 @@ async function handleConversation(payload: Payload) {
     return {
       response: result.text,
       responseStored: Boolean(conversationId),
-      skillId: result.skill.skillId,
+      skillId: result.skill.id,
       skillVersion: result.skill.version,
     };
   } catch (err: any) {
@@ -441,7 +459,7 @@ async function handleExtract(payload: Payload) {
       content: "Calculate the current configured viability score.",
       context: await projectContext(projectId),
     });
-    const parsed = parseJson(result.text) as Record<string, unknown>;
+    const parsed = parseAndValidateJson(result.text, (result.skill.outputSchema as Record<string, unknown>) ?? {}) as Record<string, unknown>;
     const snapshot = await prisma.viabilitySnapshot.create({
       data: {
         projectId,
@@ -479,7 +497,7 @@ async function handleExtract(payload: Payload) {
       content: `Screen the proposed Evolve topic: ${session.topic}`,
       context: await projectContext(session.projectId),
     });
-    const parsed = parseJson(result.text);
+    const parsed = parseAndValidateJson(result.text, (result.skill.outputSchema as Record<string, unknown>) ?? {});
     const items = Array.isArray(parsed) ? parsed : [];
     for (const item of items) {
       if (!item || typeof item !== "object") continue;
@@ -529,7 +547,7 @@ async function handleExtract(payload: Payload) {
     content,
     context: { extractType: payload.extractType ?? "refine-proposals" },
   });
-  const parsed = parseJson(result.text);
+  const parsed = parseAndValidateJson(result.text, (result.skill.outputSchema as Record<string, unknown>) ?? {});
   if (conversation) {
     await prisma.structuredExtract.create({
       data: { conversationId, schemaVersion: 1, payload: jsonValue(parsed) },
@@ -613,7 +631,7 @@ async function handleReport(payload: Payload) {
       content: `Generate the ${generation.definition.name} report.`,
       context: snapshot,
     });
-    content = parseJson(result.text);
+    content = parseAndValidateJson(result.text, (result.skill.outputSchema as Record<string, unknown>) ?? {});
     const validate = ajv.compile(definition.outputSchema as object);
     if (!validate(content)) {
       throw new Error(`Report output schema failed: ${ajv.errorsText(validate.errors)}`);
@@ -1319,8 +1337,15 @@ function renderHtml(title: string, subtitle: string, content: unknown) {
 }
 
 function parseJson(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
-  return JSON.parse(fenced.trim());
+  return ResponseParser.extractJson(text);
+}
+
+function parseAndValidateJson(text: string, outputSchema: Record<string, unknown>): unknown {
+  const result = ResponseParser.parseAndValidate(text, outputSchema);
+  if (!result.valid) {
+    console.warn("[response-parser] Schema validation warnings:", result.errors);
+  }
+  return result.data;
 }
 
 function jsonValue(value: unknown): any {

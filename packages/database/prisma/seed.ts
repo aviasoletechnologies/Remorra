@@ -2,20 +2,33 @@ import { createPrismaClient } from "../src/index";
 
 const prisma = createPrismaClient();
 
-const skills = [
-  ["brain-dump-facilitator", "Brain Dump Facilitator", "standard", 1800, "Guide a non-technical founder to describe the problem, audience, product concept, vision, and commercial context. Ask one clear question at a time. Do not invent facts."],
-  ["entity-extractor", "Entity Extractor", "fast", 2400, "Extract only facts supported by the supplied conversation. Return strict JSON matching the requested schema. Use null when evidence is missing."],
-  ["founder-pack-generator", "Founder Pack Generator", "standard", 3000, "Draft a concise Founder Pack from confirmed Discover data. Separate evidence from assumptions."],
-  ["refine-prompter", "Refine Prompter", "standard", 1800, "Help the founder validate the Founder Pack and define connected ambitions, measurable OKRs, personas, pain points, and user needs. Propose records but never claim they are confirmed."],
-  ["linkage-contradiction-checker", "Linkage Contradiction Checker", "standard", 1800, "Review linked entities for logical contradictions only. Return structured findings with evidence."],
-  ["viability-score-calculator", "Viability Score Calculator", "standard", 2400, "Score the product across 10 equally weighted components (10% each): problem_articulation, audience_profile, product_concept, vision_statement, commercial_context, ambitions, okrs, personas, user_needs, and cohesion. Return 0-100 scores per component, overall score, rationale, prioritized actions, and a 10-item build-readiness checklist. Score only against supplied evidence."],
-  ["daily-meeting-summary", "Daily Meeting Summary", "standard", 1200, "Summarize yesterday, today, blockers, and active cycle context. Highlight decisions and owners without inventing assignments."],
-  ["retrospective-insights", "Retrospective Insights", "standard", 1600, "Identify recurring strengths, improvement themes, and actionable experiments from the retrospective and cycle evidence."],
-  ["report-generator", "Report Generator", "standard", 4000, "Generate a structured product intelligence report from the supplied immutable snapshot. Clearly distinguish observed facts, analysis, risks, and recommended actions. Return JSON."],
-  ["build-checklist-generator", "Build Checklist Generator", "standard", 1800, "Create a build setup checklist grounded in the supplied Product Pack, stories, risks, and cycle."],
-  ["evolve-facilitator", "Evolve Facilitator", "standard", 2200, "Help the founder reason about a proposed product change. Never apply changes. Make assumptions and tradeoffs explicit."],
-  ["impact-screener", "Impact Screener", "reasoning", 3000, "Assess proposed changes across linked entities. Return red, amber, or green impact items with reasoning and proposed changes."],
-  ["document-drafter", "Document Drafter", "standard", 3500, "Draft a clear document from confirmed product records. Do not include unsupported claims."],
+const skills: readonly [string, string, string, number, string, readonly string[]][] = [
+  ["brain-dump-facilitator", "Brain Dump Facilitator", "standard", 1800, "Guide a non-technical founder to describe the problem, audience, product concept, vision, and commercial context. Ask one clear question at a time. Do not invent facts.",
+    ["project.metadata", "founder.preferred_name"]],
+  ["entity-extractor", "Entity Extractor", "fast", 2400, "Extract only facts supported by the supplied conversation. Return strict JSON matching the requested schema. Use null when evidence is missing.",
+    ["project.metadata"]],
+  ["founder-pack-generator", "Founder Pack Generator", "standard", 3000, "Draft a concise Founder Pack from confirmed Discover data. Separate evidence from assumptions.",
+    ["project.metadata", "founder_pack.current"]],
+  ["refine-prompter", "Refine Prompter", "standard", 1800, "Help the founder validate the Founder Pack and define connected ambitions, measurable OKRs, personas, pain points, and user needs. Propose records but never claim they are confirmed.",
+    ["project.metadata", "founder_pack.current", "ambitions.all", "personas.all_with_pain_points_and_user_needs"]],
+  ["linkage-contradiction-checker", "Linkage Contradiction Checker", "standard", 1800, "Review linked entities for logical contradictions only. Return structured findings with evidence.",
+    ["linkage_map.full"]],
+  ["viability-score-calculator", "Viability Score Calculator", "standard", 2400, "Score the product across 10 equally weighted components (10% each): problem_articulation, audience_profile, product_concept, vision_statement, commercial_context, ambitions, okrs, personas, user_needs, and cohesion. Return 0-100 scores per component, overall score, rationale, prioritized actions, and a 10-item build-readiness checklist. Score only against supplied evidence.",
+    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "viability_score.current", "founder_pack.current", "product_pack.current"]],
+  ["daily-meeting-summary", "Daily Meeting Summary", "standard", 1200, "Summarize yesterday, today, blockers, and active cycle context. Highlight decisions and owners without inventing assignments.",
+    ["project.metadata", "tasks.all", "cycles.all"]],
+  ["retrospective-insights", "Retrospective Insights", "standard", 1600, "Identify recurring strengths, improvement themes, and actionable experiments from the retrospective and cycle evidence.",
+    ["project.metadata", "cycles.all", "tasks.all", "raid_items.all"]],
+  ["report-generator", "Report Generator", "standard", 4000, "Generate a structured product intelligence report from the supplied immutable snapshot. Clearly distinguish observed facts, analysis, risks, and recommended actions. Return JSON.",
+    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "tasks.all", "cycles.all", "raid_items.all", "finance.all", "viability_score.current"]],
+  ["build-checklist-generator", "Build Checklist Generator", "standard", 1800, "Create a build setup checklist grounded in the supplied Product Pack, stories, risks, and cycle.",
+    ["project.metadata", "product_pack.current", "user_stories.all", "tasks.all", "raid_items.all", "cycles.all"]],
+  ["evolve-facilitator", "Evolve Facilitator", "standard", 2200, "Help the founder reason about a proposed product change. Never apply changes. Make assumptions and tradeoffs explicit.",
+    ["project.metadata", "linkage_map.full", "viability_score.current"]],
+  ["impact-screener", "Impact Screener", "reasoning", 3000, "Assess proposed changes across linked entities. Return red, amber, or green impact items with reasoning and proposed changes.",
+    ["project.metadata", "linkage_map.full", "viability_score.current"]],
+  ["document-drafter", "Document Drafter", "standard", 3500, "Draft a clear document from confirmed product records. Do not include unsupported claims.",
+    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "viability_score.current"]],
 ] as const;
 
 const reportDefinitions = [
@@ -62,7 +75,7 @@ p, li { font-size: 11px; line-height: 1.55; color: #445149; }
 footer { position: fixed; bottom: 0; font-size: 9px; color: #68736b; }`;
 
 async function main() {
-  for (const [id, name, modelTier, tokenCeiling, systemPrompt] of skills) {
+  for (const [id, name, modelTier, tokenCeiling, systemPrompt, contextRequirements] of skills) {
     await prisma.skill.upsert({
       where: { id },
       create: {
@@ -75,7 +88,7 @@ async function main() {
             active: true,
             modelTier,
             systemPrompt,
-            contextRequirements: [],
+            contextRequirements: [...contextRequirements],
             outputSchema: {},
             constraints: [],
             examples: [],

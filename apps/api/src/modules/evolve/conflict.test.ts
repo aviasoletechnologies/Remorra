@@ -49,6 +49,7 @@ describe("Evolve Conflict & Streaming Tests", () => {
       { encrypt: vi.fn((x) => x), decrypt: vi.fn((x) => x) } as any,
       { require: vi.fn().mockResolvedValue(true) } as any,
       { enqueue: vi.fn() } as any,
+      { autoRecalculate: vi.fn().mockResolvedValue(undefined) } as any,
     );
 
     jobsService = new JobsService(prismaMock as any, {} as any);

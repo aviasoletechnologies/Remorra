@@ -4,6 +4,7 @@ import { CryptoService } from "../../infrastructure/crypto.service.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { ViabilityService } from "../viability/viability.service.js";
 
 @Injectable()
 export class RefineService {
@@ -12,6 +13,7 @@ export class RefineService {
     private readonly crypto: CryptoService,
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
+    private readonly viability: ViabilityService,
   ) {}
 
   async create(userId: string, input: unknown) {
@@ -114,7 +116,7 @@ export class RefineService {
         data: { status: "rejected", decidedAt: new Date() },
       });
     }
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       const payload = proposal.payload as Record<string, unknown>;
       switch (proposal.entityType) {
         case "ambition":
@@ -172,6 +174,12 @@ export class RefineService {
       });
       return this.assembleProductPack(proposal.projectId, tx);
     });
+
+    await this.viability.autoRecalculate(proposal.projectId, userId).catch((err) => {
+      console.error("Failed to trigger autoRecalculate in RefineService", err);
+    });
+
+    return result;
   }
 
   async productPack(projectId: string, userId: string) {

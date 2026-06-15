@@ -5,5 +5,6 @@ import { ViabilityService } from "./viability.service.js";
 @Module({
   controllers: [ViabilityController],
   providers: [ViabilityService],
+  exports: [ViabilityService],
 })
 export class ViabilityModule {}
