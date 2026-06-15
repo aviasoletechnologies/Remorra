@@ -22,7 +22,7 @@ import { api } from "../lib/api";
 
 export function AdminPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"overview" | "support" | "templates" | "costs" | "system">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "support" | "templates" | "costs" | "system" | "users">("overview");
 
   // System drafts (Legacy states kept for compatibility)
   const [skillDrafts, setSkillDrafts] = useState<Record<string, string>>({});
@@ -30,7 +30,7 @@ export function AdminPage() {
   const [reportDrafts, setReportDrafts] = useState<Record<string, string>>({});
 
   // System sub-navigation states
-  const [systemSubTab, setSystemSubTab] = useState<"skills" | "routing" | "reports" | "knowledge" | "retention" | "users">("skills");
+  const [systemSubTab, setSystemSubTab] = useState<"skills" | "routing" | "reports" | "knowledge" | "retention">("skills");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
@@ -141,7 +141,7 @@ export function AdminPage() {
   const { data: skills = [] } = useQuery<any[]>({ queryKey: ["admin-skills"], queryFn: () => api("/admin/skills"), enabled: activeTab === "system" });
   const { data: mappings = [] } = useQuery<any[]>({ queryKey: ["admin-skill-mappings"], queryFn: () => api("/admin/skill-mappings"), enabled: activeTab === "system" });
   const { data: retention = [] } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
-  const { data: users = [] } = useQuery<any[]>({ queryKey: ["admin-users"], queryFn: () => api("/admin/users"), enabled: activeTab === "system" });
+  const { data: users = [] } = useQuery<any[]>({ queryKey: ["admin-users"], queryFn: () => api("/admin/users"), enabled: activeTab === "system" || activeTab === "users" });
   const { data: reports = [] } = useQuery<any[]>({ queryKey: ["admin-reports"], queryFn: () => api("/admin/reports"), enabled: activeTab === "system" });
   const { data: knowledge = [] } = useQuery<any[]>({ queryKey: ["admin-knowledge"], queryFn: () => api("/admin/knowledge-bases"), enabled: activeTab === "system" });
 
@@ -266,6 +266,9 @@ export function AdminPage() {
         </button>
         <button className={`admin-tab ${activeTab === "system" ? "active" : ""}`} onClick={() => setActiveTab("system")}>
           <Settings /> System Routing
+        </button>
+        <button className={`admin-tab ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")}>
+          <Users /> Platform Users
         </button>
       </div>
 
@@ -767,13 +770,6 @@ export function AdminPage() {
               <Clock size={16} />
               <span>Retention Policies</span>
             </button>
-            <button
-              className={`admin-sub-tab ${systemSubTab === "users" ? "active" : ""}`}
-              onClick={() => setSystemSubTab("users")}
-            >
-              <Users size={16} />
-              <span>Platform Users</span>
-            </button>
           </aside>
 
           <div className="admin-sub-content">
@@ -1071,42 +1067,42 @@ export function AdminPage() {
                 </div>
               </Card>
             )}
-
-            {systemSubTab === "users" && (
-              <Card className="admin-table">
-                <h2>Platform Users</h2>
-                <p className="section-description">
-                  Manage user accounts and assign administrative or support privileges.
-                </p>
-                <div className="user-grid">
-                  {users.slice(0, 40).map((user) => (
-                    <div className="user-card" key={user.id}>
-                      <div className="user-info">
-                        <strong>{user.preferredName || user.email.split("@")[0]}</strong>
-                        <span>{user.email}</span>
-                      </div>
-                      <div className="user-controls">
-                        <Badge tone={user.status === "active" ? "green" : "red"}>{user.status}</Badge>
-                        <select
-                          value={user.platformRole}
-                          onChange={(event) =>
-                            updateRole.mutate({ id: user.id, platformRole: event.target.value })
-                          }
-                          disabled={!isAdmin}
-                          className="admin-select"
-                        >
-                          <option value="user">User</option>
-                          <option value="support">Support</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
           </div>
         </div>
+      )}
+
+      {activeTab === "users" && (
+        <Card className="admin-table">
+          <h2>Platform Users</h2>
+          <p className="section-description">
+            Manage user accounts and assign administrative or support privileges.
+          </p>
+          <div className="user-grid">
+            {users.slice(0, 40).map((user) => (
+              <div className="user-card" key={user.id}>
+                <div className="user-info">
+                  <strong>{user.preferredName || user.email.split("@")[0]}</strong>
+                  <span>{user.email}</span>
+                </div>
+                <div className="user-controls">
+                  <Badge tone={user.status === "active" ? "green" : "red"}>{user.status}</Badge>
+                  <select
+                    value={user.platformRole}
+                    onChange={(event) =>
+                      updateRole.mutate({ id: user.id, platformRole: event.target.value })
+                    }
+                    disabled={!isAdmin}
+                    className="admin-select"
+                  >
+                    <option value="user">User</option>
+                    <option value="support">Support</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   );
