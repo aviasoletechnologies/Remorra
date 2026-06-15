@@ -50,6 +50,9 @@ importers:
       '@supabase/supabase-js':
         specifier: 2.108.1
         version: 2.108.1
+      ajv:
+        specifier: 8.17.1
+        version: 8.17.1
       file-type:
         specifier: ^22.0.1
         version: 22.0.1

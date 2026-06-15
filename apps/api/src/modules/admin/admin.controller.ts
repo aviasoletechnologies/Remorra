@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { AdminService } from "./admin.service.js";
 
@@ -117,5 +117,94 @@ export class AdminController {
   @Get("audits")
   audits(@CurrentActor() actor: Actor) {
     return this.admin.audits(actor);
+  }
+
+  // --- Phase 1: Document Templates Endpoints ---
+
+  @Get("templates")
+  getTemplates(@CurrentActor() actor: Actor) {
+    return this.admin.getTemplates(actor);
+  }
+
+  @Post("templates/:id/versions")
+  createTemplateVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { html: string; css: string; schema: any },
+  ) {
+    return this.admin.createTemplateVersion(actor, id, body);
+  }
+
+  @Post("templates/:id/preview")
+  previewTemplate(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { html: string; css: string; schema: any; sampleData: any },
+  ) {
+    return this.admin.previewTemplate(actor, id, body);
+  }
+
+  @Post("templates/:id/versions/:versionId/activate")
+  activateTemplateVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Param("versionId") versionId: string,
+  ) {
+    return this.admin.activateTemplateVersion(actor, id, versionId);
+  }
+
+  // --- Cost Configuration ---
+
+  @Get("cost-configs")
+  getCostConfigs(@CurrentActor() actor: Actor) {
+    return this.admin.getCostConfigs(actor);
+  }
+
+  @Put("cost-configs/:key")
+  updateCostConfig(
+    @CurrentActor() actor: Actor,
+    @Param("key") key: string,
+    @Body() body: { name?: string; unit?: string; active?: boolean; inputCostMinor?: number; outputCostMinor?: number; flatCostMinor?: number },
+  ) {
+    return this.admin.updateCostConfig(actor, key, body);
+  }
+
+  // --- Phase 2: Metrics Endpoints ---
+
+  @Get("metrics/overview")
+  getOverviewMetrics(@CurrentActor() actor: Actor) {
+    return this.admin.getOverviewMetrics(actor);
+  }
+
+  @Get("metrics/usage")
+  getUsageMetrics(@CurrentActor() actor: Actor) {
+    return this.admin.getUsageMetrics(actor);
+  }
+
+  @Get("metrics/costs")
+  getCostsMetrics(@CurrentActor() actor: Actor) {
+    return this.admin.getCostsMetrics(actor);
+  }
+
+  @Get("metrics/jobs")
+  getJobsMetrics(@CurrentActor() actor: Actor) {
+    return this.admin.getJobsMetrics(actor);
+  }
+
+  @Get("metrics/projects")
+  getProjectsMetrics(@CurrentActor() actor: Actor) {
+    return this.admin.getProjectsMetrics(actor);
+  }
+
+  // --- Support Workspace Endpoints ---
+
+  @Get("support/projects")
+  getSupportProjects(@CurrentActor() actor: Actor) {
+    return this.admin.getSupportProjects(actor);
+  }
+
+  @Get("support/projects/:id")
+  getSupportProjectDetails(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.getSupportProjectDetails(actor, id);
   }
 }

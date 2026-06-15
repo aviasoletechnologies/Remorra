@@ -126,6 +126,7 @@ model Profile {
   assignedTasks        Task[]                @relation("TaskAssignee")
   meetingParticipation MeetingParticipant[]
   aiInvocations        AiInvocation[]
+  streamEvents         JobStreamEvent[]
 }
 
 model Project {
@@ -169,6 +170,7 @@ model Project {
   jobs               JobRecord[]
   tokenUsage         TokenUsage[]
   aiInvocations      AiInvocation[]
+  streamEvents         JobStreamEvent[]
 
   @@index([ownerId])
 }
@@ -612,6 +614,12 @@ model ImpactItem {
   reasoning       String
   proposedChange  Json
   decision        String        @default("pending")
+  status          String        @default("ready")
+  conflictReason  String?
+  resolution      String?
+  resolutionNote  String?
+  resolvedPayload Json?
+  currentSnapshot Json?
   session         EvolveSession @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
 }
 
@@ -761,36 +769,60 @@ model DocumentTemplate {
   id          String                    @id
   name        String
   description String
+  type        String                    @default("report") // "founder-pack" | "product-pack" | "investor-pack" | "build-pack" | "report"
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @default(now()) @updatedAt
   versions    DocumentTemplateVersion[]
 }
 
 model DocumentTemplateVersion {
-  id                 String           @id @default(uuid()) @db.Uuid
+  id                 String              @id @default(uuid()) @db.Uuid
   documentTemplateId String
   version            Int
-  active             Boolean          @default(false)
+  active             Boolean             @default(false)
   html               String
   css                String
-  createdAt          DateTime         @default(now())
-  template           DocumentTemplate @relation(fields: [documentTemplateId], references: [id], onDelete: Cascade)
+  schema             Json?               // JSON Schema defining the input contract
+  createdBy          String?             @db.Uuid
+  createdAt          DateTime            @default(now())
+  template           DocumentTemplate    @relation(fields: [documentTemplateId], references: [id], onDelete: Cascade)
+  documents          GeneratedDocument[]
 
   @@unique([documentTemplateId, version])
 }
 
 model GeneratedDocument {
-  id                 String            @id @default(uuid()) @db.Uuid
-  projectId          String            @db.Uuid
-  reportGenerationId String?           @unique @db.Uuid
+  id                 String                   @id @default(uuid()) @db.Uuid
+  projectId          String                   @db.Uuid
+  reportGenerationId String?                  @unique @db.Uuid
   type               String
-  status             JobStatus         @default(queued)
+  status             JobStatus                @default(queued)
   templateVersion    Int
-  storageObjectId    String?           @db.Uuid
+  templateVersionId  String?                  @db.Uuid // Trace exact version
+  storageObjectId    String?                  @db.Uuid
   expiresAt          DateTime?
-  createdAt          DateTime          @default(now())
-  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  reportGeneration   ReportGeneration? @relation(fields: [reportGenerationId], references: [id])
-  storageObject      StorageObject?    @relation(fields: [storageObjectId], references: [id])
+  createdAt          DateTime                 @default(now())
+  project            Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportGeneration   ReportGeneration?        @relation(fields: [reportGenerationId], references: [id])
+  storageObject      StorageObject?           @relation(fields: [storageObjectId], references: [id])
+  templateVer        DocumentTemplateVersion? @relation(fields: [templateVersionId], references: [id])
 }
+
+model CostConfig {
+  id               String   @id @default(uuid()) @db.Uuid
+  key              String   @unique // e.g. "model:claude-3-5-sonnet", "pdf-render-flat", "storage-per-mb"
+  name             String
+  unit             String   // "per_1m_tokens" | "flat" | "per_mb" | "per_second"
+  currency         String   @default("USD")
+  active           Boolean  @default(true)
+  inputCostMinor   Int      @default(0) // cost per unit/million tokens in minor currency (e.g. cents)
+  outputCostMinor  Int      @default(0) // cost per unit/million tokens in minor currency
+  flatCostMinor    Int      @default(0) // flat cost in minor currency
+  version          Int      @default(1)
+  updatedBy        String?  @db.Uuid
+  updatedAt        DateTime @updatedAt
+}
+
 
 model BuildPackSnapshot {
   id        String   @id @default(uuid()) @db.Uuid
@@ -832,6 +864,7 @@ model JobRecord {
   project        Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   attemptsLog    JobAttempt[]
   outboxEvent    OutboxEvent?
+  streamEvents   JobStreamEvent[]
 
   @@index([status, runAfter])
 }
@@ -973,4 +1006,26 @@ model RetentionRunItem {
   affectedCount  Int          @default(0)
   error          String?
   run            RetentionRun @relation(fields: [retentionRunId], references: [id], onDelete: Cascade)
+}
+
+model JobStreamEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  jobId     String   @db.Uuid
+  projectId String?  @db.Uuid
+  userId    String?  @db.Uuid
+  sequence  Int
+  type      String
+  delta     String?
+  snapshot  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  job       JobRecord @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      Profile?  @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, sequence])
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+  @@index([jobId, sequence])
 }

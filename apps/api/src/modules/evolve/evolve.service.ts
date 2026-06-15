@@ -154,6 +154,11 @@ export class EvolveService {
         "Every impact item needs a founder decision.",
       );
     }
+    if (impacts.some((item: any) => ["conflict", "blocked"].includes(item.status))) {
+      throw new BadRequestException(
+        "Every conflict or block must be resolved before committing.",
+      );
+    }
     return this.prisma.client.$transaction(async (tx: any) => {
       const project = await tx.project.findUniqueOrThrow({
         where: { id: session.projectId },
@@ -207,8 +212,279 @@ export class EvolveService {
     });
   }
 
+  async resolve(
+    id: string,
+    impactId: string,
+    resolution: "accept" | "keep_current" | "edit_payload" | "retarget" | "split" | "reject",
+    note: string | undefined,
+    payload: any | undefined,
+    userId: string,
+  ) {
+    const session = await this.require(id, userId);
+    const impact = await this.prisma.client.impactItem.findFirstOrThrow({
+      where: { id: impactId, evolveSessionId: id },
+    });
+
+    await this.prisma.client.$transaction(async (tx: any) => {
+      if (resolution === "accept") {
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            status: "resolved",
+            resolution: "accept",
+            resolutionNote: note ?? null,
+            resolvedPayload: impact.proposedChange,
+          },
+        });
+      } else if (resolution === "keep_current") {
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            decision: "rejected",
+            status: "resolved",
+            resolution: "keep_current",
+            resolutionNote: note ?? null,
+          },
+        });
+      } else if (resolution === "reject") {
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            decision: "rejected",
+            status: "resolved",
+            resolution: "reject",
+            resolutionNote: note ?? null,
+          },
+        });
+      } else if (resolution === "edit_payload") {
+        if (!payload) {
+          throw new BadRequestException("Payload is required for edit_payload resolution.");
+        }
+        const currentChange = (impact.resolvedPayload ?? impact.proposedChange) as any;
+        const updatedChange = {
+          ...currentChange,
+          data: payload,
+        };
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            status: "resolved",
+            resolution: "edit_payload",
+            resolutionNote: note ?? null,
+            resolvedPayload: updatedChange,
+          },
+        });
+      } else if (resolution === "retarget") {
+        if (!payload || typeof payload.entityId !== "string") {
+          throw new BadRequestException("Target entityId is required for retarget resolution.");
+        }
+        const currentChange = (impact.resolvedPayload ?? impact.proposedChange) as any;
+        const updatedChange = {
+          ...currentChange,
+          entityId: payload.entityId,
+        };
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            entityId: payload.entityId,
+            status: "resolved",
+            resolution: "retarget",
+            resolutionNote: note ?? null,
+            resolvedPayload: updatedChange,
+          },
+        });
+      } else if (resolution === "split") {
+        await tx.impactItem.update({
+          where: { id: impactId },
+          data: {
+            status: "resolved",
+            resolution: "split",
+            resolutionNote: note ?? null,
+          },
+        });
+        const currentChange = (impact.resolvedPayload ?? impact.proposedChange) as any;
+        const splitChange = {
+          ...currentChange,
+          operation: "create",
+          entityId: null,
+          expectedVersion: null,
+        };
+        await tx.impactItem.create({
+          data: {
+            evolveSessionId: id,
+            entityType: impact.entityType,
+            entityId: null,
+            severity: impact.severity,
+            title: `Split: ${impact.title} (Create)`,
+            reasoning: `Split from impact ${impact.title}. ${note ?? ""}`,
+            proposedChange: splitChange,
+            decision: "pending",
+            status: "ready",
+          },
+        });
+      }
+    });
+
+    await this.validateSession(id, session.projectId);
+    return this.get(id, userId);
+  }
+
+  async validateSession(id: string, projectId: string) {
+    await this.prisma.client.$transaction(async (tx: any) => {
+      const impacts = await tx.impactItem.findMany({
+        where: { evolveSessionId: id },
+      });
+      for (const impact of impacts) {
+        if (impact.decision === "rejected") {
+          continue;
+        }
+        await tx.impactItem.update({
+          where: { id: impact.id },
+          data: { status: "ready", conflictReason: null, currentSnapshot: null },
+        });
+      }
+    });
+
+    await this.prisma.client.$transaction(async (tx: any) => {
+      const activeImpacts = await tx.impactItem.findMany({
+        where: { evolveSessionId: id },
+      });
+
+      const targetKeys = new Map<string, any[]>();
+
+      for (const impact of activeImpacts) {
+        if (impact.decision === "rejected") continue;
+
+        const change = (impact.resolvedPayload ?? impact.proposedChange) as any;
+        const op = change?.operation;
+        const type = impact.entityType;
+        const entityId = impact.entityId;
+
+        const delegate = this.entityDelegate(tx, type);
+        if (!delegate || !["create", "update", "delete"].includes(op)) {
+          await tx.impactItem.update({
+            where: { id: impact.id },
+            data: { status: "blocked", conflictReason: `Unsupported entity type "${type}" or operation "${op}".` },
+          });
+          continue;
+        }
+
+        if (op !== "create") {
+          if (!entityId) {
+            await tx.impactItem.update({
+              where: { id: impact.id },
+              data: { status: "blocked", conflictReason: `Entity ID is required for operation "${op}".` },
+            });
+            continue;
+          }
+
+          const currentRecord = await delegate.findFirst({
+            where: { id: entityId, projectId },
+          });
+
+          if (!currentRecord) {
+            await tx.impactItem.update({
+              where: { id: impact.id },
+              data: { status: "blocked", conflictReason: `Target entity of type "${type}" with ID "${entityId}" not found.` },
+            });
+            continue;
+          }
+
+          await tx.impactItem.update({
+            where: { id: impact.id },
+            data: { currentSnapshot: currentRecord },
+          });
+
+          const expectedVersion = change.expectedVersion;
+          if (expectedVersion !== undefined && expectedVersion !== null && currentRecord.version !== expectedVersion) {
+            await tx.impactItem.update({
+              where: { id: impact.id },
+              data: {
+                status: "conflict",
+                conflictReason: `Stale expectedVersion: expected ${expectedVersion}, but database has ${currentRecord.version}.`
+              },
+            });
+            continue;
+          }
+
+          const key = `${type.toLowerCase()}:${entityId}`;
+          if (!targetKeys.has(key)) {
+            targetKeys.set(key, []);
+          }
+          targetKeys.get(key)!.push(impact);
+        }
+      }
+
+      for (const [key, items] of targetKeys.entries()) {
+        if (items.length > 1) {
+          for (const item of items) {
+            await tx.impactItem.update({
+              where: { id: item.id },
+              data: {
+                status: "conflict",
+                conflictReason: `Duplicate/conflicting changes on the same entity (${key}) in this session.`,
+              },
+            });
+          }
+        }
+      }
+    });
+
+    let linkageError: string | null = null;
+    try {
+      await this.prisma.client.$transaction(async (tx: any) => {
+        const impacts = await tx.impactItem.findMany({
+          where: { evolveSessionId: id },
+        });
+
+        for (const impact of impacts) {
+          if (impact.decision === "rejected" || impact.status === "blocked") {
+            continue;
+          }
+          try {
+            await this.applyImpact(tx, projectId, impact);
+          } catch (e: any) {
+            // Dry run ignore nested errors
+          }
+        }
+
+        await this.assertConnectedProductThread(tx, projectId);
+        throw new DryRunRollback();
+      });
+    } catch (err) {
+      if (!(err instanceof DryRunRollback)) {
+        linkageError = err instanceof Error ? err.message : "Linkage check failed";
+      }
+    }
+
+    if (linkageError) {
+      await this.prisma.client.$transaction(async (tx: any) => {
+        const impacts = await tx.impactItem.findMany({
+          where: { evolveSessionId: id },
+        });
+        for (const impact of impacts) {
+          if (impact.decision === "rejected" || impact.status === "blocked") {
+            continue;
+          }
+          const change = (impact.resolvedPayload ?? impact.proposedChange) as any;
+          const op = change?.operation;
+          const isStrategicType = ["ambition", "okr", "persona", "painpoint", "userneed"].includes(impact.entityType.toLowerCase().replace(/[\s_-]/g, ""));
+          if (isStrategicType && (op === "delete" || op === "update")) {
+            await tx.impactItem.update({
+              where: { id: impact.id },
+              data: {
+                status: "blocked",
+                conflictReason: `Linkage-breaking change: would break the required Ambition-to-User-Need thread. Detail: ${linkageError}`,
+              },
+            });
+          }
+        }
+      });
+    }
+  }
+
   private async applyImpact(tx: any, projectId: string, impact: any) {
-    const change = impact.proposedChange as Record<string, unknown>;
+    const change = (impact.resolvedPayload ?? impact.proposedChange) as Record<string, unknown>;
     const operation = String(change.operation ?? "update");
     const data = (change.data ?? change.fields ?? {}) as Record<string, unknown>;
     const entityId = String(change.entityId ?? impact.entityId ?? "");
@@ -297,5 +573,11 @@ export class EvolveService {
     });
     await this.access.require(session.projectId, userId, ["founder"]);
     return session;
+  }
+}
+
+class DryRunRollback extends Error {
+  constructor() {
+    super("Dry run rollback");
   }
 }

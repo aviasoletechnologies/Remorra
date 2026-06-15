@@ -1,5 +1,5 @@
-import { Controller, Get, MessageEvent, Param, Post, Sse } from "@nestjs/common";
-import { interval, map, switchMap } from "rxjs";
+import { Controller, Get, MessageEvent, Param, Post, Sse, Query } from "@nestjs/common";
+import { interval, map, switchMap, Observable } from "rxjs";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { JobsService } from "./jobs.service.js";
 
@@ -37,6 +37,64 @@ export class JobsController {
         },
       })),
     );
+  }
+
+  @Sse("jobs/:id/tokens/stream")
+  tokensStream(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Query("after") afterQuery?: string,
+  ) {
+    let lastSentSequence = afterQuery ? Number(afterQuery) : 0;
+    let isDone = false;
+
+    return new Observable<MessageEvent>((subscriber) => {
+      let timerId: NodeJS.Timeout;
+
+      const poll = async () => {
+        try {
+          const events = await this.jobs.getStreamEvents(
+            id,
+            actor.userId,
+            lastSentSequence,
+            100,
+          );
+
+          for (const event of events) {
+            lastSentSequence = event.sequence;
+            subscriber.next({
+              data: {
+                sequence: event.sequence,
+                type: event.type,
+                delta: event.delta,
+                snapshot: event.snapshot,
+                metadata: event.metadata,
+                createdAt: event.createdAt,
+              },
+            });
+
+            if (["completed", "failed"].includes(event.type)) {
+              isDone = true;
+            }
+          }
+
+          if (isDone) {
+            subscriber.complete();
+            return;
+          }
+
+          timerId = setTimeout(poll, 200);
+        } catch (err) {
+          subscriber.error(err);
+        }
+      };
+
+      poll();
+
+      return () => {
+        clearTimeout(timerId);
+      };
+    });
   }
 
   @Sse("events/stream")

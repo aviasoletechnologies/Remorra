@@ -125,7 +125,7 @@ async function invokeSkill(input: {
   projectId: string;
   content: string;
   context: unknown;
-  onText?: (text: string) => Promise<void>;
+  onDelta?: (delta: string, accumulated: string) => Promise<void>;
 }) {
   const skillId = input.skillId ?? await resolveSkillId(input.eventType);
   const skill = await prisma.skillVersion.findFirstOrThrow({
@@ -146,19 +146,14 @@ async function invokeSkill(input: {
     ],
   };
   let response;
-  if (input.onText) {
+  if (input.onDelta) {
     const stream = anthropic.messages.stream(request);
     let streamed = "";
-    let lastPublished = 0;
     stream.on("text", (delta) => {
       streamed += delta;
-      if (streamed.length - lastPublished >= 40) {
-        lastPublished = streamed.length;
-        void input.onText?.(streamed);
-      }
+      void input.onDelta?.(delta, streamed);
     });
     response = await stream.finalMessage();
-    await input.onText(streamed);
   } else {
     response = await anthropic.messages.create(request);
   }
@@ -166,6 +161,31 @@ async function invokeSkill(input: {
     .filter((item) => item.type === "text")
     .map((item) => item.text)
     .join("\n");
+  const costConfig = await prisma.costConfig.findFirst({
+    where: { key: `model:${model}`, active: true },
+  });
+  let costMinor = 0;
+  if (costConfig) {
+    if (costConfig.unit === "per_1m_tokens") {
+      costMinor = Math.round(
+        (response.usage.input_tokens * costConfig.inputCostMinor +
+          response.usage.output_tokens * costConfig.outputCostMinor) /
+          1000000
+      );
+    } else if (costConfig.unit === "flat") {
+      costMinor = costConfig.flatCostMinor;
+    }
+  } else {
+    // Default fallback rates (per 1M tokens)
+    const standardInputRate = model.includes("opus") ? 1500 : 300;
+    const standardOutputRate = model.includes("opus") ? 7500 : 1500;
+    costMinor = Math.round(
+      (response.usage.input_tokens * standardInputRate +
+        response.usage.output_tokens * standardOutputRate) /
+        1000000
+    );
+  }
+
   await prisma.tokenUsage.create({
     data: {
       userId: input.userId,
@@ -175,7 +195,7 @@ async function invokeSkill(input: {
       model,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
-      costMinor: 0,
+      costMinor,
     },
   });
   return { text, skill };
@@ -194,35 +214,114 @@ async function handleConversation(payload: Payload) {
   const userId = String(payload.userId ?? "");
   const projectId = String(payload.projectId ?? "");
   const conversationId = String(payload.conversationId ?? "");
-  const result = await invokeSkill({
-    skillId: typeof payload.skillId === "string" ? payload.skillId : undefined,
-    eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
-    userId,
-    projectId,
-    content: String(payload.content),
-    context: await projectContext(projectId),
-    onText: async (text) => {
-      await prisma.jobRecord.update({
-        where: { id: payload.jobRecordId },
-        data: { result: jsonValue({ stream: text, complete: false }) },
-      });
-    },
-  });
-  if (conversationId) {
-    await prisma.conversationMessage.create({
-      data: {
-        conversationId,
-        role: "assistant",
-        encryptedContent: encrypt(result.text),
+
+  let sequence = 1;
+  const jobId = payload.jobRecordId;
+  let queue: Array<{
+    type: string;
+    delta?: string;
+    snapshot?: string;
+    metadata?: any;
+  }> = [];
+
+  let flushPromise = Promise.resolve();
+
+  const flush = async () => {
+    if (queue.length === 0) return;
+    const currentBatch = [...queue];
+    queue = [];
+
+    const dataToWrite = currentBatch.map((item) => ({
+      jobId,
+      projectId: projectId || null,
+      userId: userId || null,
+      sequence: sequence++,
+      type: item.type,
+      delta: item.delta ?? null,
+      snapshot: item.snapshot ?? null,
+      metadata: item.metadata ? jsonValue(item.metadata) : null,
+    }));
+
+    flushPromise = flushPromise.then(async () => {
+      try {
+        await prisma.jobStreamEvent.createMany({
+          data: dataToWrite,
+        });
+      } catch (err) {
+        console.error("Failed to batch write JobStreamEvents", err);
+      }
+    });
+  };
+
+  const timerId = setInterval(() => {
+    void flush();
+  }, 80);
+
+  try {
+    const result = await invokeSkill({
+      skillId: typeof payload.skillId === "string" ? payload.skillId : undefined,
+      eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
+      userId,
+      projectId,
+      content: String(payload.content),
+      context: await projectContext(projectId),
+      onDelta: async (delta, accumulated) => {
+        queue.push({ type: "token", delta });
+        // Occasional snapshot (approx. every 15-20 tokens)
+        if (sequence % 15 === 0) {
+          queue.push({ type: "snapshot", snapshot: accumulated });
+        }
       },
     });
+
+    clearInterval(timerId);
+    await flush();
+
+    queue.push({
+      type: "completed",
+      snapshot: result.text,
+      metadata: {
+        modelTier: result.skill.modelTier,
+        model: modelFor(result.skill.modelTier),
+        outputTokens: result.text.length / 4,
+      },
+    });
+    await flush();
+    await flushPromise;
+
+    if (conversationId) {
+      await prisma.conversationMessage.create({
+        data: {
+          conversationId,
+          role: "assistant",
+          encryptedContent: encrypt(result.text),
+        },
+      });
+    }
+
+    return {
+      response: result.text,
+      responseStored: Boolean(conversationId),
+      skillId: result.skill.skillId,
+      skillVersion: result.skill.version,
+    };
+  } catch (err: any) {
+    clearInterval(timerId);
+    await flush();
+
+    const message = err instanceof Error ? err.message : "Unknown error";
+    queue.push({
+      type: "failed",
+      delta: message,
+      metadata: {
+        errorClass: err.constructor?.name ?? "Error",
+      },
+    });
+    await flush();
+    await flushPromise;
+
+    throw err;
   }
-  return {
-    response: result.text,
-    responseStored: Boolean(conversationId),
-    skillId: result.skill.skillId,
-    skillVersion: result.skill.version,
-  };
 }
 
 async function handleExtract(payload: Payload) {
@@ -452,6 +551,171 @@ async function handleReport(payload: Payload) {
   return { reportGenerationId: id, documentId: document.id };
 }
 
+async function assembleFounderPackData(projectId: string): Promise<any> {
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const latestPack = await prisma.founderPack.findFirst({
+    where: { projectId, confirmedAt: { not: null } },
+    orderBy: { version: "desc" },
+  });
+  const content = (latestPack?.content as any) || {};
+  return {
+    projectName: project.name,
+    summary: content.summary || "No executive summary available.",
+    vision: content.vision || "No vision statement available.",
+    targetAudience: content.targetAudience || "No target audience defined.",
+    keyFeatures: Array.isArray(content.keyFeatures) ? content.keyFeatures : [],
+    revenueModel: content.revenueModel || "No revenue model defined."
+  };
+}
+
+async function assembleProductPackData(projectId: string): Promise<any> {
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const latestPack = await prisma.productPack.findFirst({
+    where: { projectId },
+    orderBy: { version: "desc" },
+  });
+  
+  const ambitions = await prisma.ambition.findMany({
+    where: { projectId },
+    include: { okrs: { include: { personaLinks: true } } },
+  });
+  const personas = await prisma.persona.findMany({
+    where: { projectId },
+    include: { painPoints: true, userNeeds: true },
+  });
+  const completeThread = ambitions.some((ambition: any) =>
+    ambition.okrs.some((okr: any) =>
+      okr.personaLinks.some((link: any) => {
+        const persona = personas.find((item: any) => item.id === link.personaId);
+        return persona?.painPoints.length && persona.userNeeds.length;
+      }),
+    ),
+  );
+  const total = ambitions.length + personas.length;
+  const covered =
+    ambitions.filter((item: any) => item.okrs.length > 0).length +
+    personas.filter(
+      (item: any) => item.painPoints.length > 0 && item.userNeeds.length > 0,
+    ).length;
+  const coveragePercent = total ? Math.round((covered / total) * 100) : 0;
+
+  return {
+    projectName: project.name,
+    coveragePercent: latestPack?.coveragePercent ?? coveragePercent,
+    linkageValid: latestPack?.linkageValid ?? Boolean(completeThread),
+    ambitions: ambitions.map((a: any) => ({ id: a.id, title: a.title, detail: a.detail })),
+    personas: personas.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
+      painPoints: p.painPoints.map((pt: any) => ({ id: pt.id, statement: pt.statement }))
+    }))
+  };
+}
+
+async function assembleInvestorPackData(projectId: string): Promise<any> {
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const productPack = await assembleProductPackData(projectId);
+  const viability = await prisma.viabilitySnapshot.findFirst({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+  });
+  const activeCycle = await prisma.cycle.findFirst({
+    where: { projectId, status: "active" },
+  });
+  const tasks = await prisma.task.findMany({
+    where: { projectId, cycleId: activeCycle?.id || undefined },
+  });
+  const completedTasks = tasks.filter((t: any) => t.status === "done").length;
+  const raid = await prisma.raidItem.findMany({
+    where: { projectId },
+  });
+  const financeEntries = await prisma.financeEntry.findMany({
+    where: { projectId },
+  });
+  const totalSpent = financeEntries.reduce((sum: number, entry: any) => sum + entry.amountMinor, 0);
+
+  return {
+    projectName: project.name,
+    viabilityScore: viability?.overall ?? 0,
+    viabilityRationale: viability?.rationale || "No viability rationale provided.",
+    productCoveragePercent: productPack.coveragePercent,
+    deliveryLinkageValid: productPack.linkageValid,
+    activeSprintCompletedTasks: completedTasks,
+    activeSprintTotalTasks: tasks.length,
+    totalBudgetSpentMinor: totalSpent,
+    totalBudgetAllocatedMinor: Math.round(totalSpent * 1.5) || 500000,
+    risksCount: raid.length,
+    criticalRisksCount: raid.filter((r: any) => r.severity === "critical" || r.severity === "high").length
+  };
+}
+
+async function assembleBuildPackData(projectId: string): Promise<any> {
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const activeCycle = await prisma.cycle.findFirst({
+    where: { projectId, status: "active" },
+  });
+  const stories = await prisma.userStory.findMany({
+    where: { projectId },
+  });
+  const tasks = await prisma.task.findMany({
+    where: { projectId, cycleId: activeCycle?.id || undefined },
+    include: { assignee: true },
+  });
+  const raid = await prisma.raidItem.findMany({
+    where: { projectId },
+  });
+
+  return {
+    projectName: project.name,
+    cycleName: activeCycle?.name || "No Active Cycle",
+    cycleStatus: activeCycle?.status || "inactive",
+    stories: stories.map((s: any) => ({
+      title: s.title,
+      status: s.status,
+      description: s.description || "",
+      acceptance: Array.isArray(s.acceptance) ? s.acceptance : []
+    })),
+    tasks: tasks.map((t: any) => ({
+      title: t.title,
+      status: t.status,
+      assigneeName: t.assignee?.preferredName || t.assignee?.email || "Unassigned"
+    })),
+    risks: raid.map((r: any) => ({
+      title: r.title,
+      severity: r.severity,
+      status: r.status
+    }))
+  };
+}
+
+export function renderTemplate(template: string, data: any): string {
+  let result = template;
+  
+  // 1. Handle loops: {{#each key}} ... {{/each}}
+  const loopRegex = /\{\{#each\s+([\w.]+)\}\}([\s\S]*?)\{\{\/each\}\}/g;
+  result = result.replace(loopRegex, (_, path, innerTemplate) => {
+    const list = getPathValue(data, path);
+    if (!Array.isArray(list)) return "";
+    return list.map((item) => renderTemplate(innerTemplate, item)).join("");
+  });
+
+  // 2. Handle simple replacements: {{key}}
+  const varRegex = /\{\{([\w.]+)\}\}/g;
+  result = result.replace(varRegex, (_, path) => {
+    const val = getPathValue(data, path);
+    return val !== undefined && val !== null ? escapeHtml(String(val)) : "";
+  });
+
+  return result;
+}
+
+function getPathValue(obj: any, path: string): any {
+  if (path === "this") return obj;
+  return path.split(".").reduce((acc, part) => acc && acc[part], obj);
+}
+
 async function handleDocument(payload: Payload) {
   const documentId = String(payload.documentId ?? "");
   const document = documentId
@@ -474,23 +738,71 @@ async function handleDocument(payload: Payload) {
   const project = await prisma.project.findUniqueOrThrow({
     where: { id: document.projectId },
   });
-  const title = document.reportGeneration?.definition.name ?? document.type;
+
+  // 1. Determine template key
+  let templateId = "";
+  if (document.type === "founder-pack" || document.type === "product-pack" || document.type === "investor-pack" || document.type === "build-pack") {
+    templateId = document.type;
+  } else if (document.type.startsWith("report:")) {
+    const reportDefId = document.type.substring(7);
+    const reportDefVer = await prisma.reportDefinitionVersion.findFirst({
+      where: { reportDefinitionId: reportDefId, active: true },
+    });
+    templateId = reportDefVer?.templateKey ?? "report-default";
+  } else {
+    templateId = "report-default";
+  }
+
+  // 2. Fetch active template version
+  const activeTemplateVer = await prisma.documentTemplateVersion.findFirst({
+    where: { documentTemplateId: templateId, active: true },
+  });
+  if (!activeTemplateVer) {
+    throw new Error(`No active template version found for template key: ${templateId}`);
+  }
+
+  // 3. Assemble data
   const reportContent = document.reportGeneration?.content?.structuredContent;
-  let content = reportContent ?? (await projectContext(project.id));
-  if (document.type === "build-pack") {
+  let content: any = {};
+  if (document.type === "founder-pack") {
+    content = await assembleFounderPackData(project.id);
+  } else if (document.type === "product-pack") {
+    content = await assembleProductPackData(project.id);
+  } else if (document.type === "investor-pack") {
+    content = await assembleInvestorPackData(project.id);
+  } else if (document.type === "build-pack") {
+    // Write snapshot for history
+    const rawContext = await projectContext(project.id);
     const activeCycle = await prisma.cycle.findFirst({
       where: { projectId: project.id, status: "active" },
     });
-    const snapshot = await prisma.buildPackSnapshot.create({
+    await prisma.buildPackSnapshot.create({
       data: {
         projectId: project.id,
         cycleId: activeCycle?.id,
-        content: jsonValue(content),
+        content: jsonValue(rawContext),
       },
     });
-    content = { snapshotId: snapshot.id, generatedAt: snapshot.createdAt, ...content as object };
+    content = await assembleBuildPackData(project.id);
+  } else {
+    content = reportContent ?? (await projectContext(project.id));
   }
-  const html = renderHtml(title, project.name, content);
+
+  // 4. Validate payload using AJV
+  if (activeTemplateVer.schema) {
+    const schema = activeTemplateVer.schema as any;
+    const validate = ajv.compile(schema);
+    const isValid = validate(content);
+    if (!isValid) {
+      throw new Error(`Data validation failed for template ${templateId}: ${ajv.errorsText(validate.errors)}`);
+    }
+  }
+
+  // 5. Render HTML
+  const renderedBody = renderTemplate(activeTemplateVer.html, content);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${activeTemplateVer.css}</style></head><body>${renderedBody}</body></html>`;
+
+  // 6. Launch Puppeteer (sandbox blocked network)
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -533,6 +845,8 @@ async function handleDocument(payload: Payload) {
         status: "completed",
         storageObjectId: storageObject.id,
         expiresAt: storageObject.expiresAt,
+        templateVersionId: activeTemplateVer.id,
+        templateVersion: activeTemplateVer.version,
       },
     });
     if (document.reportGenerationId) {

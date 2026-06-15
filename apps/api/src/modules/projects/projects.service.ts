@@ -10,6 +10,7 @@ import {
   PROJECT_REPOSITORY,
   type ProjectRepository,
 } from "./project.repository.js";
+import { EvolveService } from "../evolve/evolve.service.js";
 
 @Injectable()
 export class ProjectsService {
@@ -17,6 +18,7 @@ export class ProjectsService {
     @Inject(PROJECT_REPOSITORY)
     private readonly repository: ProjectRepository,
     private readonly prisma: PrismaService,
+    private readonly evolve: EvolveService,
   ) {}
 
   list(userId: string) {
@@ -98,7 +100,7 @@ export class ProjectsService {
       where: { id: projectId },
       select: { version: true },
     });
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const session = await this.prisma.client.$transaction(async (tx: any) => {
       const session = await tx.evolveSession.create({
         data: {
           projectId,
@@ -110,28 +112,32 @@ export class ProjectsService {
         },
       });
       for (const change of changes) {
+        const operation = String(change.operation ?? change.action ?? "update");
+        const entityType = String(change.entityType ?? change.proposedChange?.entityType ?? "task");
+        const entityId = typeof change.entityId === "string" ? change.entityId : (typeof change.proposedChange?.entityId === "string" ? change.proposedChange.entityId : null);
+        const expectedVersion = typeof change.expectedVersion === "number" ? change.expectedVersion : (typeof change.proposedChange?.expectedVersion === "number" ? change.proposedChange.expectedVersion : null);
+        const data = (change.data ?? change.proposedChange?.data ?? change.fields ?? change.proposedChange?.fields ?? {}) as Record<string, any>;
+        const reason = String(change.reason ?? change.reasoning ?? change.proposedChange?.reason ?? change.proposedChange?.reasoning ?? "Imported developer change");
+        const source = String(change.source ?? change.proposedChange?.source ?? "developer-import");
+
         const proposedChange = {
-          ...(change.proposedChange ?? change),
-          operation:
-            change.proposedChange?.operation ??
-            change.operation ??
-            change.action ??
-            "update",
-          entityId: change.entityId ?? change.proposedChange?.entityId,
-          expectedVersion:
-            change.expectedVersion ?? change.proposedChange?.expectedVersion,
+          operation,
+          entityType,
+          entityId,
+          expectedVersion,
+          data,
+          reason,
+          source,
         };
+
         await tx.impactItem.create({
           data: {
             evolveSessionId: session.id,
-            entityType: String(change.entityType ?? proposedChange.entityType ?? "task"),
-            entityId: typeof change.entityId === "string" ? change.entityId : null,
-            severity: String(change.severity ?? "amber"),
-            title: String(change.title ?? "Imported developer change"),
-            reasoning: String(
-              change.reasoning ??
-                "Imported change requires founder conflict review before it can affect product history.",
-            ),
+            entityType,
+            entityId,
+            severity: String(change.severity ?? change.proposedChange?.severity ?? "amber"),
+            title: String(change.title ?? change.proposedChange?.title ?? "Imported developer change"),
+            reasoning: reason,
             proposedChange,
           },
         });
@@ -144,7 +150,11 @@ export class ProjectsService {
           metadata: { sessionId: session.id, changes: changes.length },
         },
       });
-      return { sessionId: session.id, impactsCreated: changes.length };
+      return session;
     });
+
+    await this.evolve.validateSession(session.id, projectId);
+
+    return { sessionId: session.id, impactsCreated: changes.length };
   }
 }

@@ -1,7 +1,41 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, BadRequestException } from "@nestjs/common";
+import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+
+// Safe local micro-template engine helpers
+function renderTemplateLocal(template: string, data: any): string {
+  let result = template;
+  const loopRegex = /\{\{#each\s+([\w.]+)\}\}([\s\S]*?)\{\{\/each\}\}/g;
+  result = result.replace(loopRegex, (_, path, innerTemplate) => {
+    const list = getPathValueLocal(data, path);
+    if (!Array.isArray(list)) return "";
+    return list.map((item) => renderTemplateLocal(innerTemplate, item)).join("");
+  });
+
+  const varRegex = /\{\{([\w.]+)\}\}/g;
+  result = result.replace(varRegex, (_, path) => {
+    const val = getPathValueLocal(data, path);
+    return val !== undefined && val !== null ? escapeHtmlLocal(String(val)) : "";
+  });
+  return result;
+}
+
+function getPathValueLocal(obj: any, path: string): any {
+  if (path === "this") return obj;
+  return path.split(".").reduce((acc, part) => acc && acc[part], obj);
+}
+
+function escapeHtmlLocal(value: string) {
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        char
+      ]!,
+  );
+}
 
 @Injectable()
 export class AdminService {
@@ -13,6 +47,12 @@ export class AdminService {
   requireAdmin(actor: Actor) {
     if (!["admin", "support"].includes(actor.platformRole)) {
       throw new ForbiddenException("Platform administrator access is required.");
+    }
+  }
+
+  requireWriteAdmin(actor: Actor) {
+    if (actor.platformRole !== "admin") {
+      throw new ForbiddenException("Only platform administrators can perform this write operation.");
     }
   }
 
@@ -50,6 +90,7 @@ export class AdminService {
 
   async activateSkill(actor: Actor, skillId: string, versionId: string) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.skillVersion.updateMany({
         where: { skillId },
@@ -78,6 +119,7 @@ export class AdminService {
     body: Record<string, unknown>,
   ) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       const current = await tx.skillVersion.findFirstOrThrow({
         where: { skillId },
@@ -122,6 +164,7 @@ export class AdminService {
 
   async setMapping(actor: Actor, eventType: string, skillId: string) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.skill.findUniqueOrThrow({ where: { id: skillId } });
       await tx.skillEventMapping.updateMany({
@@ -157,11 +200,12 @@ export class AdminService {
 
   async retryJob(actor: Actor, id: string) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     const job = await this.prisma.client.jobRecord.findUniqueOrThrow({
       where: { id },
     });
     if (job.status !== "failed") {
-      throw new ForbiddenException("Only failed jobs can be retried.");
+      throw new BadRequestException("Only failed jobs can be retried.");
     }
     const retried = await this.queue.enqueue({
       queue: job.queue as (typeof QUEUES)[keyof typeof QUEUES],
@@ -194,6 +238,7 @@ export class AdminService {
     body: { retentionDays?: number | null; enabled?: boolean },
   ) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       const policy = await tx.retentionPolicy.update({
         where: { id },
@@ -221,6 +266,7 @@ export class AdminService {
     platformRole: "user" | "admin" | "support",
   ) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       const profile = await tx.profile.update({
         where: { id },
@@ -245,6 +291,7 @@ export class AdminService {
     body: { markdown: string; activate?: boolean },
   ) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       const latest = await tx.knowledgeBaseVersion.findFirst({
         where: { knowledgeBaseId: id },
@@ -290,6 +337,7 @@ export class AdminService {
     body: Record<string, unknown>,
   ) {
     this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
     return this.prisma.client.$transaction(async (tx: any) => {
       const current = await tx.reportDefinitionVersion.findFirstOrThrow({
         where: { definitionId: id },
@@ -340,5 +388,451 @@ export class AdminService {
       orderBy: { createdAt: "desc" },
       take: 100,
     });
+  }
+
+  // --- Phase 1: Document Templates Endpoints ---
+
+  async getTemplates(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.documentTemplate.findMany({
+      include: { versions: { orderBy: { version: "desc" } } },
+    });
+  }
+
+  async createTemplateVersion(actor: Actor, id: string, body: { html: string; css: string; schema: any }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const current = await tx.documentTemplateVersion.findFirst({
+        where: { documentTemplateId: id },
+        orderBy: { version: "desc" },
+      });
+      const nextVersion = (current?.version ?? 0) + 1;
+      const version = await tx.documentTemplateVersion.create({
+        data: {
+          documentTemplateId: id,
+          version: nextVersion,
+          active: false,
+          html: body.html,
+          css: body.css,
+          schema: body.schema ? JSON.parse(JSON.stringify(body.schema)) : null,
+          createdBy: actor.userId,
+        },
+      });
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "template.version.created",
+          targetType: "document_template_version",
+          targetId: version.id,
+          metadata: { templateId: id, version: nextVersion },
+        },
+      });
+      return version;
+    });
+  }
+
+  async previewTemplate(actor: Actor, id: string, body: { html: string; css: string; schema: any; sampleData: any }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    
+    if (body.schema) {
+      const ajv = new Ajv({ allErrors: true, strict: false });
+      const validate = ajv.compile(body.schema);
+      const isValid = validate(body.sampleData);
+      if (!isValid) {
+        throw new BadRequestException(`Validation failed: ${ajv.errorsText(validate.errors)}`);
+      }
+    }
+
+    const renderedBody = renderTemplateLocal(body.html, body.sampleData);
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>${body.css}</style></head><body>${renderedBody}</body></html>`;
+    return { html };
+  }
+
+  async activateTemplateVersion(actor: Actor, id: string, versionId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.documentTemplateVersion.updateMany({
+        where: { documentTemplateId: id },
+        data: { active: false },
+      });
+      const version = await tx.documentTemplateVersion.update({
+        where: { id: versionId },
+        data: { active: true },
+      });
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "template.version.activated",
+          targetType: "document_template_version",
+          targetId: versionId,
+          metadata: { templateId: id, version: version.version },
+        },
+      });
+      return version;
+    });
+  }
+
+  // --- Cost Configuration ---
+
+  async getCostConfigs(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.costConfig.findMany({
+      orderBy: { key: "asc" },
+    });
+  }
+
+  async updateCostConfig(actor: Actor, key: string, body: { name?: string; unit?: string; active?: boolean; inputCostMinor?: number; outputCostMinor?: number; flatCostMinor?: number }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const config = await tx.costConfig.findUniqueOrThrow({ where: { key } });
+      const updated = await tx.costConfig.update({
+        where: { key },
+        data: {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.unit !== undefined ? { unit: body.unit } : {}),
+          ...(body.active !== undefined ? { active: body.active } : {}),
+          ...(body.inputCostMinor !== undefined ? { inputCostMinor: body.inputCostMinor } : {}),
+          ...(body.outputCostMinor !== undefined ? { outputCostMinor: body.outputCostMinor } : {}),
+          ...(body.flatCostMinor !== undefined ? { flatCostMinor: body.flatCostMinor } : {}),
+          version: config.version + 1,
+          updatedBy: actor.userId,
+        },
+      });
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "cost_config.updated",
+          targetType: "cost_config",
+          targetId: updated.id,
+          metadata: { key, old: config, updated: body },
+        },
+      });
+      return updated;
+    });
+  }
+
+  // --- Phase 2: Metrics Endpoints ---
+
+  async getOverviewMetrics(actor: Actor) {
+    this.requireAdmin(actor);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [users, projects, activeProjects, failedJobs, tokens, docs, storage] = await Promise.all([
+      this.prisma.client.profile.count(),
+      this.prisma.client.project.count(),
+      this.prisma.client.project.count({
+        where: { updatedAt: { gte: thirtyDaysAgo } },
+      }),
+      this.prisma.client.jobRecord.count({
+        where: { status: "failed", updatedAt: { gte: thirtyDaysAgo } },
+      }),
+      this.prisma.client.tokenUsage.aggregate({
+        _sum: { inputTokens: true, outputTokens: true, costMinor: true },
+      }),
+      this.prisma.client.generatedDocument.count({
+        where: { status: "completed" },
+      }),
+      this.prisma.client.storageObject.aggregate({
+        _sum: { sizeBytes: true },
+      }),
+    ]);
+
+    const pdfConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "pdf-render" } });
+    const storageConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "storage-per-mb" } });
+    
+    const aiCost = tokens._sum.costMinor ?? 0;
+    const pdfCost = docs * (pdfConfig?.flatCostMinor ?? 5);
+    const totalStorageMB = (storage._sum.sizeBytes ?? 0) / (1024 * 1024);
+    const storageCost = Math.round(totalStorageMB * (storageConfig?.flatCostMinor ?? 2));
+
+    const totalCost = aiCost + pdfCost + storageCost;
+    const configuredRevenue = projects * 5000;
+    const margin = configuredRevenue > 0 ? Math.round(((configuredRevenue - totalCost) / configuredRevenue) * 100) : 100;
+
+    const riskProjectsCount = await this.getSupportRiskProjectsCount();
+
+    return {
+      users,
+      projects,
+      activeProjects,
+      failedJobs,
+      tokens: tokens._sum,
+      aiCost,
+      pdfCost,
+      storageCost,
+      totalCost,
+      configuredRevenue,
+      margin,
+      riskProjectsCount,
+    };
+  }
+
+  private async getSupportRiskProjectsCount(): Promise<number> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const atRiskProjects = await this.prisma.client.project.findMany({
+      where: {
+        OR: [
+          { jobs: { some: { status: "failed", updatedAt: { gte: sevenDaysAgo } } } },
+          { raidItems: { some: { severity: "critical", status: { not: "done" } } } },
+          { viabilitySnapshots: { some: { overall: { lt: 50 } } } }
+        ]
+      },
+      select: { id: true }
+    });
+    return atRiskProjects.length;
+  }
+
+  async getUsageMetrics(actor: Actor) {
+    this.requireAdmin(actor);
+    const [byModel, bySkill, byProject, byUser, storageByProject] = await Promise.all([
+      this.prisma.client.tokenUsage.groupBy({
+        by: ["model"],
+        _sum: { inputTokens: true, outputTokens: true, costMinor: true },
+        _count: true,
+      }),
+      this.prisma.client.tokenUsage.groupBy({
+        by: ["skillVersionId"],
+        _sum: { inputTokens: true, outputTokens: true, costMinor: true },
+      }),
+      this.prisma.client.tokenUsage.groupBy({
+        by: ["projectId"],
+        _sum: { inputTokens: true, outputTokens: true, costMinor: true },
+      }),
+      this.prisma.client.tokenUsage.groupBy({
+        by: ["userId"],
+        _sum: { inputTokens: true, outputTokens: true, costMinor: true },
+      }),
+      this.prisma.client.storageObject.groupBy({
+        by: ["projectId"],
+        _sum: { sizeBytes: true },
+      }),
+    ]);
+
+    return { byModel, bySkill, byProject, byUser, storageByProject };
+  }
+
+  async getCostsMetrics(actor: Actor) {
+    this.requireAdmin(actor);
+    const tokens = await this.prisma.client.tokenUsage.aggregate({
+      _sum: { costMinor: true },
+    });
+    const docCount = await this.prisma.client.generatedDocument.count({
+      where: { status: "completed" },
+    });
+    const storage = await this.prisma.client.storageObject.aggregate({
+      _sum: { sizeBytes: true },
+    });
+
+    const pdfConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "pdf-render" } });
+    const storageConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "storage-per-mb" } });
+    const totalStorageMB = (storage._sum.sizeBytes ?? 0) / (1024 * 1024);
+
+    const aiCost = tokens._sum.costMinor ?? 0;
+    const pdfCost = docCount * (pdfConfig?.flatCostMinor ?? 5);
+    const storageCost = Math.round(totalStorageMB * (storageConfig?.flatCostMinor ?? 2));
+
+    const configs = await this.prisma.client.costConfig.findMany({ orderBy: { key: "asc" } });
+
+    return {
+      aiCost,
+      pdfCost,
+      storageCost,
+      totalCost: aiCost + pdfCost + storageCost,
+      configs,
+    };
+  }
+
+  async getJobsMetrics(actor: Actor) {
+    this.requireAdmin(actor);
+    const completedAttempts = await this.prisma.client.jobAttempt.findMany({
+      where: { status: "completed", finishedAt: { not: null } },
+      select: { startedAt: true, finishedAt: true },
+    });
+
+    const latencies = completedAttempts
+      .map((a: any) => a.finishedAt!.getTime() - a.startedAt.getTime())
+      .sort((a: number, b: number) => a - b);
+
+    const avgLatency = latencies.length > 0 ? latencies.reduce((sum: number, val: number) => sum + val, 0) / latencies.length : 0;
+    const p95Idx = Math.floor(latencies.length * 0.95);
+    const p95Latency = latencies.length > 0 ? latencies[p95Idx] : 0;
+
+    const totalJobs = await this.prisma.client.jobRecord.count();
+    const failedJobs = await this.prisma.client.jobRecord.count({ where: { status: "failed" } });
+    const errorRate = totalJobs > 0 ? (failedJobs / totalJobs) * 100 : 0;
+
+    const recentFailed = await this.prisma.client.jobRecord.findMany({
+      where: { status: "failed" },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+
+    return {
+      avgLatencyMs: Math.round(avgLatency),
+      p95LatencyMs: p95Latency,
+      totalJobs,
+      failedJobs,
+      errorRate: Math.round(errorRate * 10) / 10,
+      recentFailed,
+    };
+  }
+
+  async getProjectsMetrics(actor: Actor) {
+    this.requireAdmin(actor);
+    const projects = await this.prisma.client.project.findMany({
+      include: {
+        memberships: { include: { user: true } },
+        jobs: { where: { status: "failed" } },
+        raidItems: { where: { severity: "critical", status: { not: "done" } } },
+        viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    return projects.map((p: any) => {
+      const hasFailedJob = p.jobs.length > 0;
+      const hasCriticalRisk = p.raidItems.length > 0;
+      const lowViability = p.viabilitySnapshots[0]?.overall < 50;
+      const isRisk = hasFailedJob || hasCriticalRisk || lowViability;
+
+      return {
+        id: p.id,
+        name: p.name,
+        ownerId: p.ownerId,
+        membersCount: p.memberships.length,
+        failedJobsCount: p.jobs.length,
+        criticalRisksCount: p.raidItems.length,
+        latestViabilityScore: p.viabilitySnapshots[0]?.overall ?? null,
+        isSupportRisk: isRisk,
+        updatedAt: p.updatedAt,
+      };
+    });
+  }
+
+  // --- Support Workspace Endpoints ---
+
+  async getSupportProjects(actor: Actor) {
+    this.requireAdmin(actor);
+    const projects = await this.prisma.client.project.findMany({
+      include: {
+        owner: true,
+        memberships: true,
+        jobs: { where: { status: "failed" } },
+        raidItems: { where: { severity: "critical", status: { not: "done" } } },
+        viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    return projects.map((p: any) => {
+      const hasFailedJob = p.jobs.length > 0;
+      const hasCriticalRisk = p.raidItems.length > 0;
+      const lowViability = p.viabilitySnapshots[0]?.overall < 50;
+      const isRisk = hasFailedJob || hasCriticalRisk || lowViability;
+
+      return {
+        id: p.id,
+        name: p.name,
+        ownerEmail: p.owner.email,
+        membersCount: p.memberships.length,
+        failedJobsCount: p.jobs.length,
+        criticalRisksCount: p.raidItems.length,
+        latestViabilityScore: p.viabilitySnapshots[0]?.overall ?? null,
+        isSupportRisk: isRisk,
+        createdAt: p.createdAt,
+      };
+    });
+  }
+
+  async getSupportProjectDetails(actor: Actor, projectId: string) {
+    this.requireAdmin(actor);
+    
+    await this.prisma.client.platformAuditEvent.create({
+      data: {
+        actorId: actor.userId,
+        eventType: "platform.support.view",
+        targetType: "project",
+        targetId: projectId,
+        metadata: { projectId },
+      },
+    });
+
+    const project = await this.prisma.client.project.findUniqueOrThrow({
+      where: { id: projectId },
+      include: {
+        owner: true,
+        memberships: { include: { user: true } },
+        viabilitySnapshots: { orderBy: { createdAt: "desc" } },
+        jobs: { orderBy: { updatedAt: "desc" }, take: 30 },
+      },
+    });
+
+    const projectAudits = await this.prisma.client.auditEvent.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const redactedAudits = projectAudits.map((a: any) => ({
+      id: a.id,
+      eventType: a.eventType,
+      entityType: a.entityType,
+      entityId: a.entityId,
+      createdAt: a.createdAt,
+      metadata: "[Redacted for Security]",
+      before: a.before ? "[Redacted for Security]" : null,
+      after: a.after ? "[Redacted for Security]" : null,
+    }));
+
+    const redactedJobs = project.jobs.map((j: any) => ({
+      id: j.id,
+      queue: j.queue,
+      status: j.status,
+      attempts: j.attempts,
+      error: j.error,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt,
+      payload: "[Redacted for Security]",
+      result: "[Redacted for Security]",
+    }));
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    const [recentUsage, prevUsage] = await Promise.all([
+      this.prisma.client.tokenUsage.aggregate({
+        where: { projectId, createdAt: { gte: sevenDaysAgo } },
+        _sum: { inputTokens: true, outputTokens: true },
+      }),
+      this.prisma.client.tokenUsage.aggregate({
+        where: { projectId, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } },
+        _sum: { inputTokens: true, outputTokens: true },
+      }),
+    ]);
+
+    const recentTotal = (recentUsage._sum.inputTokens ?? 0) + (recentUsage._sum.outputTokens ?? 0);
+    const prevTotal = (prevUsage._sum.inputTokens ?? 0) + (prevUsage._sum.outputTokens ?? 0);
+    const usageSpikePercent = prevTotal > 0 ? Math.round(((recentTotal - prevTotal) / prevTotal) * 100) : 0;
+
+    return {
+      id: project.id,
+      name: project.name,
+      ownerEmail: project.owner.email,
+      members: project.memberships.map((m: any) => ({
+        userId: m.user.id,
+        email: m.user.email,
+        name: m.user.preferredName,
+        role: m.role,
+      })),
+      viabilityHistory: project.viabilitySnapshots.map((v: any) => ({
+        score: v.overall,
+        createdAt: v.createdAt,
+      })),
+      recentJobs: redactedJobs,
+      recentAudits: redactedAudits,
+      usageSpikePercent,
+    };
   }
 }

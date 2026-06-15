@@ -45,6 +45,27 @@ export class EvolveController {
     return this.evolve.decide(id, impactId, body.decision, actor.userId);
   }
 
+  @Post(":id/impacts/:impactId/resolve")
+  resolve(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Param("impactId") impactId: string,
+    @Body() body: {
+      resolution: "accept" | "keep_current" | "edit_payload" | "retarget" | "split" | "reject";
+      note?: string;
+      payload?: any;
+    },
+  ) {
+    return this.evolve.resolve(
+      id,
+      impactId,
+      body.resolution,
+      body.note,
+      body.payload,
+      actor.userId,
+    );
+  }
+
   @Post(":id/complete")
   complete(
     @CurrentActor() actor: Actor,

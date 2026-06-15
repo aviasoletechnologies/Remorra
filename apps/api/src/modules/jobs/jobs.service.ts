@@ -39,4 +39,16 @@ export class JobsService {
       take: 20,
     });
   }
+
+  async getStreamEvents(id: string, userId: string, after: number, limit = 100) {
+    await this.get(id, userId);
+    return this.prisma.client.jobStreamEvent.findMany({
+      where: {
+        jobId: id,
+        sequence: { gt: after },
+      },
+      orderBy: { sequence: "asc" },
+      take: limit,
+    });
+  }
 }

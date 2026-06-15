@@ -5,5 +5,6 @@ import { EvolveService } from "./evolve.service.js";
 @Module({
   controllers: [EvolveController],
   providers: [EvolveService],
+  exports: [EvolveService],
 })
 export class EvolveModule {}

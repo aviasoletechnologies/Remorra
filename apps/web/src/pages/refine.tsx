@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Link2, MessageSquareText, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Progress } from "../components/ui";
-import { api, waitForJob } from "../lib/api";
+import { api, waitForJob, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 
 type ChatItem = { role: "user" | "assistant"; content: string };
@@ -50,6 +50,7 @@ export function RefinePage() {
       );
     }
   }, [session?.messages]);
+  const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected" | "done" | "failed">("idle");
   const send = useMutation({
     mutationFn: async () => {
       const content = message.trim();
@@ -59,13 +60,37 @@ export function RefinePage() {
       );
       setChat((items) => [...items, { role: "user", content }, { role: "assistant", content: "" }]);
       setMessage("");
-      return waitForJob<{ response: string }>(job.id, 90_000, (progress) => {
-        if (typeof progress.stream !== "string") return;
-        setChat((items) => items.map((item, index) => index === items.length - 1 ? { ...item, content: progress.stream as string } : item));
+      return new Promise<void>((resolve, reject) => {
+        const unsubscribe = streamTextJob(
+          job.id,
+          (text) => {
+            setChat((items) => items.map((item, index) => index === items.length - 1 ? { ...item, content: text } : item));
+          },
+          (state) => {
+            setStreamState(state);
+            if (state === "done") {
+              setStreamState("idle");
+              unsubscribe();
+              resolve();
+            } else if (state === "failed") {
+              setStreamState("idle");
+              unsubscribe();
+              reject(new Error("Streaming failed"));
+            }
+          },
+          (err) => {
+            setStreamState("idle");
+            unsubscribe();
+            reject(err);
+          }
+        );
       });
     },
-    onSuccess: (result) =>
-      setChat((items) => items.map((item, index) => index === items.length - 1 ? { ...item, content: result.response } : item)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["refine-session", sessionId],
+      });
+    },
   });
   const extract = useMutation({
     mutationFn: () =>
@@ -113,9 +138,18 @@ export function RefinePage() {
                   </div>
                 ))}
                 <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain an ambition, measurable outcome, persona, pain point, or user need..." />
-                <div className="heading-actions">
+                <div className="heading-actions" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <Button variant="secondary" onClick={() => extract.mutate()} disabled={extract.isPending}>Extract proposals</Button>
-                  <Button onClick={() => send.mutate()} disabled={message.trim().length < 2 || send.isPending}>{send.isPending ? "Thinking..." : "Send"}</Button>
+                  <Button onClick={() => send.mutate()} disabled={message.trim().length < 2 || send.isPending}>
+                    {streamState === "connecting"
+                      ? "Connecting..."
+                      : streamState === "reconnecting"
+                      ? "Reconnecting..."
+                      : send.isPending
+                      ? "Thinking..."
+                      : "Send"}
+                  </Button>
+                  {streamState === "reconnecting" && <span className="reconnecting-label" style={{ color: "var(--muted)", fontSize: "11px" }}>Network drop. Reconnecting...</span>}
                 </div>
               </>
             ) : <div className="empty-state">Start a session to validate the Founder Pack and build the connected strategy.</div>}
