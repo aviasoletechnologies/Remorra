@@ -1,0 +1,26 @@
+{
+  "name": "remorra",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @remorra/api --filter @remorra/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "db:generate": "pnpm --filter @remorra/database generate",
+    "db:validate": "pnpm --filter @remorra/database validate",
+    "db:seed": "node --env-file=apps/api/.env --import tsx packages/database/prisma/seed.ts",
+    "db:migrate:deploy": "node --env-file=apps/api/.env packages/database/node_modules/prisma/build/index.js migrate deploy --config packages/database/prisma.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8"
+  }
+}

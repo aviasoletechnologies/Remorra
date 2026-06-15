@@ -1,0 +1,26 @@
+{
+  "name": "@remorra/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm build && node --env-file=.env --import tsx dist/main.js",
+    "start": "node --env-file=.env --import tsx dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.104.1",
+    "@remorra/ai-core": "workspace:*",
+    "@remorra/database": "workspace:*",
+    "@supabase/supabase-js": "2.108.1",
+    "ajv": "8.17.1",
+    "pg-boss": "12.14.0",
+    "puppeteer": "25.1.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "4.22.4",
+    "vitest": "4.1.8"
+  }
+}
