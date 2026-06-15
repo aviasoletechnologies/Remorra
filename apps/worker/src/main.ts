@@ -261,6 +261,7 @@ async function injectKnowledgeBases(userContent: string, skillId: string) {
 
 async function invokeSkill(input: {
   skillId?: string;
+  skillVersionId?: string;
   eventType?: string;
   userId: string;
   projectId: string;
@@ -272,10 +273,12 @@ async function invokeSkill(input: {
   await checkTokenBudget(input.userId);
 
   const skillId = input.skillId ?? await resolveSkillId(input.eventType);
-  const skill = await prisma.skillVersion.findFirstOrThrow({
-    where: { skillId, active: true },
-    orderBy: { version: "desc" },
-  });
+  const skill = input.skillVersionId
+    ? await prisma.skillVersion.findUniqueOrThrow({ where: { id: input.skillVersionId } })
+    : await prisma.skillVersion.findFirstOrThrow({
+        where: { skillId, active: true },
+        orderBy: { version: "desc" },
+      });
 
   const additionalSections: any[] = [];
 
@@ -312,6 +315,18 @@ async function invokeSkill(input: {
     userId: input.userId,
     projectId: input.projectId,
     skillId,
+    skillOverride: {
+      id: skill.skillId,
+      name: skill.skillId,
+      version: skill.version,
+      modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
+      systemPrompt: skill.systemPrompt,
+      contextRequirements: requirements,
+      outputSchema: skill.outputSchema,
+      constraints: Array.isArray(skill.constraints) ? skill.constraints as string[] : [],
+      tokenCeiling: skill.tokenCeiling,
+      retryPolicy: skill.retryPolicy,
+    },
     additionalSections,
     onDelta: input.onDelta,
   });
@@ -376,13 +391,17 @@ async function handleConversation(payload: Payload) {
   }, 80);
 
   try {
+    const flowState = typeof payload.flowRunId === "string"
+      ? await prepareFlowTurn(payload)
+      : null;
     const result = await invokeSkill({
-      skillId: typeof payload.skillId === "string" ? payload.skillId : undefined,
+      skillId: flowState?.skillId ?? (typeof payload.skillId === "string" ? payload.skillId : undefined),
+      skillVersionId: flowState?.skillVersionId ?? (typeof payload.skillVersionId === "string" ? payload.skillVersionId : undefined),
       eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
       userId,
       projectId,
       content: String(payload.content),
-      context: await projectContext(projectId),
+      context: flowState?.context ?? await projectContext(projectId),
       onDelta: async (delta, accumulated) => {
         queue.push({ type: "token", delta });
         // Occasional snapshot (approx. every 15-20 tokens)
@@ -417,6 +436,21 @@ async function handleConversation(payload: Payload) {
       });
     }
 
+    if (flowState?.questionFieldKey) {
+      await prisma.questionLedger.create({
+        data: {
+          flowRunId: flowState.flowRunId,
+          stepRunId: flowState.questionStepRunId,
+          fieldKey: flowState.questionFieldKey,
+          question: result.text,
+        },
+      });
+    }
+
+    if (flowState?.completeAfterResponse) {
+      await completeFlowStep(flowState.flowRunId, flowState.flowStepId, flowState.outputs);
+    }
+
     return {
       response: result.text,
       responseStored: Boolean(conversationId),
@@ -440,6 +474,229 @@ async function handleConversation(payload: Payload) {
 
     throw err;
   }
+}
+
+async function prepareFlowTurn(payload: Payload) {
+  const flowRunId = String(payload.flowRunId);
+  const requestedStepRunId = String(payload.flowStepRunId ?? "");
+  const run = await prisma.flowRun.findUniqueOrThrow({
+    where: { id: flowRunId },
+    include: {
+      flowVersion: { include: { steps: { orderBy: { position: "asc" } } } },
+      stepRuns: true,
+    },
+  });
+  const activeStep = run.flowVersion.steps.find((step: any) => step.key === run.currentStepKey);
+  if (!activeStep) throw new Error("Flow has no active step.");
+  const activeStepRun = run.stepRuns.find((item: any) => item.flowStepId === activeStep.id);
+  if (!activeStepRun || (requestedStepRunId && activeStepRun.id !== requestedStepRunId)) {
+    throw new Error("Flow step changed before this job started.");
+  }
+  let context = { ...(run.context as Record<string, unknown>) };
+  let outputs: Record<string, unknown> = {};
+  const isAction = payload.flowAction === true;
+
+  if (!isAction) {
+    await prisma.questionLedger.updateMany({
+      where: { flowRunId: run.id, status: "asked" },
+      data: {
+        answer: String(payload.content ?? ""),
+        status: "answered",
+        answeredAt: new Date(),
+      },
+    });
+  }
+
+  if (!isAction && activeStep.executionMode === "visible_chat") {
+    const helper = run.flowVersion.steps.find(
+      (step: any) => step.parentStepKey === activeStep.key && step.executionMode === "internal_helper" && step.skillId,
+    );
+    if (helper) {
+      let helperRun = run.stepRuns.find((item: any) => item.flowStepId === helper.id);
+      if (!helperRun) {
+        const helperVersion = await prisma.skillVersion.findFirstOrThrow({
+          where: { skillId: helper.skillId!, active: true },
+          orderBy: { version: "desc" },
+        });
+        helperRun = await prisma.flowStepRun.create({
+          data: {
+            flowRunId: run.id,
+            flowStepId: helper.id,
+            skillVersionId: helperVersion.id,
+            status: "active",
+            inputSnapshot: context,
+            producedOutputs: {},
+            missingOutputs: [],
+            startedAt: new Date(),
+          },
+        });
+      }
+      const required = requiredFlowKeys(activeStep.requiredOutputs);
+      const extraction = await invokeSkill({
+        skillId: helper.skillId!,
+        skillVersionId: helperRun.skillVersionId ?? undefined,
+        userId: String(payload.userId),
+        projectId: String(payload.projectId),
+        content: [
+          "Extract a flat JSON object from the latest user answer.",
+          `Allowed keys: ${required.join(", ")}.`,
+          "Only include supported values. Arrays are allowed. Return JSON only.",
+          `Latest answer: ${String(payload.content ?? "")}`,
+        ].join("\n"),
+        context: { existingContext: context, requiredOutputs: required },
+      });
+      try {
+        const parsed = parseAndValidateJson(extraction.text, {}) as Record<string, unknown>;
+        outputs = Object.fromEntries(
+          Object.entries(parsed).filter(([key, value]) => required.includes(key) && hasFlowValue(value)),
+        );
+        context = { ...context, ...outputs };
+      } catch {
+        outputs = {};
+      }
+      await prisma.flowStepRun.update({
+        where: { id: helperRun.id },
+        data: {
+          status: "completed",
+          producedOutputs: jsonValue(outputs),
+          completedAt: new Date(),
+        },
+      });
+    }
+  } else if (isAction && payload.actionOutputs && typeof payload.actionOutputs === "object") {
+    outputs = payload.actionOutputs as Record<string, unknown>;
+    context = { ...context, ...outputs };
+  }
+
+  const missing = requiredFlowKeys(activeStep.requiredOutputs).filter((key) => !hasFlowValue(context[key]));
+  await prisma.$transaction([
+    prisma.flowRun.update({
+      where: { id: run.id },
+      data: { context: jsonValue(context), version: { increment: 1 } },
+    }),
+    prisma.flowStepRun.update({
+      where: { id: activeStepRun.id },
+      data: { producedOutputs: jsonValue(outputs), missingOutputs: missing },
+    }),
+  ]);
+
+  const complete = isAction || missing.length === 0;
+  let responseStep = activeStep;
+  let responseStepRun = activeStepRun;
+  let questionFieldKey = complete ? null : missing[0] ?? null;
+  let questionStepRunId: string | null = activeStepRun.id;
+  if (complete && !isAction) {
+    const nextKey = flowNextStepKey(activeStep);
+    const next = nextKey
+      ? run.flowVersion.steps.find((step: any) => step.key === nextKey && !step.parentStepKey)
+      : null;
+    if (next?.executionMode === "visible_chat" && next.skillId) {
+      const version = await prisma.skillVersion.findFirstOrThrow({
+        where: { skillId: next.skillId, active: true },
+        orderBy: { version: "desc" },
+      });
+      responseStep = next;
+      responseStepRun = {
+        skillVersionId: version.id,
+      } as any;
+      questionFieldKey = requiredFlowKeys(next.requiredOutputs).find((key) => !hasFlowValue(context[key])) ?? null;
+      questionStepRunId = null;
+    }
+  }
+
+  return {
+    flowRunId: run.id,
+    flowStepId: activeStep.id,
+    skillId: responseStep.skillId ?? activeStep.skillId!,
+    skillVersionId: responseStepRun.skillVersionId ?? undefined,
+    context: {
+      ...await projectContext(run.projectId),
+      guidedFlow: {
+        currentStep: responseStep.displayName,
+        capturedContext: context,
+        missingOutputs: complete ? [] : missing,
+        instruction: complete
+          ? "Acknowledge the completed step and ask the first single question for the next step."
+          : "Ask exactly one concise question for the most important missing output.",
+      },
+    },
+    outputs,
+    completeAfterResponse: complete,
+    questionFieldKey,
+    questionStepRunId,
+  };
+}
+
+async function completeFlowStep(
+  flowRunId: string,
+  flowStepId: string,
+  outputs: Record<string, unknown>,
+) {
+  await prisma.$transaction(async (tx: any) => {
+    const run = await tx.flowRun.findUniqueOrThrow({
+      where: { id: flowRunId },
+      include: { flowVersion: { include: { steps: { orderBy: { position: "asc" } } } } },
+    });
+    const step = run.flowVersion.steps.find((item: any) => item.id === flowStepId);
+    if (!step || run.currentStepKey !== step.key) return;
+    const context = { ...(run.context as Record<string, unknown>), ...outputs };
+    await tx.flowStepRun.update({
+      where: { flowRunId_flowStepId: { flowRunId, flowStepId } },
+      data: { status: "completed", producedOutputs: jsonValue(outputs), missingOutputs: [], completedAt: new Date() },
+    });
+    const nextKey = flowNextStepKey(step);
+    const next = nextKey
+      ? run.flowVersion.steps.find((item: any) => item.key === nextKey && !item.parentStepKey)
+      : null;
+    if (!next) {
+      await tx.flowRun.update({
+        where: { id: flowRunId },
+        data: { context: jsonValue(context), currentStepKey: null, status: "completed", completedAt: new Date(), version: { increment: 1 } },
+      });
+      return;
+    }
+    const skillVersion = next.skillId
+      ? await tx.skillVersion.findFirst({
+          where: { skillId: next.skillId, active: true },
+          orderBy: { version: "desc" },
+        })
+      : null;
+    await tx.flowStepRun.upsert({
+      where: { flowRunId_flowStepId: { flowRunId, flowStepId: next.id } },
+      create: {
+        flowRunId,
+        flowStepId: next.id,
+        skillVersionId: skillVersion?.id,
+        status: "active",
+        inputSnapshot: jsonValue(context),
+        producedOutputs: {},
+        missingOutputs: requiredFlowKeys(next.requiredOutputs).filter((key) => !hasFlowValue(context[key])),
+        startedAt: new Date(),
+      },
+      update: { status: "active", startedAt: new Date() },
+    });
+    await tx.flowRun.update({
+      where: { id: flowRunId },
+      data: { context: jsonValue(context), currentStepKey: next.key, version: { increment: 1 } },
+    });
+  });
+}
+
+function requiredFlowKeys(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function flowNextStepKey(step: any): string | null {
+  return typeof step.transitionRules?.nextStepKey === "string"
+    ? step.transitionRules.nextStepKey
+    : null;
+}
+
+function hasFlowValue(value: unknown) {
+  return value !== null && value !== undefined && value !== "" &&
+    (!Array.isArray(value) || value.length > 0);
 }
 
 async function handleExtract(payload: Payload) {

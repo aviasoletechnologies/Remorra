@@ -57,6 +57,146 @@ const skillMappings = [
   ["founder-pack.generate", "founder-pack-generator"],
 ] as const;
 
+const defaultFlowSteps = [
+  {
+    key: "discover-foundation",
+    displayName: "Discover the product foundation",
+    skillId: "brain-dump-facilitator",
+    position: 10,
+    executionMode: "visible_chat",
+    requiredOutputs: ["productIdea", "problemStatement", "targetAudience", "desiredOutcome"],
+    nextStepKey: "founder-pack-draft",
+  },
+  {
+    key: "discover-extractor",
+    displayName: "Extract Discover facts",
+    skillId: "entity-extractor",
+    parentStepKey: "discover-foundation",
+    position: 20,
+    executionMode: "internal_helper",
+    requiredOutputs: [],
+    nextStepKey: "founder-pack-draft",
+  },
+  {
+    key: "founder-pack-draft",
+    displayName: "Draft the Founder Pack",
+    skillId: "founder-pack-generator",
+    position: 30,
+    executionMode: "visible_chat",
+    requiredOutputs: ["founderPackConfirmed"],
+    nextStepKey: "founder-pack-review",
+  },
+  {
+    key: "founder-pack-review",
+    displayName: "Review the Founder Pack",
+    skillId: null,
+    position: 40,
+    executionMode: "human_review",
+    requiredOutputs: ["founderPackConfirmed"],
+    nextStepKey: "refine-strategy",
+  },
+  {
+    key: "refine-strategy",
+    displayName: "Refine strategy and users",
+    skillId: "refine-prompter",
+    position: 50,
+    executionMode: "visible_chat",
+    requiredOutputs: ["ambitions", "okrs", "personas", "painPoints", "userNeeds"],
+    nextStepKey: "linkage-review",
+  },
+  {
+    key: "refine-extractor",
+    displayName: "Extract Refine proposals",
+    skillId: "entity-extractor",
+    parentStepKey: "refine-strategy",
+    position: 60,
+    executionMode: "internal_helper",
+    requiredOutputs: [],
+    nextStepKey: "linkage-review",
+  },
+  {
+    key: "linkage-review",
+    displayName: "Check linkage contradictions",
+    skillId: "linkage-contradiction-checker",
+    position: 70,
+    executionMode: "explicit_action",
+    requiredOutputs: ["linkageReviewed"],
+    nextStepKey: "product-pack",
+  },
+  {
+    key: "product-pack",
+    displayName: "Assemble the Product Pack",
+    skillId: null,
+    position: 80,
+    executionMode: "deterministic",
+    requiredOutputs: ["productPackCreated"],
+    nextStepKey: "viability",
+  },
+  {
+    key: "viability",
+    displayName: "Calculate viability",
+    skillId: "viability-score-calculator",
+    position: 90,
+    executionMode: "explicit_action",
+    requiredOutputs: ["viabilityCalculated"],
+    nextStepKey: "build-checklist",
+  },
+  {
+    key: "build-checklist",
+    displayName: "Prepare the build checklist",
+    skillId: "build-checklist-generator",
+    position: 100,
+    executionMode: "explicit_action",
+    requiredOutputs: ["buildChecklistCreated"],
+    nextStepKey: "daily-summary",
+  },
+  {
+    key: "daily-summary",
+    displayName: "Summarize delivery meetings",
+    skillId: "daily-meeting-summary",
+    position: 110,
+    executionMode: "explicit_action",
+    requiredOutputs: ["meetingSummaryCreated"],
+    nextStepKey: "retrospective",
+  },
+  {
+    key: "retrospective",
+    displayName: "Generate retrospective insights",
+    skillId: "retrospective-insights",
+    position: 120,
+    executionMode: "explicit_action",
+    requiredOutputs: ["retrospectiveCreated"],
+    nextStepKey: "evolve",
+  },
+  {
+    key: "evolve",
+    displayName: "Explore a product change",
+    skillId: "evolve-facilitator",
+    position: 130,
+    executionMode: "visible_chat",
+    requiredOutputs: ["changeTopic", "changeOutcome"],
+    nextStepKey: "impact-screening",
+  },
+  {
+    key: "impact-screening",
+    displayName: "Screen the change impact",
+    skillId: "impact-screener",
+    position: 140,
+    executionMode: "explicit_action",
+    requiredOutputs: ["impactScreened"],
+    nextStepKey: "document-draft",
+  },
+  {
+    key: "document-draft",
+    displayName: "Draft the final product document",
+    skillId: "document-drafter",
+    position: 150,
+    executionMode: "explicit_action",
+    requiredOutputs: ["documentCreated"],
+    nextStepKey: null,
+  },
+] as const;
+
 const templateHtml = `
 <main>
   <header><div class="brand">REMORRA</div><h1>{{title}}</h1><p>{{subtitle}}</p></header>
@@ -106,6 +246,50 @@ async function main() {
       where: { eventType_skillId: { eventType, skillId } },
       create: { eventType, skillId, active: true },
       update: { active: true },
+    });
+  }
+
+  await prisma.flowDefinition.upsert({
+    where: { id: "founder-product-journey" },
+    create: {
+      id: "founder-product-journey",
+      name: "Founder Product Journey",
+      description: "One continuous guided conversation across Discover, Refine, Initiate, Venture, and Evolve.",
+    },
+    update: {
+      name: "Founder Product Journey",
+      description: "One continuous guided conversation across Discover, Refine, Initiate, Venture, and Evolve.",
+      active: true,
+    },
+  });
+  const publishedFlow = await prisma.flowVersion.findFirst({
+    where: { flowDefinitionId: "founder-product-journey", status: "published" },
+    orderBy: { version: "desc" },
+  });
+  if (!publishedFlow) {
+    await prisma.flowVersion.create({
+      data: {
+        flowDefinitionId: "founder-product-journey",
+        version: 1,
+        status: "published",
+        publishedAt: new Date(),
+        steps: {
+          create: defaultFlowSteps.map((step) => ({
+            key: step.key,
+            displayName: step.displayName,
+            skillId: step.skillId,
+            parentStepKey: "parentStepKey" in step ? step.parentStepKey : null,
+            position: step.position,
+            executionMode: step.executionMode,
+            optional: false,
+            requiresConfirmation: step.executionMode === "human_review",
+            entryRules: {},
+            requiredOutputs: [...step.requiredOutputs],
+            completionRules: { operator: "all_required_outputs" },
+            transitionRules: step.nextStepKey ? { nextStepKey: step.nextStepKey } : { terminal: true },
+          })),
+        },
+      },
     });
   }
 

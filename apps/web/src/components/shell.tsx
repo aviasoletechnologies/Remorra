@@ -85,11 +85,9 @@ export function Shell({ children }: { children: ReactNode }) {
     ? [{ to: "/venture", label: "My tasks", icon: ListChecks }, { to: "/reports", label: "Build Pack", icon: FileChartColumn }]
     : [
         { to: "/", label: "Overview", icon: LayoutDashboard },
-        { to: "/discover", label: "Discover", icon: MessageSquareText },
-        { to: "/refine", label: "Refine", icon: Sparkles },
+        { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
         { to: "/initiate", label: "Initiate", icon: Gauge },
         { to: "/venture", label: "Delivery", icon: ListChecks },
-        { to: "/evolve", label: "Evolve sessions", icon: Sparkles },
         { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
         { to: "/team", label: "People & access", icon: Users },
         { to: "/knowledge", label: "Product library", icon: BookOpen },
@@ -159,7 +157,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="topbar__actions">
             {project?.viabilityScore != null && <div className="score-chip"><Gauge size={17} /><span>Viability</span><strong>{project.viabilityScore}</strong></div>}
             <button className="icon-button" aria-label="Notifications" onClick={() => setNotificationsOpen((value) => !value)}><Bell size={18} />{jobs.some((job) => ["queued", "running", "failed"].includes(job.status)) ? <span className="notification-dot" /> : null}</button>
-            {project?.role === "founder" && <NavLink to="/evolve" className="button button--primary"><Sparkles size={16} />Open Evolve</NavLink>}
+            {project?.role === "founder" && <NavLink to="/workspace" className="button button--primary"><Sparkles size={16} />Open AI guide</NavLink>}
           </div>
         </header>
         {notificationsOpen ? <div className="floating-panel notification-panel"><h2>Recent activity</h2>{jobs.length ? jobs.map((job) => <div className="panel-row" key={job.id}><span>{job.queue}</span><Badge tone={job.status === "completed" ? "green" : job.status === "failed" ? "red" : "amber"}>{job.status}</Badge></div>) : <p>No recent jobs in the last minute.</p>}</div> : null}

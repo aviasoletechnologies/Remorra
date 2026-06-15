@@ -64,6 +64,46 @@ export class AdminController {
     return this.admin.mappings(actor);
   }
 
+  @Get("flows")
+  flows(@CurrentActor() actor: Actor) {
+    return this.admin.flows(actor);
+  }
+
+  @Post("flows")
+  createFlow(
+    @CurrentActor() actor: Actor,
+    @Body() body: { id: string; name: string; description?: string },
+  ) {
+    return this.admin.createFlow(actor, body);
+  }
+
+  @Post("flows/:id/versions")
+  cloneFlowVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+  ) {
+    return this.admin.cloneFlowVersion(actor, id);
+  }
+
+  @Put("flow-versions/:id")
+  saveFlowVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { steps: Record<string, unknown>[] },
+  ) {
+    return this.admin.saveFlowVersion(actor, id, body.steps);
+  }
+
+  @Post("flow-versions/:id/validate")
+  validateFlowVersion(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.validateFlowVersion(actor, id);
+  }
+
+  @Post("flow-versions/:id/publish")
+  publishFlowVersion(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.publishFlowVersion(actor, id);
+  }
+
   @Put("skill-mappings/:eventType")
   setMapping(
     @CurrentActor() actor: Actor,

@@ -19,6 +19,7 @@ import {
 import { useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
+import { AdminFlowBuilder } from "../components/admin-flow-builder";
 
 export function AdminPage() {
   const queryClient = useQueryClient();
@@ -31,7 +32,7 @@ export function AdminPage() {
   const [knowledgeDrafts, setKnowledgeDrafts] = useState<Record<string, string>>({});
   const [reportDrafts, setReportDrafts] = useState<Record<string, string>>({});
 
-  const [systemSubTab, setSystemSubTab] = useState<"skills" | "routing" | "reports" | "knowledge" | "retention">("skills");
+  const [systemSubTab, setSystemSubTab] = useState<"skills" | "flows" | "routing" | "reports" | "knowledge" | "retention">("skills");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
@@ -847,6 +848,13 @@ export function AdminPage() {
               <span>Skill Registry</span>
             </button>
             <button
+              className={`admin-sub-tab ${systemSubTab === "flows" ? "active" : ""}`}
+              onClick={() => setSystemSubTab("flows")}
+            >
+              <Activity size={16} />
+              <span>Guided Flows</span>
+            </button>
+            <button
               className={`admin-sub-tab ${systemSubTab === "routing" ? "active" : ""}`}
               onClick={() => setSystemSubTab("routing")}
             >
@@ -877,6 +885,7 @@ export function AdminPage() {
           </aside>
 
           <div className="admin-sub-content">
+            {systemSubTab === "flows" && <AdminFlowBuilder canWrite={isAdmin} />}
             {systemSubTab === "skills" && (
               <Card className="admin-table">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>

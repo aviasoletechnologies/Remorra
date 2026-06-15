@@ -86,10 +86,11 @@ export class AiOrchestrator {
   async invoke<T>(
     input: Omit<AiInvocation, "skill" | "sections"> & {
       skillId: string;
+      skillOverride?: SkillDefinition<T>;
       additionalSections?: readonly AiContextSection[];
     },
   ): Promise<AiResult<T> & { skill: SkillDefinition }> {
-    const skill = await this.registry.getActive<T>(input.skillId);
+    const skill = input.skillOverride ?? await this.registry.getActive<T>(input.skillId);
     const assembledSections = await this.context.assemble(
       input.projectId,
       skill.contextRequirements,
