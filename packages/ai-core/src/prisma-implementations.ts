@@ -23,6 +23,7 @@ export class PrismaSkillRegistry implements SkillRegistry {
     });
     return {
       id: version.skillId,
+      versionId: version.id,
       name: version.skillId,
       version: version.version,
       modelTier: version.modelTier,
@@ -291,7 +292,7 @@ export class PrismaTokenTracker implements TokenTracker {
       data: {
         userId: invocation.userId,
         projectId: invocation.projectId,
-        skillVersionId: `${invocation.skill.id}:v${invocation.skill.version}`,
+        skillVersionId: invocation.skill.versionId,
         requestId: invocation.requestId,
         model: usage.model,
         inputTokens: usage.inputTokens,

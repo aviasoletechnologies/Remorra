@@ -40,7 +40,7 @@ const orchestrator = new AiOrchestrator(
       const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
       const rawRetry = invocation.skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
       const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
-      const retryContext = { userId: invocation.userId, projectId: invocation.projectId, skillVersionId: `${invocation.skill.id}:v${invocation.skill.version}`, model };
+      const retryContext = { userId: invocation.userId, projectId: invocation.projectId, skillVersionId: invocation.skill.versionId, model };
 
       let response;
       if (invocation.onDelta) {
@@ -317,6 +317,7 @@ async function invokeSkill(input: {
     skillId,
     skillOverride: {
       id: skill.skillId,
+      versionId: skill.id,
       name: skill.skillId,
       version: skill.version,
       modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
@@ -720,7 +721,7 @@ async function handleExtract(payload: Payload) {
     const snapshot = await prisma.viabilitySnapshot.create({
       data: {
         projectId,
-        skillVersionId: result.skill.id,
+        skillVersionId: result.skill.versionId,
         overall: Number(parsed.overall ?? 0),
         components: jsonValue(parsed.components ?? {}),
         rationale: String(parsed.rationale ?? ""),
