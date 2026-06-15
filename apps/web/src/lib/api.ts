@@ -6,18 +6,7 @@ export async function api<T>(
   path: string,
   init: RequestInit & { version?: number } = {},
 ): Promise<T> {
-  const session = await supabase?.auth.getSession();
-  const token = session?.data.session?.access_token;
-  const isForm = init.body instanceof FormData;
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: {
-      ...(!isForm ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init.version ? { "if-match": String(init.version) } : {}),
-      ...init.headers,
-    },
-  });
+  const response = await authorizedFetch(path, init);
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     const message = payload?.message ?? payload?.error?.message ?? `Request failed: ${response.status}`;
@@ -46,12 +35,9 @@ async function streamJob<T = Record<string, unknown>>(
   timeoutMs: number,
   onProgress?: (result: Record<string, unknown>) => void,
 ): Promise<T> {
-  const session = await supabase?.auth.getSession();
-  const token = session?.data.session?.access_token;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  const response = await fetch(`${apiUrl}/jobs/${jobId}/stream`, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+  const response = await authorizedFetch(`/jobs/${jobId}/stream`, {
     signal: controller.signal,
   });
   if (!response.ok || !response.body) {
@@ -131,12 +117,8 @@ export function streamTextJob(
     onStateChange?.(lastSequence > 0 ? "reconnecting" : "connecting");
 
     try {
-      const session = await supabase?.auth.getSession();
-      const token = session?.data.session?.access_token;
-      
       controller = new AbortController();
-      const response = await fetch(`${apiUrl}/jobs/${jobId}/tokens/stream?after=${lastSequence}`, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
+      const response = await authorizedFetch(`/jobs/${jobId}/tokens/stream?after=${lastSequence}`, {
         signal: controller.signal,
       });
 
@@ -208,5 +190,41 @@ export function streamTextJob(
     isAborted = true;
     controller.abort();
   };
+}
+
+async function authorizedFetch(
+  path: string,
+  init: RequestInit & { version?: number } = {},
+  allowRetry = true,
+) {
+  const session = await supabase?.auth.getSession();
+  let token = session?.data.session?.access_token;
+  const isForm = init.body instanceof FormData;
+
+  const request = (accessToken?: string) =>
+    fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: {
+        ...(!isForm ? { "content-type": "application/json" } : {}),
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+        ...(init.version ? { "if-match": String(init.version) } : {}),
+        ...init.headers,
+      },
+    });
+
+  let response = await request(token);
+  if (response.status === 401 && allowRetry && supabase) {
+    const refreshed = await supabase.auth.refreshSession();
+    const refreshedToken = refreshed.data.session?.access_token;
+    if (!refreshedToken) {
+      await supabase.auth.signOut();
+      return response;
+    }
+    response = await request(refreshedToken);
+    if (response.status === 401) {
+      await supabase.auth.signOut();
+    }
+  }
+  return response;
 }
 
