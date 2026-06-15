@@ -7,6 +7,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
@@ -42,6 +43,7 @@ export class DiscoverController {
     return session;
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post(":id/messages")
   async message(
     @CurrentActor() actor: Actor,

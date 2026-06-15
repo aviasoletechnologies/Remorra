@@ -52,21 +52,36 @@ export function AdminPage() {
   const [newEventRoutingType, setNewEventRoutingType] = useState("");
   const [newEventRoutingSkillId, setNewEventRoutingSkillId] = useState("");
 
+  // Period Selector State
+  type PeriodPreset = "today" | "week" | "mtd" | "ytd" | "all";
+  const [period, setPeriod] = useState<PeriodPreset>("all");
+  const periodDates = (() => {
+    const now = new Date();
+    switch (period) {
+      case "today": return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString() };
+      case "week": { const d = new Date(now); d.setDate(d.getDate() - 7); return { from: d.toISOString() }; }
+      case "mtd": return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString() };
+      case "ytd": return { from: new Date(now.getFullYear(), 0, 1).toISOString() };
+      default: return {};
+    }
+  })();
+  const periodQuery = Object.entries(periodDates).map(([k, v]) => `${k}=${v}`).join("&");
+
   // Tab 1: Overview & Metrics Queries
   const { data: actor } = useQuery<any>({ queryKey: ["me"], queryFn: () => api("/auth/me") });
   const { data: overviewMetrics } = useQuery<any>({
-    queryKey: ["admin-overview-metrics"],
-    queryFn: () => api("/admin/metrics/overview"),
+    queryKey: ["admin-overview-metrics", period],
+    queryFn: () => api(`/admin/metrics/overview${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
   });
   const { data: usageMetrics } = useQuery<any>({
-    queryKey: ["admin-usage-metrics"],
-    queryFn: () => api("/admin/metrics/usage"),
+    queryKey: ["admin-usage-metrics", period],
+    queryFn: () => api(`/admin/metrics/usage${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
   });
   const { data: jobsMetrics } = useQuery<any>({
-    queryKey: ["admin-jobs-metrics"],
-    queryFn: () => api("/admin/metrics/jobs"),
+    queryKey: ["admin-jobs-metrics", period],
+    queryFn: () => api(`/admin/metrics/jobs${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
     refetchInterval: 5000,
   });
@@ -341,6 +356,29 @@ export function AdminPage() {
       {/* Tab Content 1: Overview */}
       {activeTab === "overview" && (
         <>
+          <div className="admin-period-selector" style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {(["today", "week", "mtd", "ytd", "all"] as const).map((p) => (
+              <button
+                key={p}
+                className={`admin-period-btn ${period === p ? "active" : ""}`}
+                onClick={() => setPeriod(p)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: period === p ? "1px solid var(--accent, #23694a)" : "1px solid var(--border, #2a3a30)",
+                  background: period === p ? "var(--accent, #23694a)" : "transparent",
+                  color: period === p ? "#fff" : "var(--text-secondary, #8ca296)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                {p === "mtd" ? "MTD" : p === "ytd" ? "YTD" : p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
           <section className="admin-metrics">
             <Card>
               <Users />

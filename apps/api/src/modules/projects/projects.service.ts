@@ -12,6 +12,31 @@ import {
 } from "./project.repository.js";
 import { EvolveService } from "../evolve/evolve.service.js";
 
+const REMORRA_BUILD_RULES = `# REMORRA BUILD RULES
+
+> This file is mandatory. It must be ingested and followed by every developer receiving a Build Pack.
+
+## Entity Integrity Rules
+- Never break linkage. Every Task must remain linked to its parent User Story.
+- Do not create, modify, or delete strategic entities (Ambitions, OKRs, Personas, Pain Points, User Needs). These are managed exclusively through Evolve.
+- Task status transitions follow Kanban flow: backlog → todo → in_progress → done.
+- Preserve version fields — used for optimistic concurrency control.
+
+## Import Format
+Submit a JSON file with: buildCycleId, completedAt, changes (array of {entityType, entityId, action, fields}), newIssues, and notes.
+
+## Import Processing
+1. An Evolve session is created from the import.
+2. Impact Screener assesses each change against linked entities.
+3. Founder reviews and approves/rejects per item.
+4. Approved changes applied atomically with audit trail logging.
+
+## Communication
+- Suppliers: direct all questions to the Founder.
+- Build issues: document as RAID items in the import file.
+- Reference Task ID and User Story ID in commit messages.
+`;
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -83,6 +108,7 @@ export class ProjectsService {
       entities: { ambitions, okrs, personas, painPoints, userNeeds, stories, tasks },
       instructions:
         "Submit changes back through developer-import. Remorra will convert them to Evolve impact items for founder approval.",
+      buildRules: REMORRA_BUILD_RULES,
     };
   }
 

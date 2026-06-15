@@ -118,6 +118,80 @@ async function execute(
   }
 }
 
+async function checkTokenBudget(userId: string) {
+  const profile = await prisma.profile.findUniqueOrThrow({ where: { id: userId } });
+  if (profile.tier !== "free") return;
+  const cap = Number(process.env.FREE_TIER_TOKEN_CAP ?? 500000);
+  const agg = await prisma.tokenUsage.aggregate({
+    where: { userId },
+    _sum: { inputTokens: true, outputTokens: true },
+  });
+  const total = (agg._sum.inputTokens ?? 0) + (agg._sum.outputTokens ?? 0);
+  if (total >= cap) {
+    throw new Error("TOKEN_BUDGET_EXCEEDED: Free tier token limit reached. Upgrade to continue.");
+  }
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  policy: { limit: number; backoff: boolean },
+  context: { userId: string; projectId: string; skillVersionId: string; model: string },
+): Promise<T> {
+  const maxAttempts = policy.limit ?? 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const status = error?.status ?? error?.statusCode;
+      const retryable = [429, 500, 529].includes(status) ||
+        error?.code === "ECONNRESET" || error?.code === "ETIMEDOUT";
+      if (!retryable || attempt === maxAttempts - 1) {
+        // Log to AiFailure on final failure
+        await prisma.aiFailure.create({
+          data: {
+            userId: context.userId,
+            projectId: context.projectId,
+            skillVersionId: context.skillVersionId,
+            model: context.model,
+            error: error instanceof Error ? error.message : String(error),
+            requestPayload: {},
+          },
+        }).catch(() => {}); // Don't let logging failure mask the original error
+        throw error;
+      }
+      if (policy.backoff) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw new Error("Retry exhausted");
+}
+
+async function injectKnowledgeBases(userContent: string, skillId: string) {
+  const kbSkills = ["evolve-facilitator", "document-drafter"];
+  if (!kbSkills.includes(skillId)) return [];
+  const mappings = await prisma.knowledgeBaseTopicMapping.findMany({
+    include: { knowledgeBase: { include: { versions: { where: { active: true }, take: 1 } } } },
+  });
+  const contentLower = userContent.toLowerCase();
+  const matched: { tag: string; markdown: string }[] = [];
+  for (const mapping of mappings) {
+    if (contentLower.includes(mapping.topic.toLowerCase())) {
+      const version = mapping.knowledgeBase.versions[0];
+      if (version && mapping.knowledgeBase.active) {
+        matched.push({ tag: mapping.knowledgeBase.id, markdown: version.markdown });
+      }
+    }
+  }
+  // Sort by priority (higher first) and deduplicate by KB id
+  const seen = new Set<string>();
+  return matched.filter((m) => {
+    if (seen.has(m.tag)) return false;
+    seen.add(m.tag);
+    return true;
+  });
+}
+
 async function invokeSkill(input: {
   skillId?: string;
   eventType?: string;
@@ -127,35 +201,61 @@ async function invokeSkill(input: {
   context: unknown;
   onDelta?: (delta: string, accumulated: string) => Promise<void>;
 }) {
+  // Free tier budget check
+  await checkTokenBudget(input.userId);
+
   const skillId = input.skillId ?? await resolveSkillId(input.eventType);
   const skill = await prisma.skillVersion.findFirstOrThrow({
     where: { skillId, active: true },
     orderBy: { version: "desc" },
   });
   const model = modelFor(skill.modelTier);
+
+  // Smart context assembly based on skill's contextRequirements
+  const requirements = Array.isArray(skill.contextRequirements) ? skill.contextRequirements as string[] : [];
+  const contextData = requirements.length > 0
+    ? await assembleContext(input.projectId, requirements)
+    : `<application_context>${JSON.stringify(input.context)}</application_context>`;
+
+  // KB injection for evolve/document skills
+  const kbSections = await injectKnowledgeBases(input.content, skillId);
+  const kbContent = kbSections.map((kb) => `<expertise_knowledge tag="${kb.tag}">${kb.markdown}</expertise_knowledge>`).join("\n");
+
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: contextData },
+  ];
+  if (kbContent) {
+    messages.push({ role: "user", content: kbContent });
+  }
+  messages.push({ role: "user", content: `<user_message>${input.content}</user_message>` });
+
   const request: Anthropic.MessageCreateParamsNonStreaming = {
     model,
     max_tokens: skill.tokenCeiling,
     system: skill.systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: `<application_context>${JSON.stringify(input.context)}</application_context>`,
-      },
-      { role: "user", content: `<user_message>${input.content}</user_message>` },
-    ],
+    messages,
   };
+
+  const rawRetry = skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
+  const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
+  const retryContext = { userId: input.userId, projectId: input.projectId, skillVersionId: skill.id, model };
+
   let response;
   if (input.onDelta) {
-    const stream = anthropic.messages.stream(request);
-    let streamed = "";
-    stream.on("text", (delta) => {
-      streamed += delta;
-      void input.onDelta?.(delta, streamed);
-    });
-    response = await stream.finalMessage();
+    response = await withRetry(async () => {
+      const stream = anthropic.messages.stream(request);
+      let streamed = "";
+      stream.on("text", (delta) => {
+        streamed += delta;
+        void input.onDelta?.(delta, streamed);
+      });
+      return stream.finalMessage();
+    }, retryPolicy, retryContext);
   } else {
-    response = await anthropic.messages.create(request);
+    response = await withRetry(
+      () => anthropic.messages.create(request),
+      retryPolicy, retryContext,
+    );
   }
   const text = response.content
     .filter((item) => item.type === "text")
@@ -1103,6 +1203,94 @@ async function handleStorageExpiry() {
   return { removed: objects.length };
 }
 
+async function assembleContext(projectId: string, requirements: string[]): Promise<string> {
+  const sections: string[] = [];
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+
+  for (const req of requirements) {
+    switch (req) {
+      case "project.metadata":
+        sections.push(`<project_metadata trust="trusted">${JSON.stringify({ id: project.id, name: project.name, summary: project.summary, phase: project.phase, version: project.version })}</project_metadata>`);
+        break;
+      case "project.phase":
+        sections.push(`<project_phase trust="trusted">${project.phase}</project_phase>`);
+        break;
+      case "ambitions.all":
+      case "okrs.all": {
+        const ambitions = await prisma.ambition.findMany({ where: { projectId }, include: { okrs: true } });
+        sections.push(`<ambitions trust="trusted">${JSON.stringify(ambitions)}</ambitions>`);
+        break;
+      }
+      case "personas.all": {
+        const personas = await prisma.persona.findMany({ where: { projectId } });
+        sections.push(`<personas trust="trusted">${JSON.stringify(personas)}</personas>`);
+        break;
+      }
+      case "personas.all_with_pain_points_and_user_needs": {
+        const personas = await prisma.persona.findMany({ where: { projectId }, include: { painPoints: true, userNeeds: true } });
+        sections.push(`<personas_with_needs trust="trusted">${JSON.stringify(personas)}</personas_with_needs>`);
+        break;
+      }
+      case "linkage_map.full": {
+        const [ambitions, personas, stories] = await Promise.all([
+          prisma.ambition.findMany({ where: { projectId }, include: { okrs: true } }),
+          prisma.persona.findMany({ where: { projectId }, include: { painPoints: true, userNeeds: true } }),
+          prisma.userStory.findMany({ where: { projectId } }),
+        ]);
+        sections.push(`<linkage_map trust="trusted">${JSON.stringify({ ambitions, personas, stories })}</linkage_map>`);
+        break;
+      }
+      case "viability_score.current": {
+        const snapshot = await prisma.viabilitySnapshot.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" } });
+        sections.push(`<viability_score trust="trusted">${JSON.stringify(snapshot)}</viability_score>`);
+        break;
+      }
+      case "founder.preferred_name": {
+        const owner = await prisma.profile.findFirst({ where: { ownedProjects: { some: { id: projectId } } } });
+        sections.push(`<founder trust="trusted">${JSON.stringify({ preferredName: owner?.preferredName })}</founder>`);
+        break;
+      }
+      case "user_stories.all": {
+        const stories = await prisma.userStory.findMany({ where: { projectId } });
+        sections.push(`<user_stories trust="trusted">${JSON.stringify(stories)}</user_stories>`);
+        break;
+      }
+      case "tasks.all": {
+        const tasks = await prisma.task.findMany({ where: { projectId } });
+        sections.push(`<tasks trust="trusted">${JSON.stringify(tasks)}</tasks>`);
+        break;
+      }
+      case "cycles.all": {
+        const cycles = await prisma.cycle.findMany({ where: { projectId } });
+        sections.push(`<cycles trust="trusted">${JSON.stringify(cycles)}</cycles>`);
+        break;
+      }
+      case "raid_items.all": {
+        const items = await prisma.raidItem.findMany({ where: { projectId } });
+        sections.push(`<raid_items trust="trusted">${JSON.stringify(items)}</raid_items>`);
+        break;
+      }
+      case "finance.all": {
+        const entries = await prisma.financeEntry.findMany({ where: { projectId } });
+        sections.push(`<finance trust="trusted">${JSON.stringify(entries)}</finance>`);
+        break;
+      }
+      case "founder_pack.current": {
+        const pack = await prisma.founderPack.findFirst({ where: { projectId }, orderBy: { version: "desc" } });
+        sections.push(`<founder_pack trust="trusted">${JSON.stringify(pack)}</founder_pack>`);
+        break;
+      }
+      case "product_pack.current": {
+        const pack = await prisma.productPack.findFirst({ where: { projectId }, orderBy: { version: "desc" } });
+        sections.push(`<product_pack trust="trusted">${JSON.stringify(pack)}</product_pack>`);
+        break;
+      }
+    }
+  }
+  return sections.join("\n");
+}
+
+// Legacy fallback for handlers that still use projectContext directly
 async function projectContext(projectId: string) {
   return prisma.project.findUniqueOrThrow({
     where: { id: projectId },

@@ -44,6 +44,7 @@ enum SessionStatus {
   draft
   screening
   completed
+  nav_away
 }
 
 enum EvolveMode {
@@ -104,6 +105,7 @@ model Profile {
   email                String                @unique
   preferredName        String?
   platformRole         PlatformRole          @default(user)
+  tier                 String                @default("free")
   status               ProfileStatus         @default(active)
   privacyPolicyVersion String?
   termsVersion         String?

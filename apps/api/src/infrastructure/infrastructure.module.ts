@@ -1,5 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard } from "@nestjs/throttler";
 import { AnthropicService } from "./anthropic.service.js";
 import { SupabaseAuthGuard } from "./auth.guard.js";
 import { CryptoService } from "./crypto.service.js";
@@ -18,6 +19,7 @@ import { ProjectAccessService } from "./project-access.service.js";
     AnthropicService,
     ProjectAccessService,
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
   exports: [
     PrismaService,

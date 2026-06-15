@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { ApiTags } from "@nestjs/swagger";
 import { ViabilityService } from "./viability.service.js";
 import {
@@ -11,6 +12,7 @@ import {
 export class ViabilityController {
   constructor(private readonly viability: ViabilityService) {}
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post("projects/:projectId/calculate")
   calculate(
     @CurrentActor() actor: Actor,

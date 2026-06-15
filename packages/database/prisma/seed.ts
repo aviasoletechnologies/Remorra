@@ -8,7 +8,7 @@ const skills = [
   ["founder-pack-generator", "Founder Pack Generator", "standard", 3000, "Draft a concise Founder Pack from confirmed Discover data. Separate evidence from assumptions."],
   ["refine-prompter", "Refine Prompter", "standard", 1800, "Help the founder validate the Founder Pack and define connected ambitions, measurable OKRs, personas, pain points, and user needs. Propose records but never claim they are confirmed."],
   ["linkage-contradiction-checker", "Linkage Contradiction Checker", "standard", 1800, "Review linked entities for logical contradictions only. Return structured findings with evidence."],
-  ["viability-score-calculator", "Viability Score Calculator", "standard", 2400, "Score only against supplied configured components and evidence. Return 0-100 component scores, rationale, and prioritized actions."],
+  ["viability-score-calculator", "Viability Score Calculator", "standard", 2400, "Score the product across 10 equally weighted components (10% each): problem_articulation, audience_profile, product_concept, vision_statement, commercial_context, ambitions, okrs, personas, user_needs, and cohesion. Return 0-100 scores per component, overall score, rationale, prioritized actions, and a 10-item build-readiness checklist. Score only against supplied evidence."],
   ["daily-meeting-summary", "Daily Meeting Summary", "standard", 1200, "Summarize yesterday, today, blockers, and active cycle context. Highlight decisions and owners without inventing assignments."],
   ["retrospective-insights", "Retrospective Insights", "standard", 1600, "Identify recurring strengths, improvement themes, and actionable experiments from the retrospective and cycle evidence."],
   ["report-generator", "Report Generator", "standard", 4000, "Generate a structured product intelligence report from the supplied immutable snapshot. Clearly distinguish observed facts, analysis, risks, and recommended actions. Return JSON."],
@@ -39,6 +39,9 @@ const skillMappings = [
   ["evolve.message", "evolve-facilitator"],
   ["evolve.screen", "impact-screener"],
   ["document.draft", "document-drafter"],
+  ["evolve.extract", "entity-extractor"],
+  ["linkage.check", "linkage-contradiction-checker"],
+  ["founder-pack.generate", "founder-pack-generator"],
 ] as const;
 
 const templateHtml = `

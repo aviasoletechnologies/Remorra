@@ -48,19 +48,46 @@ export class ViabilityService {
     };
   }
 
+  async autoRecalculate(projectId: string, userId: string) {
+    const profile = await this.prisma.client.profile.findUniqueOrThrow({ where: { id: userId } });
+    if (profile.tier === "free") return; // Free tier: manual only
+    const existing = await this.prisma.client.viabilitySnapshot.count({ where: { projectId } });
+    const config = this.config();
+    if (existing >= config.recalculationLimit) return; // Limit reached
+    return this.queue.enqueue({
+      queue: QUEUES.aiExtract,
+      projectId,
+      userId,
+      idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
+      payload: { eventType: "viability.calculate", projectId },
+    });
+  }
+
   private config() {
     return {
       recalculationLimit: Number(process.env.VIABILITY_RECALCULATION_LIMIT ?? 3),
       componentWeights: {
-        evidence: Number(process.env.VIABILITY_WEIGHT_EVIDENCE ?? 25),
-        linkage: Number(process.env.VIABILITY_WEIGHT_LINKAGE ?? 25),
-        delivery: Number(process.env.VIABILITY_WEIGHT_DELIVERY ?? 25),
-        risk: Number(process.env.VIABILITY_WEIGHT_RISK ?? 25),
+        problem_articulation: 10,
+        audience_profile: 10,
+        product_concept: 10,
+        vision_statement: 10,
+        commercial_context: 10,
+        ambitions: 10,
+        okrs: 10,
+        personas: 10,
+        user_needs: 10,
+        cohesion: 10,
       },
       readinessCriteria: [
-        "One complete Ambition-to-User-Need thread exists.",
-        "At least one active delivery cycle or Build Pack exists.",
-        "Open high-severity risks have an owner or mitigation.",
+        "Problem Articulation is clearly defined with supporting evidence.",
+        "Audience Profile identifies at least one validated persona.",
+        "Product Concept covers core features and differentiation.",
+        "Vision Statement is concise and actionable.",
+        "Commercial Context covers revenue model and market size.",
+        "At least one Ambition is defined with measurable OKRs.",
+        "OKRs are linked to at least one Persona.",
+        "Each Persona has at least one Pain Point and one User Need.",
+        "One complete Ambition-to-User-Need linkage thread exists.",
         "The latest score rationale references confirmed product evidence.",
       ],
     };

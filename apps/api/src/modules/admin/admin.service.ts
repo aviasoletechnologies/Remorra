@@ -607,23 +607,25 @@ export class AdminService {
 
   // --- Phase 2: Metrics Endpoints ---
 
-  async getOverviewMetrics(actor: Actor) {
+  async getOverviewMetrics(actor: Actor, from?: Date, to?: Date) {
     this.requireAdmin(actor);
+    const dateRange = this.dateFilter(from, to);
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const [users, projects, activeProjects, failedJobs, tokens, docs, storage] = await Promise.all([
-      this.prisma.client.profile.count(),
-      this.prisma.client.project.count(),
+      this.prisma.client.profile.count({ where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined }),
+      this.prisma.client.project.count({ where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined }),
       this.prisma.client.project.count({
-        where: { updatedAt: { gte: thirtyDaysAgo } },
+        where: { updatedAt: { gte: from ?? thirtyDaysAgo, ...(to ? { lte: to } : {}) } },
       }),
       this.prisma.client.jobRecord.count({
-        where: { status: "failed", updatedAt: { gte: thirtyDaysAgo } },
+        where: { status: "failed", updatedAt: { gte: from ?? thirtyDaysAgo, ...(to ? { lte: to } : {}) } },
       }),
       this.prisma.client.tokenUsage.aggregate({
+        where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined,
         _sum: { inputTokens: true, outputTokens: true, costMinor: true },
       }),
       this.prisma.client.generatedDocument.count({
-        where: { status: "completed" },
+        where: { status: "completed", ...(dateRange.createdAt ? { createdAt: dateRange.createdAt } : {}) },
       }),
       this.prisma.client.storageObject.aggregate({
         _sum: { sizeBytes: true },
@@ -675,24 +677,30 @@ export class AdminService {
     return atRiskProjects.length;
   }
 
-  async getUsageMetrics(actor: Actor) {
+  async getUsageMetrics(actor: Actor, from?: Date, to?: Date) {
     this.requireAdmin(actor);
+    const dateRange = this.dateFilter(from, to);
+    const tokenWhere = dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined;
     const [byModel, bySkill, byProject, byUser, storageByProject] = await Promise.all([
       this.prisma.client.tokenUsage.groupBy({
         by: ["model"],
+        where: tokenWhere,
         _sum: { inputTokens: true, outputTokens: true, costMinor: true },
         _count: true,
       }),
       this.prisma.client.tokenUsage.groupBy({
         by: ["skillVersionId"],
+        where: tokenWhere,
         _sum: { inputTokens: true, outputTokens: true, costMinor: true },
       }),
       this.prisma.client.tokenUsage.groupBy({
         by: ["projectId"],
+        where: tokenWhere,
         _sum: { inputTokens: true, outputTokens: true, costMinor: true },
       }),
       this.prisma.client.tokenUsage.groupBy({
         by: ["userId"],
+        where: tokenWhere,
         _sum: { inputTokens: true, outputTokens: true, costMinor: true },
       }),
       this.prisma.client.storageObject.groupBy({
@@ -704,13 +712,16 @@ export class AdminService {
     return { byModel, bySkill, byProject, byUser, storageByProject };
   }
 
-  async getCostsMetrics(actor: Actor) {
+  async getCostsMetrics(actor: Actor, from?: Date, to?: Date) {
     this.requireAdmin(actor);
+    const dateRange = this.dateFilter(from, to);
+    const tokenWhere = dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined;
     const tokens = await this.prisma.client.tokenUsage.aggregate({
+      where: tokenWhere,
       _sum: { costMinor: true },
     });
     const docCount = await this.prisma.client.generatedDocument.count({
-      where: { status: "completed" },
+      where: { status: "completed", ...(dateRange.createdAt ? { createdAt: dateRange.createdAt } : {}) },
     });
     const storage = await this.prisma.client.storageObject.aggregate({
       _sum: { sizeBytes: true },
@@ -735,10 +746,12 @@ export class AdminService {
     };
   }
 
-  async getJobsMetrics(actor: Actor) {
+  async getJobsMetrics(actor: Actor, from?: Date, to?: Date) {
     this.requireAdmin(actor);
+    const dateRange = this.dateFilter(from, to);
+    const jobWhere = dateRange.createdAt ? { finishedAt: { not: null as Date | null }, status: "completed" as const, startedAt: dateRange.createdAt } : { status: "completed" as const, finishedAt: { not: null as Date | null } };
     const completedAttempts = await this.prisma.client.jobAttempt.findMany({
-      where: { status: "completed", finishedAt: { not: null } },
+      where: jobWhere,
       select: { startedAt: true, finishedAt: true },
     });
 
@@ -750,12 +763,13 @@ export class AdminService {
     const p95Idx = Math.floor(latencies.length * 0.95);
     const p95Latency = latencies.length > 0 ? latencies[p95Idx] : 0;
 
-    const totalJobs = await this.prisma.client.jobRecord.count();
-    const failedJobs = await this.prisma.client.jobRecord.count({ where: { status: "failed" } });
+    const jobRecordWhere = dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined;
+    const totalJobs = await this.prisma.client.jobRecord.count({ where: jobRecordWhere });
+    const failedJobs = await this.prisma.client.jobRecord.count({ where: { status: "failed", ...jobRecordWhere } });
     const errorRate = totalJobs > 0 ? (failedJobs / totalJobs) * 100 : 0;
 
     const recentFailed = await this.prisma.client.jobRecord.findMany({
-      where: { status: "failed" },
+      where: { status: "failed", ...(dateRange.createdAt ? { createdAt: dateRange.createdAt } : {}) },
       orderBy: { updatedAt: "desc" },
       take: 50,
     });
@@ -768,6 +782,14 @@ export class AdminService {
       errorRate: Math.round(errorRate * 10) / 10,
       recentFailed,
     };
+  }
+
+  private dateFilter(from?: Date, to?: Date) {
+    if (!from && !to) return {};
+    const createdAt: Record<string, Date> = {};
+    if (from) createdAt.gte = from;
+    if (to) createdAt.lte = to;
+    return { createdAt };
   }
 
   async getProjectsMetrics(actor: Actor) {

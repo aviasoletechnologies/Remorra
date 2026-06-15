@@ -567,6 +567,26 @@ export class EvolveService {
     }
   }
 
+  async saveAsDraft(projectId: string, sessionId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder"]);
+    const session = await this.prisma.client.evolveSession.findFirstOrThrow({
+      where: { id: sessionId, projectId, status: "active" },
+    });
+    return this.prisma.client.evolveSession.update({
+      where: { id: session.id },
+      data: { status: "draft" },
+    });
+  }
+
+  async deleteSession(projectId: string, sessionId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder"]);
+    const session = await this.prisma.client.evolveSession.findFirstOrThrow({
+      where: { id: sessionId, projectId, status: { in: ["draft", "nav_away"] } },
+    });
+    await this.prisma.client.impactItem.deleteMany({ where: { evolveSessionId: session.id } });
+    return this.prisma.client.evolveSession.delete({ where: { id: session.id } });
+  }
+
   private async require(id: string, userId: string) {
     const session = await this.prisma.client.evolveSession.findUniqueOrThrow({
       where: { id },

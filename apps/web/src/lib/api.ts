@@ -20,9 +20,11 @@ export async function api<T>(
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(
-      payload?.message ?? payload?.error?.message ?? `Request failed: ${response.status}`,
-    );
+    const message = payload?.message ?? payload?.error?.message ?? `Request failed: ${response.status}`;
+    if (typeof message === "string" && message.includes("TOKEN_BUDGET_EXCEEDED")) {
+      window.dispatchEvent(new CustomEvent("token-budget-exceeded"));
+    }
+    throw new Error(message);
   }
   return response.json() as Promise<T>;
 }

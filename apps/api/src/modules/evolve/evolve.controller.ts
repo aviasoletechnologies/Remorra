@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { ApiTags } from "@nestjs/swagger";
 import {
   CurrentActor,
@@ -21,6 +22,7 @@ export class EvolveController {
     return this.evolve.get(id, actor.userId);
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post(":id/messages")
   message(
     @CurrentActor() actor: Actor,
@@ -73,5 +75,15 @@ export class EvolveController {
     @Body() body: { currentProjectVersion: number },
   ) {
     return this.evolve.complete(id, body.currentProjectVersion, actor.userId);
+  }
+
+  @Post(":id/save-draft")
+  saveDraft(@CurrentActor() actor: Actor, @Param("projectId") projectId: string, @Param("id") id: string) {
+    return this.evolve.saveAsDraft(projectId, id, actor.userId);
+  }
+
+  @Delete(":id")
+  deleteSession(@CurrentActor() actor: Actor, @Param("projectId") projectId: string, @Param("id") id: string) {
+    return this.evolve.deleteSession(projectId, id, actor.userId);
   }
 }

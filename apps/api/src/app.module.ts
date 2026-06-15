@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { HealthController } from "./health.controller.js";
 import { ProjectsModule } from "./modules/projects/projects.module.js";
 import { DiscoverModule } from "./modules/discover/discover.module.js";
@@ -12,9 +13,11 @@ import { ReportsModule } from "./modules/reports/reports.module.js";
 import { JobsModule } from "./modules/jobs/jobs.module.js";
 import { GdprModule } from "./modules/gdpr/gdpr.module.js";
 import { AdminModule } from "./modules/admin/admin.module.js";
+import { SanitizeMiddleware } from "./infrastructure/sanitize.middleware.js";
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     InfrastructureModule,
     ProjectsModule,
     DiscoverModule,
@@ -30,4 +33,8 @@ import { AdminModule } from "./modules/admin/admin.module.js";
   ],
   controllers: [HealthController],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(SanitizeMiddleware).forRoutes("*");
+  }
+}

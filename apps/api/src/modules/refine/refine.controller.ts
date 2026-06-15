@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { RefineService } from "./refine.service.js";
 
@@ -16,6 +17,7 @@ export class RefineController {
     return this.refine.get(id, actor.userId);
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post("refine/sessions/:id/messages")
   message(
     @CurrentActor() actor: Actor,

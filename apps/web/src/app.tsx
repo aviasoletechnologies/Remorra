@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthGate } from "./components/auth-gate";
 import { Shell } from "./components/shell";
+import { TokenBudgetModal } from "./components/token-budget-modal";
 import { AdminPage } from "./pages/admin";
 import { EvolvePage } from "./pages/evolve";
 import { DiscoverPage } from "./pages/discover";
@@ -32,5 +33,5 @@ export function App() {
     <Route path="/invitations/accept" element={<InvitationAcceptPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes></PageErrorBoundary></Shell></AuthGate>;
+  </Routes></PageErrorBoundary><TokenBudgetModal /></Shell></AuthGate>;
 }

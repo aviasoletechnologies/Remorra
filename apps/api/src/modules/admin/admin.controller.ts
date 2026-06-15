@@ -192,23 +192,39 @@ export class AdminController {
   // --- Phase 2: Metrics Endpoints ---
 
   @Get("metrics/overview")
-  getOverviewMetrics(@CurrentActor() actor: Actor) {
-    return this.admin.getOverviewMetrics(actor);
+  getOverviewMetrics(
+    @CurrentActor() actor: Actor,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.admin.getOverviewMetrics(actor, from ? new Date(from) : undefined, to ? new Date(to) : undefined);
   }
 
   @Get("metrics/usage")
-  getUsageMetrics(@CurrentActor() actor: Actor) {
-    return this.admin.getUsageMetrics(actor);
+  getUsageMetrics(
+    @CurrentActor() actor: Actor,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.admin.getUsageMetrics(actor, from ? new Date(from) : undefined, to ? new Date(to) : undefined);
   }
 
   @Get("metrics/costs")
-  getCostsMetrics(@CurrentActor() actor: Actor) {
-    return this.admin.getCostsMetrics(actor);
+  getCostsMetrics(
+    @CurrentActor() actor: Actor,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.admin.getCostsMetrics(actor, from ? new Date(from) : undefined, to ? new Date(to) : undefined);
   }
 
   @Get("metrics/jobs")
-  getJobsMetrics(@CurrentActor() actor: Actor) {
-    return this.admin.getJobsMetrics(actor);
+  getJobsMetrics(
+    @CurrentActor() actor: Actor,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.admin.getJobsMetrics(actor, from ? new Date(from) : undefined, to ? new Date(to) : undefined);
   }
 
   @Get("metrics/projects")
