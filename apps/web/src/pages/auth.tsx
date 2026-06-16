@@ -84,7 +84,7 @@ export function AuthPage() {
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <Card className="p-8 shadow-2xl shadow-ink/5 border-border-remorra/60 bg-surface/80 backdrop-blur-xl rounded-2xl">
+              <Card className="rounded-2xl border-border bg-card/85 p-8 shadow-2xl shadow-ink/5 backdrop-blur-xl">
                 <div className="mb-8">
                   <h2 className="text-2xl font-bold tracking-tight text-ink mb-2">
                     {mode === "login" ? "Welcome back" : mode === "signup" ? "Start with clarity" : "Reset your password"}
@@ -104,7 +104,7 @@ export function AuthPage() {
                         required 
                         value={email} 
                         onChange={(event) => setEmail(event.target.value)} 
-                        className="pl-10 h-11 bg-white border-border-remorra shadow-sm focus:ring-accent/20"
+                        className="h-11 pl-10 shadow-sm"
                         placeholder="you@company.com"
                       />
                     </div>
@@ -132,7 +132,7 @@ export function AuthPage() {
                           required 
                           value={password} 
                           onChange={(event) => setPassword(event.target.value)} 
-                          className="pl-10 h-11 bg-white border-border-remorra shadow-sm focus:ring-accent/20"
+                          className="h-11 pl-10 shadow-sm"
                           placeholder="••••••••"
                         />
                       </div>
@@ -143,7 +143,7 @@ export function AuthPage() {
                     <motion.div 
                       initial={{ opacity: 0, height: 0 }} 
                       animate={{ opacity: 1, height: "auto" }} 
-                      className={`p-3 rounded-lg text-sm font-medium border ${message.includes("failed") || message.includes("Error") ? "bg-red-soft text-red border-red/20" : "bg-accent-soft text-accent-dark border-accent/20"}`}
+                      className={`rounded-lg border p-3 text-sm font-medium ${message.includes("failed") || message.includes("Error") ? "border-destructive/20 bg-destructive/10 text-destructive" : "border-primary/20 bg-accent-soft text-accent-dark"}`}
                     >
                       {message}
                     </motion.div>

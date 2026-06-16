@@ -20,6 +20,7 @@ import { useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
 import { AdminFlowBuilder } from "../components/admin-flow-builder";
+import { Page, PageHeader } from "../components/app-ui";
 
 export function AdminPage() {
   const queryClient = useQueryClient();
@@ -323,33 +324,27 @@ export function AdminPage() {
   });
 
   return (
-    <div className="page-container py-8 px-6 max-w-[1440px] mx-auto flex flex-col gap-6">
-      <section className="flex flex-col gap-2">
-        <div>
-          <Badge tone="red">Internal administration</Badge>
-          <h1 className="text-3xl font-bold tracking-tight text-ink mt-3 mb-1">Platform Operations Console</h1>
-          <p className="text-sm text-muted">Durable templates, automated cost rates, and redaction-enforced support diagnostics.</p>
-        </div>
-      </section>
+    <Page>
+      <PageHeader eyebrow="Internal administration" tone="neutral" title="Platform operations console" description="Durable templates, automated cost rates, routing, usage, and redaction-enforced support diagnostics." />
 
       {/* Tabs Menu */}
-      <div className="flex gap-2 border-b border-border-remorra/40 pb-2 overflow-x-auto mt-2">
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "overview" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("overview")}>
+      <div className="admin-tabbar">
+        <button data-active={activeTab === "overview"} onClick={() => setActiveTab("overview")}>
           <TrendingUp size={16} /> Overview Metrics
         </button>
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "support" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("support")}>
+        <button data-active={activeTab === "support"} onClick={() => setActiveTab("support")}>
           <Users size={16} /> Support Workspace
         </button>
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "templates" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("templates")}>
+        <button data-active={activeTab === "templates"} onClick={() => setActiveTab("templates")}>
           <FileText size={16} /> Document Templates
         </button>
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "costs" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("costs")}>
+        <button data-active={activeTab === "costs"} onClick={() => setActiveTab("costs")}>
           <DollarSign size={16} /> Costs Manager
         </button>
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "system" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("system")}>
+        <button data-active={activeTab === "system"} onClick={() => setActiveTab("system")}>
           <Settings size={16} /> System Routing
         </button>
-        <button className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === "users" ? "bg-accent/10 text-accent" : "text-muted hover:text-ink hover:bg-surface"}`} onClick={() => setActiveTab("users")}>
+        <button data-active={activeTab === "users"} onClick={() => setActiveTab("users")}>
           <Users size={16} /> Platform Users
         </button>
       </div>
@@ -357,11 +352,11 @@ export function AdminPage() {
       {/* Tab Content 1: Overview */}
       {activeTab === "overview" && (
         <>
-          <div className="flex gap-2 mb-4">
+          <div className="period-tabs mb-4">
             {(["today", "week", "mtd", "ytd", "all"] as const).map((p) => (
               <button
                 key={p}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide transition-colors ${period === p ? "bg-accent text-white border-transparent shadow-sm" : "bg-transparent text-muted border border-border-remorra/60 hover:text-ink"}`}
+                data-active={period === p}
                 onClick={() => setPeriod(p)}
               >
                 {p === "mtd" ? "MTD" : p === "ytd" ? "YTD" : p.charAt(0).toUpperCase() + p.slice(1)}
@@ -369,24 +364,24 @@ export function AdminPage() {
             ))}
           </div>
           <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+            <Card className="p-5 flex flex-col gap-2 bg-card shadow-sm border-border">
               <div className="w-8 h-8 rounded bg-blue-soft/30 flex items-center justify-center text-blue"><Users size={16} /></div>
               <span className="text-xs font-bold text-muted uppercase tracking-wide">Total Users</span>
               <strong className="text-2xl font-bold text-ink">{overviewMetrics?.users ?? "-"}</strong>
             </Card>
-            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+            <Card className="p-5 flex flex-col gap-2 bg-card shadow-sm border-border">
               <div className="w-8 h-8 rounded bg-green-soft/30 flex items-center justify-center text-green"><Database size={16} /></div>
               <span className="text-xs font-bold text-muted uppercase tracking-wide">Projects (Active)</span>
               <strong className="text-2xl font-bold text-ink">
                 {overviewMetrics?.projects ?? "-"} ({overviewMetrics?.activeProjects ?? "-"})
               </strong>
             </Card>
-            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
-              <div className="w-8 h-8 rounded bg-red-soft/30 flex items-center justify-center text-red"><ShieldCheck size={16} /></div>
+            <Card className="p-5 flex flex-col gap-2 bg-card shadow-sm border-border">
+              <div className="w-8 h-8 rounded bg-destructive/10 flex items-center justify-center text-destructive"><ShieldCheck size={16} /></div>
               <span className="text-xs font-bold text-muted uppercase tracking-wide">Failed Jobs (30d)</span>
               <strong className="text-2xl font-bold text-ink">{overviewMetrics?.failedJobs ?? "-"}</strong>
             </Card>
-            <Card className="p-5 flex flex-col gap-2 bg-surface shadow-sm border-border-remorra/70">
+            <Card className="p-5 flex flex-col gap-2 bg-card shadow-sm border-border">
               <div className="w-8 h-8 rounded bg-amber-soft/30 flex items-center justify-center text-amber"><BrainCircuit size={16} /></div>
               <span className="text-xs font-bold text-muted uppercase tracking-wide">Tokens Cost / Revenue</span>
               <strong className="text-2xl font-bold text-ink">
@@ -399,11 +394,11 @@ export function AdminPage() {
           </section>
 
           <div className="grid grid-cols-1 gap-6">
-            <Card className="p-6 bg-surface shadow-sm border-border-remorra/70 overflow-x-auto">
+            <Card className="p-6 bg-card shadow-sm border-border overflow-x-auto">
               <h2 className="text-base font-bold text-ink mb-4">Token Usage Breakdown</h2>
               <table className="w-full text-left text-sm border-collapse min-w-[600px]">
                 <thead>
-                  <tr className="border-b border-border-remorra/60">
+                  <tr className="border-b border-border">
                     <th className="pb-2 font-semibold text-muted">Model Tier / Key</th>
                     <th className="pb-2 font-semibold text-muted">Input Tokens</th>
                     <th className="pb-2 font-semibold text-muted">Output Tokens</th>
@@ -411,7 +406,7 @@ export function AdminPage() {
                     <th className="pb-2 font-semibold text-muted">Invocations count</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border-remorra/30">
+                <tbody className="divide-y divide-border">
                   {(usageMetrics?.byModel ?? []).map((m: any) => (
                     <tr key={m.model}>
                       <td className="py-3 font-semibold text-ink">{m.model}</td>
@@ -425,11 +420,11 @@ export function AdminPage() {
               </table>
             </Card>
 
-            <Card className="p-6 bg-surface shadow-sm border-border-remorra/70 overflow-x-auto">
+            <Card className="p-6 bg-card shadow-sm border-border overflow-x-auto">
               <h2 className="text-base font-bold text-ink mb-4">Recent Failed Jobs Queue & Diagnostics</h2>
               <table className="w-full text-left text-sm border-collapse min-w-[600px]">
                 <thead>
-                  <tr className="border-b border-border-remorra/60">
+                  <tr className="border-b border-border">
                     <th className="pb-2 font-semibold text-muted">Job ID</th>
                     <th className="pb-2 font-semibold text-muted">Queue</th>
                     <th className="pb-2 font-semibold text-muted">Failure Reason</th>
@@ -442,7 +437,7 @@ export function AdminPage() {
                     <tr key={j.id}>
                       <td><small>{j.id.slice(0, 8)}</small></td>
                       <td><strong>{j.queue}</strong></td>
-                      <td style={{ color: "var(--red)" }}>{j.error}</td>
+                      <td style={{ color: "var(--color-destructive)" }}>{j.error}</td>
                       <td>{j.attempts}</td>
                       <td>
                         <Button variant="secondary" onClick={() => retryJob.mutate(j.id)}>
@@ -526,7 +521,7 @@ export function AdminPage() {
                       <p>Project ID: <strong>{supportProjectDetails?.id}</strong></p>
                       <p>Owner: <strong>{supportProjectDetails?.ownerEmail}</strong></p>
                       <p>Usage Spike (7d vs prev 7d):{" "}
-                        <strong style={{ color: (supportProjectDetails?.usageSpikePercent ?? 0) > 50 ? "var(--red)" : "inherit" }}>
+                        <strong style={{ color: (supportProjectDetails?.usageSpikePercent ?? 0) > 50 ? "var(--color-destructive)" : "inherit" }}>
                           {supportProjectDetails?.usageSpikePercent ?? 0}%
                         </strong>
                       </p>
@@ -618,9 +613,9 @@ export function AdminPage() {
               </p>
 
               {!isAdmin && (
-                <div style={{ display: "flex", gap: "8px", background: "#3a2121", padding: "10px", borderRadius: "8px", marginBottom: "12px", border: "1px solid var(--red)" }}>
-                  <ShieldAlert style={{ color: "var(--red)" }} />
-                  <p style={{ color: "var(--red)", fontSize: "11px", margin: 0 }}>
+                <div className="admin-danger-note">
+                  <ShieldAlert />
+                  <p>
                     Support mode is read-only. Cost rates and rendering templates can only be mutated by a Platform Admin.
                   </p>
                 </div>
@@ -745,9 +740,9 @@ export function AdminPage() {
           </p>
 
           {!isAdmin && (
-            <div style={{ display: "flex", gap: "8px", background: "#3a2121", padding: "10px", borderRadius: "8px", marginBottom: "12px", border: "1px solid var(--red)" }}>
-              <ShieldAlert style={{ color: "var(--red)" }} />
-              <p style={{ color: "var(--red)", fontSize: "11px", margin: 0 }}>
+            <div className="admin-danger-note">
+              <ShieldAlert />
+              <p>
                 Support mode is read-only. Cost rates and rendering templates can only be mutated by a Platform Admin.
               </p>
             </div>
@@ -970,20 +965,20 @@ export function AdminPage() {
                 </p>
 
                 {isAdmin && (
-                  <div className="add-routing-row" style={{ display: "flex", gap: "12px", alignItems: "flex-end", marginBottom: "20px", padding: "12px", background: "#111b16", borderRadius: "8px", border: "1px solid #405048" }}>
+                  <div className="add-routing-row">
                     <div style={{ flex: 1 }}>
-                      <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Event Type</label>
+                      <label className="admin-field-label">Event Type</label>
                       <input
                         type="text"
                         placeholder="e.g. project.analyze"
                         className="admin-input"
-                        style={{ width: "100%", background: "#1b2720", color: "#eef6f0", border: "1px solid #405048", borderRadius: "8px", padding: "8px" }}
+                        style={{ width: "100%" }}
                         value={newEventRoutingType}
                         onChange={(e) => setNewEventRoutingType(e.target.value)}
                       />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <label style={{ display: "block", fontSize: "11px", color: "#849289", marginBottom: "4px" }}>Skill Handler</label>
+                      <label className="admin-field-label">Skill Handler</label>
                       <select
                         value={newEventRoutingSkillId}
                         onChange={(e) => setNewEventRoutingSkillId(e.target.value)}
@@ -1426,7 +1421,7 @@ export function AdminPage() {
               </div>
 
               {skillCreateError && (
-                <p style={{ color: "var(--red)", fontSize: "11px", margin: 0 }}>{skillCreateError}</p>
+                <p style={{ color: "var(--color-destructive)", fontSize: "11px", margin: 0 }}>{skillCreateError}</p>
               )}
 
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
@@ -1451,6 +1446,6 @@ export function AdminPage() {
           </Card>
         </div>
       )}
-    </div>
+    </Page>
   );
 }

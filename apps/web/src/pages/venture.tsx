@@ -1,13 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, ChevronRight, Plus, Sparkles, Trash2, LoaderCircle } from "lucide-react";
+import { CalendarDays, ChevronRight, CircleDollarSign, ClipboardList, ListChecks, MessageSquareText, Plus, RefreshCcw, ShieldAlert, Sparkles, Trash2, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
+import { AppTabs, LoadingState, Page, PageHeader, SectionCard } from "../components/app-ui";
 import { motion, AnimatePresence } from "framer-motion";
 
 const columns = ["ready", "in_progress", "review", "done"] as const;
 const tabs = ["board", "cycles", "raid", "finance", "meetings", "retrospectives"] as const;
+const tabItems = [
+  { value: "board", label: "Board", icon: ListChecks },
+  { value: "cycles", label: "Cycles", icon: RefreshCcw },
+  { value: "raid", label: "RAID", icon: ShieldAlert },
+  { value: "finance", label: "Finance", icon: CircleDollarSign },
+  { value: "meetings", label: "Meetings", icon: MessageSquareText },
+  { value: "retrospectives", label: "Retrospectives", icon: ClipboardList },
+] satisfies Array<{ value: (typeof tabs)[number]; label: string; icon: any }>;
 
 export function VenturePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -49,14 +58,7 @@ export function VenturePage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="page-container flex items-center justify-center min-h-[50vh]">
-        <div className="flex flex-col items-center gap-3 text-sm text-muted font-medium animate-pulse">
-          <LoaderCircle className="animate-spin text-accent" size={24} />
-          <span>Loading delivery...</span>
-        </div>
-      </div>
-    );
+    return <LoadingState label="Loading delivery workspace..." />;
   }
 
   const tasks = data?.tasks ?? [];
@@ -71,18 +73,13 @@ export function VenturePage() {
   };
 
   return (
-    <div className="page-container py-8 px-6 max-w-[1440px] mx-auto flex flex-col gap-6">
-      <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <Badge tone="blue">Venture</Badge>
-          <h1 className="text-3xl font-bold font-sans tracking-tight text-ink mt-3 mb-1 font-sans">
-            {data?.role === "supplier" ? "My assigned tasks" : "Delivery workspace"}
-          </h1>
-          <p className="text-xs text-muted">
-            Cycles, delivery evidence, risk, finance, meetings, and learning in one connected view.
-          </p>
-        </div>
-        {founderOrTeam && (
+    <Page>
+      <PageHeader
+        eyebrow="Venture"
+        tone="blue"
+        title={data?.role === "supplier" ? "My assigned tasks" : "Delivery workspace"}
+        description="Cycles, delivery evidence, risk, finance, meetings, and learning in one connected view."
+        actions={founderOrTeam ? (
           <Button
             disabled={generate.isPending}
             onClick={() => generate.mutate({ path: "/build-pack" })}
@@ -91,45 +88,21 @@ export function VenturePage() {
             {generate.isPending ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}
             <span>Generate Build Pack</span>
           </Button>
-        )}
-      </section>
+        ) : undefined}
+      />
 
       {founderOrTeam && (
-        <div className="flex border-b border-border-remorra/60 overflow-x-auto pb-px gap-2">
-          {tabs.map((item) => {
-            const isActive = tab === item;
-            return (
-              <button
-                key={item}
-                onClick={() => setTab(item)}
-                className={`relative px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors duration-200 cursor-pointer ${
-                  isActive ? "text-accent" : "text-muted hover:text-ink"
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="active-venture-tab"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent"
-                    transition={{ type: "spring", stiffness: 350, damping: 28 }}
-                  />
-                )}
-                <span>{item}</span>
-              </button>
-            );
-          })}
-        </div>
+        <AppTabs value={tab} items={tabItems} onChange={setTab} />
       )}
 
       {(tab === "board" || !founderOrTeam) && (
         <div className="flex flex-col gap-6">
           {founderOrTeam && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* New Story Form */}
-              <Card className="p-5 flex flex-col gap-3.5 bg-surface border-border-remorra/70 shadow-sm">
-                <h3 className="text-xs font-bold text-ink uppercase tracking-wider">New story</h3>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <SectionCard title="New story" description="Connect delivery to the first available User Need">
                 <div className="flex gap-2">
                   <Input
-                    className="flex-1 h-9 border border-border-remorra rounded-lg bg-white px-3 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20"
+                    className="flex-1"
                     value={storyTitle}
                     onChange={(event) => setStoryTitle(event.target.value)}
                     placeholder={data?.userNeeds?.length ? "Story title" : "Create a User Need in Refine first"}
@@ -149,14 +122,12 @@ export function VenturePage() {
                     Add
                   </Button>
                 </div>
-              </Card>
+              </SectionCard>
 
-              {/* New Task Form */}
-              <Card className="p-5 flex flex-col gap-3.5 bg-surface border-border-remorra/70 shadow-sm">
-                <h3 className="text-xs font-bold text-ink uppercase tracking-wider">New task</h3>
+              <SectionCard title="New task" description="Add work to the active cycle and board">
                 <div className="flex gap-2">
                   <Input
-                    className="flex-1 h-9 border border-border-remorra rounded-lg bg-white px-3 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20"
+                    className="flex-1"
                     id="new-task"
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
@@ -177,11 +148,11 @@ export function VenturePage() {
                     Add
                   </Button>
                 </div>
-              </Card>
+              </SectionCard>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-b border-border-remorra/40 pb-2">
+          <div className="flex items-center justify-between border-b border-border pb-2">
             <div className="flex items-center gap-1.5 text-xs text-muted font-semibold">
               <CalendarDays size={14} className="text-accent" />
               <span>{activeCycle?.name ?? "No active cycle"}</span>
@@ -189,12 +160,12 @@ export function VenturePage() {
           </div>
 
           {/* Kanban Board */}
-          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {columns.map((status) => {
               const columnTasks = tasks.filter((task: any) => task.status === status);
               return (
-                <div className="p-4 rounded-xl bg-surface-2 border border-border-remorra shadow-inner flex flex-col gap-3 min-h-[480px]" key={status}>
-                  <div className="flex justify-between items-center pb-2 border-b border-border-remorra/50">
+                <div className="flex min-h-[460px] flex-col gap-3 rounded-2xl border border-border bg-secondary/55 p-3 shadow-inner" key={status}>
+                  <div className="flex justify-between items-center pb-2 border-b border-border">
                     <strong className="text-[11px] font-bold text-ink uppercase tracking-wider">
                       {status.replace("_", " ")}
                     </strong>
@@ -203,19 +174,19 @@ export function VenturePage() {
 
                   <div className="flex flex-col gap-2.5">
                     <AnimatePresence>
-                      {columnTasks.map((task: any, index: number) => (
+                      {columnTasks.map((task: any) => (
                         <motion.div
-                          initial={{ opacity: 0, y: 10 }}
+                          initial={{ opacity: 0, y: 4 }}
                           animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ type: "spring", stiffness: 350, damping: 25, delay: index * 0.04 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.18 }}
                           key={task.id}
                         >
-                          <Card className="p-3.5 shadow-sm border border-border-remorra/60 flex flex-col gap-3 bg-surface hover:shadow-md hover:border-[#b8c2ba] transition-all duration-200">
+                          <Card className="p-3.5 flex flex-col gap-3 bg-card hover:border-primary/25 hover:shadow-md transition-[border-color,box-shadow] duration-200">
                             <div className="flex justify-between items-center">
                               <Badge tone="neutral">{task.priority}</Badge>
                               <button
-                                className="w-6 h-6 rounded-md hover:bg-red-soft/20 text-muted hover:text-red flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-6 h-6 rounded-md text-muted hover:bg-destructive/10 hover:text-destructive flex items-center justify-center transition-colors cursor-pointer"
                                 aria-label="Delete task"
                                 onClick={() =>
                                   command.mutate({ path: `/tasks/${task.id}`, method: "DELETE", version: task.version })
@@ -229,7 +200,7 @@ export function VenturePage() {
                               {task.title}
                             </h3>
                             
-                            <footer className="flex justify-between items-center border-t border-border-remorra/40 pt-2.5 mt-1 text-[9px] text-muted">
+                            <footer className="flex justify-between items-center border-t border-border pt-2.5 mt-1 text-[9px] text-muted">
                               <span className="truncate max-w-[120px] font-semibold">
                                 {task.story?.title ?? "Connected story"}
                               </span>
@@ -259,7 +230,7 @@ export function VenturePage() {
                     </AnimatePresence>
 
                     {columnTasks.length === 0 && (
-                      <div className="text-center py-12 text-[10px] text-muted border border-dashed border-border-remorra/40 rounded-xl">
+                      <div className="rounded-xl border border-dashed border-border py-12 text-center text-[10px] text-muted">
                         No tasks
                       </div>
                     )}
@@ -421,28 +392,28 @@ export function VenturePage() {
           }))}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
 function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disabled = false }: any) {
   return (
-    <Card className="overflow-hidden flex flex-col border-border-remorra/70 shadow-sm bg-surface">
-      <div className="h-[50px] px-5 border-b border-border-remorra flex items-center justify-between bg-surface-2">
-        <h2 className="text-xs font-bold text-ink uppercase tracking-wide">{title}</h2>
+    <Card className="overflow-hidden flex flex-col bg-card">
+      <div className="min-h-[62px] px-5 py-4 border-b border-border flex items-center justify-between bg-secondary/65">
+        <h2 className="text-sm font-bold text-foreground">{title}</h2>
         <Badge tone="neutral">{items.length}</Badge>
       </div>
       
-      <div className="p-4 bg-surface-2 border-b border-border-remorra/40 flex gap-2">
+      <div className="p-4 bg-secondary/35 border-b border-border flex gap-2">
         <Input
-          className="flex-1 h-9 border border-border-remorra rounded-lg bg-white px-3 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20"
+          className="flex-1"
           value={value}
           onChange={(event) => onValue(event.target.value)}
           placeholder={placeholder}
           disabled={disabled}
         />
         <Button
-          className="h-9 px-4 flex items-center gap-1"
+          className="flex items-center gap-1"
           disabled={disabled || value.trim().length < 2}
           onClick={onAdd}
         >
@@ -451,14 +422,14 @@ function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disab
         </Button>
       </div>
 
-      <div className="divide-y divide-border-remorra/40">
+      <div className="divide-y divide-border">
         {items.length ? (
-          items.map((item: any, index: number) => (
+          items.map((item: any) => (
             <motion.div
-              initial={{ opacity: 0, y: 5 }}
+              initial={{ opacity: 0, y: 3 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.03 }}
-              className="p-3.5 flex justify-between items-center text-xs gap-4"
+              transition={{ duration: 0.16 }}
+              className="p-4 flex justify-between items-center text-xs gap-4 hover:bg-secondary/35"
               key={item.id}
             >
               <div>
@@ -471,7 +442,7 @@ function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disab
             </motion.div>
           ))
         ) : (
-          <div className="p-8 text-center text-xs text-muted leading-relaxed">
+          <div className="p-10 text-center text-sm text-muted leading-relaxed">
             Nothing here yet.
           </div>
         )}

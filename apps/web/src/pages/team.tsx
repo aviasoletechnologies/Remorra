@@ -1,9 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Mail, UserPlus } from "lucide-react";
+import { Mail, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
-import { Badge, Button, Card, Input } from "../components/ui";
+import { Badge, Button, Input } from "../components/ui";
+import { Label } from "../components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Page, PageHeader, SectionCard } from "../components/app-ui";
 
 export function TeamPage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -15,16 +18,61 @@ export function TeamPage() {
     enabled: Boolean(projectId),
   });
   const invite = useMutation({
-    mutationFn: () =>
-      api(`/projects/${projectId}/invitations`, {
-        method: "POST",
-        body: JSON.stringify({ email, role }),
-      }),
+    mutationFn: () => api(`/projects/${projectId}/invitations`, { method: "POST", body: JSON.stringify({ email, role }) }),
     onSuccess: () => setEmail(""),
   });
-  return <div className="page-container py-8 px-6 max-w-[1440px] mx-auto flex flex-col gap-6">
-    <section className="flex flex-col gap-2"><div><Badge tone="green">Project access</Badge><h1 className="text-3xl font-bold tracking-tight text-ink mt-3 mb-1">People and permissions</h1><p className="text-sm text-muted">Roles are resolved per project. Suppliers only receive assigned tasks and Build Pack access.</p></div></section>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card className="p-8 flex flex-col gap-5"><div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-lg bg-green-soft flex items-center justify-center"><UserPlus size={20} className="text-green" /></div><h2 className="text-lg font-bold text-ink">Invite a collaborator</h2></div><div className="flex flex-col gap-2"><label className="text-xs font-bold text-ink uppercase tracking-wider">Email</label><Input value={email} type="email" onChange={(event) => setEmail(event.target.value)} placeholder="person@company.com" /></div><div className="flex flex-col gap-2"><label className="text-xs font-bold text-ink uppercase tracking-wider">Project role</label><select className="h-10 w-full rounded-md border border-border-remorra bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent/20 transition-all" value={role} onChange={(event) => setRole(event.target.value as "team" | "supplier")}><option value="team">Team member</option><option value="supplier">Supplier</option></select></div><Button className="mt-2" disabled={email.length < 5 || invite.isPending} onClick={() => invite.mutate()}><Mail size={15} className="mr-1.5" />Send secure invitation</Button>{invite.isSuccess && <p className="text-xs text-green font-medium text-center">Invitation sent through Supabase Auth.</p>}</Card>
-      <Card className="p-8 flex flex-col gap-5"><h2 className="text-lg font-bold text-ink mb-2">Current access</h2><div className="flex items-center justify-between p-4 rounded-xl border border-border-remorra bg-surface-2"><strong className="text-sm font-bold text-ink">Your role</strong><Badge tone="green" className="uppercase tracking-wider">{project?.role ?? "loading"}</Badge></div><div className="mt-auto p-4 rounded-xl bg-green-soft/30 border border-green/20"><p className="text-xs text-muted leading-relaxed"><strong className="text-green">Founder:</strong> strategic authority and Evolve.<br/><strong className="text-green">Team:</strong> product visibility and delivery editing.<br/><strong className="text-green">Supplier:</strong> assigned delivery only.</p></div></Card></div>
-  </div>;
+
+  return (
+    <Page>
+      <PageHeader
+        eyebrow="Project access"
+        title="People and permissions"
+        description="Roles are resolved per project. Suppliers receive assigned tasks and Build Pack access only."
+      />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_.9fr]">
+        <SectionCard title="Invite a collaborator" description="Supabase will send a secure project invitation">
+          <div className="grid gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor="invite-email">Email address</Label>
+              <Input id="invite-email" value={email} type="email" onChange={(event) => setEmail(event.target.value)} placeholder="person@company.com" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invite-role">Project role</Label>
+              <Select value={role} onValueChange={(value) => setRole(value as "team" | "supplier")}>
+                <SelectTrigger id="invite-role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="team">Team member</SelectItem>
+                  <SelectItem value="supplier">Supplier</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button disabled={email.length < 5 || invite.isPending} onClick={() => invite.mutate()}>
+              <Mail size={15} /> {invite.isPending ? "Sending..." : "Send secure invitation"}
+            </Button>
+            {invite.isSuccess ? <p className="m-0 text-xs font-semibold text-primary">Invitation sent through Supabase Auth.</p> : null}
+            {invite.error ? <p className="form-message m-0">{invite.error.message}</p> : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Role model" description="Access follows the active product workspace">
+          <div className="grid gap-4">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/45 p-4">
+              <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={17} className="text-primary" /> Your role</span>
+              <Badge tone="green">{project?.role ?? "loading"}</Badge>
+            </div>
+            {[
+              ["Founder", "Strategic authority, Evolve decisions, access and reporting."],
+              ["Team", "Product visibility and delivery editing."],
+              ["Supplier", "Assigned delivery tasks and read-only Build Pack."],
+            ].map(([name, description]) => (
+              <div className="flex gap-3 rounded-xl border border-border/70 p-4" key={name}>
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-primary"><UserPlus size={15} /></div>
+                <div><strong className="block text-sm">{name}</strong><p className="mb-0 mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </Page>
+  );
 }

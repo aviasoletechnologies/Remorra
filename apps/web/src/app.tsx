@@ -1,36 +1,50 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthGate } from "./components/auth-gate";
 import { Shell } from "./components/shell";
 import { TokenBudgetModal } from "./components/token-budget-modal";
-import { AdminPage } from "./pages/admin";
-import { InvitationAcceptPage } from "./pages/invitation-accept";
-import { KnowledgePage } from "./pages/knowledge";
-import { OverviewPage } from "./pages/overview";
-import { PrivacyPage } from "./pages/privacy";
-import { ReportsPage } from "./pages/reports";
-import { TeamPage } from "./pages/team";
-import { VenturePage } from "./pages/venture";
-import { ResetPasswordPage } from "./pages/reset-password";
-import { InitiatePage } from "./pages/initiate";
 import { PageErrorBoundary } from "./components/page-error-boundary";
-import { AiWorkspacePage } from "./pages/ai-workspace";
+import { LoadingState } from "./components/app-ui";
+
+const AdminPage = lazy(() => import("./pages/admin").then((module) => ({ default: module.AdminPage })));
+const AiWorkspacePage = lazy(() => import("./pages/ai-workspace").then((module) => ({ default: module.AiWorkspacePage })));
+const InitiatePage = lazy(() => import("./pages/initiate").then((module) => ({ default: module.InitiatePage })));
+const InvitationAcceptPage = lazy(() => import("./pages/invitation-accept").then((module) => ({ default: module.InvitationAcceptPage })));
+const KnowledgePage = lazy(() => import("./pages/knowledge").then((module) => ({ default: module.KnowledgePage })));
+const OverviewPage = lazy(() => import("./pages/overview").then((module) => ({ default: module.OverviewPage })));
+const PrivacyPage = lazy(() => import("./pages/privacy").then((module) => ({ default: module.PrivacyPage })));
+const ReportsPage = lazy(() => import("./pages/reports").then((module) => ({ default: module.ReportsPage })));
+const ResetPasswordPage = lazy(() => import("./pages/reset-password").then((module) => ({ default: module.ResetPasswordPage })));
+const TeamPage = lazy(() => import("./pages/team").then((module) => ({ default: module.TeamPage })));
+const VenturePage = lazy(() => import("./pages/venture").then((module) => ({ default: module.VenturePage })));
 
 export function App() {
-  return <AuthGate><Shell><PageErrorBoundary><Routes>
-    <Route path="/" element={<OverviewPage />} />
-    <Route path="/workspace" element={<AiWorkspacePage />} />
-    <Route path="/discover" element={<Navigate to="/workspace" replace />} />
-    <Route path="/refine" element={<Navigate to="/workspace" replace />} />
-    <Route path="/initiate" element={<InitiatePage />} />
-    <Route path="/venture" element={<VenturePage />} />
-    <Route path="/evolve" element={<Navigate to="/workspace" replace />} />
-    <Route path="/reports" element={<ReportsPage />} />
-    <Route path="/team" element={<TeamPage />} />
-    <Route path="/knowledge" element={<KnowledgePage />} />
-    <Route path="/privacy" element={<PrivacyPage />} />
-    <Route path="/admin" element={<AdminPage />} />
-    <Route path="/invitations/accept" element={<InvitationAcceptPage />} />
-    <Route path="/reset-password" element={<ResetPasswordPage />} />
-    <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes></PageErrorBoundary><TokenBudgetModal /></Shell></AuthGate>;
+  return (
+    <AuthGate>
+      <Shell>
+        <PageErrorBoundary>
+          <Suspense fallback={<LoadingState label="Opening workspace..." />}>
+            <Routes>
+              <Route path="/" element={<OverviewPage />} />
+              <Route path="/workspace" element={<AiWorkspacePage />} />
+              <Route path="/discover" element={<Navigate to="/workspace" replace />} />
+              <Route path="/refine" element={<Navigate to="/workspace" replace />} />
+              <Route path="/initiate" element={<InitiatePage />} />
+              <Route path="/venture" element={<VenturePage />} />
+              <Route path="/evolve" element={<Navigate to="/workspace" replace />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/invitations/accept" element={<InvitationAcceptPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </PageErrorBoundary>
+        <TokenBudgetModal />
+      </Shell>
+    </AuthGate>
+  );
 }

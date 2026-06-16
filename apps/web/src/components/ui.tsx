@@ -1,64 +1,59 @@
-import React, { forwardRef } from "react";
-import { motion } from "framer-motion";
+import { forwardRef, type ComponentProps } from "react";
 import { Button as ShadcnButton } from "./ui/button";
 import { Card as ShadcnCard } from "./ui/card";
 import { Badge as ShadcnBadge } from "./ui/badge";
 import { Avatar as ShadcnAvatar, AvatarFallback } from "./ui/avatar";
 import { Progress as ShadcnProgress } from "./ui/progress";
+import { cn } from "../lib/utils";
 
-const MotionButton = motion.create(ShadcnButton);
-const MotionCard = motion.create(ShadcnCard);
+type LegacyButtonProps = Omit<ComponentProps<typeof ShadcnButton>, "variant"> & {
+  variant?: ComponentProps<typeof ShadcnButton>["variant"] | "primary";
+};
 
-// Motion-enhanced button wrapping shadcn Button
-export const Button = forwardRef<HTMLButtonElement, any>(({ className, variant = "primary", ...props }, ref) => {
-  const mappedVariant = variant === "primary" ? "default" : variant === "secondary" ? "outline" : variant;
+export const Button = forwardRef<HTMLButtonElement, LegacyButtonProps>(({ className, variant = "primary", ...props }, ref) => {
+  const mappedVariant: ComponentProps<typeof ShadcnButton>["variant"] =
+    variant === "primary" ? "default" : variant === "secondary" ? "outline" : variant;
   return (
-    <MotionButton 
+    <ShadcnButton
       ref={ref}
-      whileTap={{ scale: 0.97 }} 
-      whileHover={{ scale: 1.01 }} 
-      className={className} 
-      variant={mappedVariant} 
-      {...props} 
-    />
-  );
-});
-
-// Motion-enhanced card wrapping shadcn Card
-export const Card = forwardRef<HTMLDivElement, any>(({ className, ...props }, ref) => {
-  return (
-    <MotionCard
-      ref={ref}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
       className={className}
+      variant={mappedVariant}
       {...props}
     />
   );
 });
+Button.displayName = "Button";
 
-// Custom Badge wrapping shadcn Badge
-export function Badge({ children, tone = "neutral", ...props }: any) {
-  let colorClass = "";
-  if (tone === "neutral") colorClass = "bg-[#eceeea] text-[#667269] hover:bg-[#eceeea]/80";
-  if (tone === "green") colorClass = "bg-accent-soft text-[#296344] hover:bg-accent-soft/80";
-  if (tone === "amber") colorClass = "bg-amber-soft text-amber hover:bg-amber-soft/80";
-  if (tone === "red") colorClass = "bg-red-soft text-red hover:bg-red-soft/80";
-  if (tone === "blue") colorClass = "bg-blue-soft text-blue hover:bg-blue-soft/80";
+export const Card = forwardRef<HTMLDivElement, ComponentProps<typeof ShadcnCard>>(
+  ({ className, ...props }, ref) => (
+    <ShadcnCard ref={ref} className={cn("border border-border/80 shadow-[0_1px_2px_rgba(22,35,28,.03),0_12px_32px_rgba(22,35,28,.04)]", className)} {...props} />
+  ),
+);
+Card.displayName = "Card";
 
+type Tone = "neutral" | "green" | "amber" | "red" | "blue";
+type BadgeProps = ComponentProps<typeof ShadcnBadge> & { tone?: Tone };
+
+export function Badge({ children, tone = "neutral", className, ...props }: BadgeProps) {
+  const tones: Record<Tone, string> = {
+    neutral: "bg-muted text-muted-foreground",
+    green: "bg-accent-soft text-accent-dark",
+    amber: "bg-warning-soft text-warning",
+    red: "bg-destructive-soft text-destructive",
+    blue: "bg-info-soft text-info",
+  };
   return (
-    <ShadcnBadge className={`${colorClass} px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide uppercase border-none`} {...props}>
+    <ShadcnBadge className={cn("rounded-full border-0 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.08em]", tones[tone], className)} {...props}>
       {children}
     </ShadcnBadge>
   );
 }
 
-// Custom Avatar wrapping shadcn Avatar
-export function Avatar({ initials, ...props }: any) {
+type AvatarProps = Omit<ComponentProps<typeof ShadcnAvatar>, "children"> & { initials: string };
+export function Avatar({ initials, className, ...props }: AvatarProps) {
   return (
-    <ShadcnAvatar className="w-8 h-8 rounded-full border border-border-remorra" {...props}>
-      <AvatarFallback className="bg-[#ddefdf] text-[#184c35] text-[10px] font-bold">
+    <ShadcnAvatar className={cn("size-9 rounded-xl border border-border", className)} {...props}>
+      <AvatarFallback className="rounded-xl bg-accent-soft text-accent-dark text-[11px] font-bold">
         {initials}
       </AvatarFallback>
     </ShadcnAvatar>
@@ -68,8 +63,8 @@ export function Avatar({ initials, ...props }: any) {
 export { Input } from "./ui/input";
 export { Textarea } from "./ui/textarea";
 
-// Custom Progress wrapping shadcn Progress
-export function Progress({ value, label, ...props }: any) {
+type ProgressProps = ComponentProps<typeof ShadcnProgress> & { label?: string };
+export function Progress({ value, label, ...props }: ProgressProps) {
   return (
     <ShadcnProgress
       value={value}
