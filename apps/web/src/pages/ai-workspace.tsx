@@ -31,6 +31,8 @@ export function AiWorkspacePage() {
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
+  const [liveLogs, setLiveLogs] = useState<string[]>([]);
+  const [pickedSkill, setPickedSkill] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const { data: conversation, isLoading, error } = useQuery({
@@ -54,6 +56,8 @@ export function AiWorkspacePage() {
       setPendingMessages((current) => [...current, { id: pendingId, role: "user", content }]);
       setMessage("");
       setStreamedReply("");
+      setLiveLogs(["Sending message to API...", "Routing event..."]);
+      setPickedSkill(null);
 
       try {
         const result = await api<{ id: string | null }>(`/workspace/projects/${projectId}/messages`, {
@@ -88,6 +92,15 @@ export function AiWorkspacePage() {
                 setStreamState("idle");
                 reject(streamError);
               },
+              (event) => {
+                if (event.type === "log" && typeof event.delta === "string") {
+                  const logText = event.delta;
+                  setLiveLogs((current) => [...current, logText]);
+                }
+                if (event.type === "info" && typeof event.delta === "string") {
+                  setPickedSkill(event.delta);
+                }
+              }
             );
           });
         }
@@ -175,6 +188,30 @@ export function AiWorkspacePage() {
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   Send a clear product idea or request. If nothing matches yet, Remorra will still reply normally and keep checking future messages for a better skill match.
                 </p>
+              </div>
+            )}
+
+            {liveLogs.length > 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 shadow-inner font-mono text-[10px] text-zinc-300">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-2">
+                  <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">SSE Live Log</span>
+                  {streamState !== "idle" && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                </div>
+                {pickedSkill && (
+                  <div className="mb-2 text-emerald-400 font-semibold flex items-center gap-1.5">
+                    <span className="text-zinc-500">&gt;</span> Picked: {pickedSkill}
+                  </div>
+                )}
+                <div className="max-h-[140px] overflow-y-auto space-y-1">
+                  {liveLogs.map((log, idx) => (
+                    <div key={idx} className="flex gap-1.5 leading-relaxed">
+                      <span className="text-zinc-500 flex-shrink-0">&gt;</span>
+                      <span>{log}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -269,7 +306,7 @@ export function AiWorkspacePage() {
                 disabled={busy || message.trim().length < 2}
                 onClick={() => send.mutate()}
               >
-                {busy ? "Thinking..." : activeSkill ? "Send message" : "Route skill"}
+                {busy ? "Thinking..." : "Send"}
               </Button>
             </div>
             {send.error ? (

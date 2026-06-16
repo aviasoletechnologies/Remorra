@@ -25,4 +25,9 @@ export class GdprController {
   cancel(@CurrentActor() actor: Actor) {
     return this.gdpr.cancelDeletion(actor.userId);
   }
+
+  @Post("purge-data")
+  purgeData(@CurrentActor() actor: Actor) {
+    return this.gdpr.purgeUserData(actor.userId);
+  }
 }

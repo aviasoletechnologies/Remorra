@@ -51,18 +51,81 @@ const SMALL_TALK_PATTERNS = [
   /^👋+$/,
 ];
 
+function grokModelFor(tier: string) {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
+  const defaultModel = isGroq ? "llama-3.3-70b-versatile" : "grok-2-1212";
+
+  if (tier === "fast") return process.env.GROK_MODEL_FAST || process.env.GROQ_MODEL_FAST || defaultModel;
+  if (tier === "reasoning") return process.env.GROK_MODEL_REASONING || process.env.GROQ_MODEL_REASONING || defaultModel;
+  return process.env.GROK_MODEL_STANDARD || process.env.GROQ_MODEL_STANDARD || defaultModel;
+}
+
+async function invokeGrok(input: {
+  model: string;
+  max_tokens?: number;
+  system?: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+}) {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
+  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
+  const baseUrl = process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
+
+  const payload = {
+    model: input.model,
+    max_tokens: input.max_tokens,
+    temperature: input.temperature ?? 0,
+    messages: [
+      ...(input.system ? [{ role: "system", content: input.system }] : []),
+      ...input.messages.map(m => ({ role: m.role, content: m.content })),
+    ],
+  };
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Grok API error (${res.status}): ${errorText}`);
+  }
+
+  const data = await res.json() as any;
+  const text = data.choices[0]?.message?.content || "";
+  const promptTokens = data.usage?.prompt_tokens ?? 0;
+  const completionTokens = data.usage?.completion_tokens ?? 0;
+
+  return {
+    content: [{ type: "text", text }],
+    usage: {
+      input_tokens: promptTokens,
+      output_tokens: completionTokens,
+    },
+  };
+}
+
 @Injectable()
 export class IntentRouterService {
-  private readonly client: Anthropic;
+  private readonly client: Anthropic | null = null;
   private readonly logger = new Logger(IntentRouterService.name);
 
   constructor(private readonly prisma: PrismaService) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required.");
-    this.client = new Anthropic({
-      apiKey,
-      baseURL: process.env.ANTHROPIC_BASE_URL,
-    });
+    const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+    if (!isGrok) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required.");
+      this.client = new Anthropic({
+        apiKey,
+        baseURL: process.env.ANTHROPIC_BASE_URL,
+      });
+    }
   }
 
   async routeMessage(projectId: string, userId: string, content: string): Promise<IntentRouteResult> {
@@ -81,27 +144,52 @@ export class IntentRouterService {
       `Routing intent project=${projectId} user=${userId} candidates=${candidates.length} messagePreview=${content.slice(0, 120)}`,
     );
 
-    const response = await this.client.messages.create({
-      model: process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6",
-      max_tokens: 256,
-      temperature: 0,
-      system: INTENT_ROUTER_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            `User message: ${content}`,
-            "Available skills:",
-            ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
-          ].join("\n"),
-        },
-      ],
-    });
+    const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+    let text = "";
 
-    const text = response.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n");
+    if (isGrok) {
+      const model = grokModelFor("fast");
+      const response = await invokeGrok({
+        model,
+        max_tokens: 256,
+        temperature: 0,
+        system: INTENT_ROUTER_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [
+              `User message: ${content}`,
+              "Available skills:",
+              ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
+            ].join("\n"),
+          },
+        ],
+      });
+      text = response.content[0]?.text ?? "";
+    } else {
+      if (!this.client) throw new Error("Anthropic client is not initialized.");
+      const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6";
+      const response = await this.client.messages.create({
+        model,
+        max_tokens: 256,
+        temperature: 0,
+        system: INTENT_ROUTER_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [
+              `User message: ${content}`,
+              "Available skills:",
+              ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
+            ].join("\n"),
+          },
+        ],
+      });
+      text = response.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+    }
 
     const parsed = this.parseIntentResponse(text);
 

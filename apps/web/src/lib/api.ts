@@ -2,6 +2,8 @@ import { supabase } from "./supabase";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001/api/v1";
 
+
+
 export async function api<T>(
   path: string,
   init: RequestInit & { version?: number } = {},
@@ -105,7 +107,8 @@ export function streamTextJob(
   jobId: string,
   onToken: (text: string) => void,
   onStateChange?: (state: "connecting" | "reconnecting" | "connected" | "done" | "failed") => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  onEvent?: (event: { sequence: number; type: string; delta?: string; snapshot?: string; metadata?: any }) => void
 ): () => void {
   let lastSequence = 0;
   let isAborted = false;
@@ -145,12 +148,17 @@ export function streamTextJob(
 
           const event = JSON.parse(line.slice(5).trim()) as {
             sequence: number;
-            type: "token" | "snapshot" | "completed" | "failed";
+            type: string;
             delta?: string;
             snapshot?: string;
+            metadata?: any;
           };
 
           lastSequence = event.sequence;
+
+          if (onEvent) {
+            onEvent(event);
+          }
 
           if (event.type === "token" && event.delta) {
             currentText += event.delta;

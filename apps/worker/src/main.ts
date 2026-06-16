@@ -19,10 +19,175 @@ const boss = new PgBoss({
   connectionString: databaseUrl,
   max: Number(process.env.PG_BOSS_POOL_MAX ?? 2),
 });
-const anthropic = new Anthropic({
-  apiKey: required("ANTHROPIC_API_KEY"),
-  baseURL: process.env.ANTHROPIC_BASE_URL,
-});
+const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+const anthropic = !isGrok
+  ? new Anthropic({
+      apiKey: required("ANTHROPIC_API_KEY"),
+      baseURL: process.env.ANTHROPIC_BASE_URL,
+    })
+  : null;
+
+function grokModelFor(tier: string) {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
+  const defaultModel = isGroq ? "llama-3.3-70b-versatile" : "grok-2-1212";
+
+  if (tier === "fast") return process.env.GROK_MODEL_FAST || process.env.GROQ_MODEL_FAST || defaultModel;
+  if (tier === "reasoning") return process.env.GROK_MODEL_REASONING || process.env.GROQ_MODEL_REASONING || defaultModel;
+  return process.env.GROK_MODEL_STANDARD || process.env.GROQ_MODEL_STANDARD || defaultModel;
+}
+
+async function* streamGrok(input: {
+  model: string;
+  max_tokens?: number;
+  system?: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+}) {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
+  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
+  const baseUrl = process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
+
+  const payload = {
+    model: input.model,
+    max_tokens: input.max_tokens,
+    temperature: input.temperature ?? 0,
+    messages: [
+      ...(input.system ? [{ role: "system", content: input.system }] : []),
+      ...input.messages.map(m => ({ role: m.role, content: m.content })),
+    ],
+    stream: true,
+  };
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Grok Streaming API error (${res.status}): ${errorText}`);
+  }
+
+  if (!res.body) throw new Error("Response body is empty");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith("data:")) {
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === "[DONE]") break;
+          try {
+            const data = JSON.parse(dataStr);
+            const delta = data.choices[0]?.delta?.content;
+            if (delta) {
+              yield delta;
+            }
+          } catch {
+            // ignore parse errors for keepalives
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function invokeGrokStream(input: {
+  model: string;
+  max_tokens?: number;
+  system?: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+  onDelta?: (delta: string, accumulated: string) => void | Promise<void>;
+}) {
+  let accumulated = "";
+  for await (const delta of streamGrok(input)) {
+    accumulated += delta;
+    if (input.onDelta) {
+      await input.onDelta(delta, accumulated);
+    }
+  }
+
+  const promptTokens = Math.ceil((JSON.stringify(input.messages).length + (input.system?.length ?? 0)) / 4);
+  const completionTokens = Math.ceil(accumulated.length / 4);
+
+  return {
+    content: [{ type: "text", text: accumulated }],
+    usage: {
+      input_tokens: promptTokens,
+      output_tokens: completionTokens,
+    },
+  };
+}
+
+async function invokeGrok(input: {
+  model: string;
+  max_tokens?: number;
+  system?: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number;
+}) {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
+  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
+  const baseUrl = process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
+
+  const payload = {
+    model: input.model,
+    max_tokens: input.max_tokens,
+    temperature: input.temperature ?? 0,
+    messages: [
+      ...(input.system ? [{ role: "system", content: input.system }] : []),
+      ...input.messages.map(m => ({ role: m.role, content: m.content })),
+    ],
+  };
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Grok API error (${res.status}): ${errorText}`);
+  }
+
+  const data = await res.json() as any;
+  const text = data.choices[0]?.message?.content || "";
+  const promptTokens = data.usage?.prompt_tokens ?? 0;
+  const completionTokens = data.usage?.completion_tokens ?? 0;
+
+  return {
+    content: [{ type: "text", text }],
+    usage: {
+      input_tokens: promptTokens,
+      output_tokens: completionTokens,
+    },
+  };
+}
+
 const supabase = createClient(
   required("SUPABASE_URL"),
   required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -36,41 +201,66 @@ const orchestrator = new AiOrchestrator(
   new PrismaContextAssembler(prisma),
   { // LlmGateway - delegates to Anthropic with retry
     async invoke(invocation) {
-      const model = modelFor(invocation.skill.modelTier);
+      const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+      const model = isGrok ? grokModelFor(invocation.skill.modelTier) : modelFor(invocation.skill.modelTier);
       const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
       const rawRetry = invocation.skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
       const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
       const retryContext = { userId: invocation.userId, projectId: invocation.projectId, skillVersionId: invocation.skill.versionId, model };
 
       let response;
-      if (invocation.onDelta) {
-        response = await withRetry(async () => {
-          const stream = anthropic.messages.stream({
-            model,
-            max_tokens: invocation.skill.tokenCeiling ?? 4096,
-            system: invocation.skill.systemPrompt,
-            messages: [{ role: "user", content: sections }],
-          });
-          let streamed = "";
-          stream.on("text", (delta) => {
-            streamed += delta;
-            void invocation.onDelta?.(delta, streamed);
-          });
-          return stream.finalMessage();
-        }, retryPolicy, retryContext);
+      if (isGrok) {
+        if (invocation.onDelta) {
+          response = await withRetry(async () => {
+            return invokeGrokStream({
+              model,
+              max_tokens: invocation.skill.tokenCeiling ?? 4096,
+              system: invocation.skill.systemPrompt,
+              messages: [{ role: "user", content: sections }],
+              onDelta: invocation.onDelta,
+            });
+          }, retryPolicy, retryContext);
+        } else {
+          response = await withRetry(async () => {
+            return invokeGrok({
+              model,
+              max_tokens: invocation.skill.tokenCeiling ?? 4096,
+              system: invocation.skill.systemPrompt,
+              messages: [{ role: "user", content: sections }],
+            });
+          }, retryPolicy, retryContext);
+        }
       } else {
-        response = await withRetry(
-          () => anthropic.messages.create({
-            model,
-            max_tokens: invocation.skill.tokenCeiling ?? 4096,
-            system: invocation.skill.systemPrompt,
-            messages: [{ role: "user", content: sections }],
-          }),
-          retryPolicy, retryContext,
-        );
+        if (!anthropic) throw new Error("Anthropic client is not initialized.");
+        if (invocation.onDelta) {
+          response = await withRetry(async () => {
+            const stream = anthropic.messages.stream({
+              model,
+              max_tokens: invocation.skill.tokenCeiling ?? 4096,
+              system: invocation.skill.systemPrompt,
+              messages: [{ role: "user", content: sections }],
+            });
+            let streamed = "";
+            stream.on("text", (delta) => {
+              streamed += delta;
+              void invocation.onDelta?.(delta, streamed);
+            });
+            return stream.finalMessage();
+          }, retryPolicy, retryContext);
+        } else {
+          response = await withRetry(
+            () => anthropic.messages.create({
+              model,
+              max_tokens: invocation.skill.tokenCeiling ?? 4096,
+              system: invocation.skill.systemPrompt,
+              messages: [{ role: "user", content: sections }],
+            }),
+            retryPolicy, retryContext,
+          );
+        }
       }
 
-      const text = response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+      const text = (response.content as any[]).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
       return {
         value: text as any,
         usage: { model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
@@ -78,17 +268,30 @@ const orchestrator = new AiOrchestrator(
       };
     },
     async *stream(invocation) {
-      const model = modelFor(invocation.skill.modelTier);
-      const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
-      const stream = anthropic.messages.stream({
-        model,
-        max_tokens: invocation.skill.tokenCeiling ?? 4096,
-        system: invocation.skill.systemPrompt,
-        messages: [{ role: "user", content: sections }],
-      });
-      for await (const event of stream) {
-        if (event.type === "content_block_delta" && (event as any).delta?.text) {
-          yield (event as any).delta.text;
+      const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+      if (isGrok) {
+        const model = grokModelFor(invocation.skill.modelTier);
+        const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+        yield* streamGrok({
+          model,
+          max_tokens: invocation.skill.tokenCeiling ?? 4096,
+          system: invocation.skill.systemPrompt,
+          messages: [{ role: "user", content: sections }],
+        });
+      } else {
+        if (!anthropic) throw new Error("Anthropic client is not initialized.");
+        const model = modelFor(invocation.skill.modelTier);
+        const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+        const stream = anthropic.messages.stream({
+          model,
+          max_tokens: invocation.skill.tokenCeiling ?? 4096,
+          system: invocation.skill.systemPrompt,
+          messages: [{ role: "user", content: sections }],
+        });
+        for await (const event of stream) {
+          if (event.type === "content_block_delta" && (event as any).delta?.text) {
+            yield (event as any).delta.text;
+          }
         }
       }
     },
@@ -377,30 +580,41 @@ async function invokeGeneralConversation(input: {
     JSON.stringify(project),
   ].join("\n");
 
-  const model = modelFor("standard");
+  const model = isGrok ? grokModelFor("standard") : modelFor("standard");
   const response = await withRetry(async () => {
-    const stream = anthropic.messages.stream({
-      model,
-      max_tokens: 1200,
-      system,
-      messages: recentMessages,
-    });
-
-    let streamed = "";
-    if (input.onDelta) {
-      stream.on("text", (delta) => {
-        streamed += delta;
-        void input.onDelta?.(delta, streamed);
+    if (isGrok) {
+      return invokeGrokStream({
+        model,
+        max_tokens: 1200,
+        system,
+        messages: recentMessages,
+        onDelta: input.onDelta,
       });
+    } else {
+      if (!anthropic) throw new Error("Anthropic client is not initialized.");
+      const stream = anthropic.messages.stream({
+        model,
+        max_tokens: 1200,
+        system,
+        messages: recentMessages,
+      });
+
+      let streamed = "";
+      if (input.onDelta) {
+        stream.on("text", (delta) => {
+          streamed += delta;
+          void input.onDelta?.(delta, streamed);
+        });
+      }
+      return stream.finalMessage();
     }
-    return stream.finalMessage();
   }, { limit: 3, backoff: true }, {
     userId: input.userId,
     projectId: input.projectId,
     model,
   });
 
-  const text = response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+  const text = (response.content as any[]).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
   return {
     text,
     skill: {
@@ -473,11 +687,51 @@ async function handleConversation(payload: Payload) {
   }, 80);
 
   try {
+    queue.push({
+      type: "log",
+      delta: "Preparing conversation context...",
+      metadata: { stage: "start" },
+    });
+    void flush();
+
     const flowState = isGeneralChat
       ? null
       : typeof payload.flowRunId === "string"
         ? await prepareFlowTurn(payload)
         : null;
+
+    if (flowState) {
+      queue.push({
+        type: "log",
+        delta: `Preparing flow step: ${flowState.questionFieldKey ?? "active step"}`,
+        metadata: { stage: "flow" },
+      });
+      void flush();
+    }
+
+    const matchedSkill = isGeneralChat
+      ? "General Assistant"
+      : (typeof payload.skillId === "string" ? payload.skillId : "General Assistant");
+
+    queue.push({
+      type: "log",
+      delta: `Routing matched: ${matchedSkill}`,
+      metadata: { stage: "routing", skillId: isGeneralChat ? "general_chat" : payload.skillId },
+    });
+    // Send picked skill info to FE
+    queue.push({
+      type: "info",
+      delta: matchedSkill,
+      metadata: { skillId: isGeneralChat ? "general_chat" : payload.skillId },
+    });
+    void flush();
+
+    queue.push({
+      type: "log",
+      delta: "Invoking AI model and streaming response...",
+      metadata: { stage: "invoking" },
+    });
+    void flush();
 
     const result = isGeneralChat
       ? await invokeGeneralConversation({
@@ -508,6 +762,13 @@ async function handleConversation(payload: Payload) {
           }
         },
       });
+
+    queue.push({
+      type: "log",
+      delta: `Completed successfully. Saved response for skill: ${result.skill.id} v${result.skill.version}`,
+      metadata: { stage: "completed", skillId: result.skill.id, version: result.skill.version },
+    });
+    void flush();
 
     console.info(
       `[worker:conversation] completed project=${projectId} conversation=${conversationId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${result.skill.id} skillVersion=${result.skill.version}`,

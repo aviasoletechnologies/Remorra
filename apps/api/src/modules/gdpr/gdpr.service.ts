@@ -102,4 +102,87 @@ export class GdprService {
       });
     });
   }
+
+  async purgeUserData(userId: string) {
+    const ownedProjects = await this.prisma.client.project.findMany({
+      where: { ownerId: userId },
+      select: { id: true },
+    });
+    const memberships = await this.prisma.client.projectMembership.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+    const projectIds = Array.from(
+      new Set([
+        ...ownedProjects.map((p: any) => p.id),
+        ...memberships.map((m: any) => m.projectId),
+      ])
+    );
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      // 1. Delete Job Records (cascades to attempts, outbox, and streams)
+      const deletedJobs = await tx.jobRecord.deleteMany({
+        where: {
+          OR: [
+            { userId },
+            { projectId: { in: projectIds } },
+          ],
+        },
+      });
+
+      // 2. Delete Job Stream Events (that might not be tied to JobRecords, though usually they are)
+      const deletedStreams = await tx.jobStreamEvent.deleteMany({
+        where: {
+          OR: [
+            { userId },
+            { projectId: { in: projectIds } },
+          ],
+        },
+      });
+
+      // 3. Delete Conversations (cascades to messages, extracts, runs, ledger)
+      const deletedConversations = await tx.conversation.deleteMany({
+        where: {
+          projectId: { in: projectIds },
+        },
+      });
+
+      // 4. Delete Idempotency records
+      const deletedIdempotency = await tx.idempotencyRecord.deleteMany({
+        where: { userId },
+      });
+
+      // 5. Delete AI Invocations
+      const deletedInvocations = await tx.aiInvocation.deleteMany({
+        where: {
+          OR: [
+            { userId },
+            { projectId: { in: projectIds } },
+          ],
+        },
+      });
+
+      // 6. Delete Token Usage
+      const deletedTokenUsage = await tx.tokenUsage.deleteMany({
+        where: {
+          OR: [
+            { userId },
+            { projectId: { in: projectIds } },
+          ],
+        },
+      });
+
+      return {
+        success: true,
+        purged: {
+          conversations: deletedConversations.count,
+          jobs: deletedJobs.count,
+          streamEvents: deletedStreams.count,
+          idempotencyKeys: deletedIdempotency.count,
+          aiInvocations: deletedInvocations.count,
+          tokenUsage: deletedTokenUsage.count,
+        },
+      };
+    });
+  }
 }

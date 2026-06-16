@@ -79,7 +79,7 @@ export class AdminController {
   @Post("event-mappings")
   createEventMapping(
     @CurrentActor() actor: Actor,
-    @Body() body: { eventType: string; skillId: string; targetQueue: string; conditions?: Record<string, unknown>; active?: boolean },
+    @Body() body: { eventType: string; skillId: string; targetQueue?: string; conditions?: Record<string, unknown>; active?: boolean },
   ) {
     return this.admin.createEventMapping(actor, body);
   }

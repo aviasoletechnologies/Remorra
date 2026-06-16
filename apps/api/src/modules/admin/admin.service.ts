@@ -1046,10 +1046,7 @@ export class AdminService {
     if (!eventType || !skillId) {
       throw new BadRequestException("Event type and Skill ID are required.");
     }
-    const targetQueue = body.targetQueue?.trim();
-    if (!targetQueue) {
-      throw new BadRequestException("Target queue is required.");
-    }
+    const targetQueue = body.targetQueue?.trim() || "ai.conversation";
     await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
 
     const mapping = await this.prisma.client.skillEventMapping.create({

@@ -47,7 +47,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
 
   const [newEventType, setNewEventType] = useState("");
   const [newSkillId, setNewSkillId] = useState("");
-  const [newTargetQueue, setNewTargetQueue] = useState("ai.conversation");
   const [conditions, setConditions] = useState<{ key: string; value: string }[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -56,7 +55,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
   };
 
   const createMapping = useMutation({
-    mutationFn: (body: { eventType: string; skillId: string; targetQueue: string; conditions: Record<string, string> }) =>
+    mutationFn: (body: { eventType: string; skillId: string; targetQueue?: string; conditions: Record<string, string> }) =>
       api<EventMapping>("/admin/event-mappings", {
         method: "POST",
         body: JSON.stringify(body),
@@ -65,17 +64,16 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
       refresh();
       setNewEventType("");
       setNewSkillId("");
-      setNewTargetQueue("ai.conversation");
       setConditions([]);
       setShowAddForm(false);
     },
   });
 
   const updateMapping = useMutation({
-    mutationFn: ({ id, active, skillId, targetQueue, conditions }: { id: string; active?: boolean; skillId?: string; targetQueue?: string; conditions?: Record<string, unknown> }) =>
+    mutationFn: ({ id, active, skillId, conditions }: { id: string; active?: boolean; skillId?: string; conditions?: Record<string, unknown> }) =>
       api<EventMapping>(`/admin/event-mappings/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ active, skillId, targetQueue, conditions }),
+        body: JSON.stringify({ active, skillId, conditions }),
       }),
     onSuccess: refresh,
   });
@@ -143,7 +141,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
     createMapping.mutate({
       eventType: newEventType,
       skillId: newSkillId,
-      targetQueue: newTargetQueue,
+      targetQueue: "ai.conversation",
       conditions: conditionsObj,
     });
   };
@@ -183,7 +181,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
               <Button variant="ghost" onClick={() => {
                 setNewEventType("");
                 setNewSkillId("");
-                setNewTargetQueue("ai.conversation");
                 setConditions([]);
                 setShowAddForm(false);
               }}>
@@ -192,7 +189,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
             </div>
 
             <div className="modal-body grid gap-4 py-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="grid gap-1.5">
                   <span className="text-xs font-semibold text-muted-foreground">Event Type</span>
                   <Select value={newEventType} onValueChange={(val) => setNewEventType(val ?? "")}>
@@ -225,18 +222,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                           {skill.name} ({skill.id})
                         </SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground">Target Queue</span>
-                  <Select value={newTargetQueue} onValueChange={(val) => setNewTargetQueue(val ?? "")}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ai.conversation">ai.conversation</SelectItem>
-                      <SelectItem value="ai.extract">ai.extract</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -291,7 +276,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
               <Button variant="secondary" onClick={() => {
                 setNewEventType("");
                 setNewSkillId("");
-                setNewTargetQueue("ai.conversation");
                 setConditions([]);
                 setShowAddForm(false);
               }}>
@@ -315,7 +299,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
               <th className="p-4">Event Type</th>
               <th className="p-4">Conditions</th>
               <th className="p-4">Target AI Skill</th>
-              <th className="p-4">Target Queue</th>
               <th className="p-4">Status</th>
               {canWrite && <th className="p-4 text-right">Actions</th>}
             </tr>
@@ -323,7 +306,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
           <tbody className="divide-y divide-border/30 text-sm">
             {mappings.length === 0 ? (
               <tr>
-                <td colSpan={canWrite ? 6 : 5} className="p-8 text-center text-muted-foreground">
+                <td colSpan={canWrite ? 5 : 4} className="p-8 text-center text-muted-foreground">
                   <ShieldAlert className="mx-auto mb-2 opacity-50" size={24} />
                   No event routing rules configured.
                 </td>
@@ -372,21 +355,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                           <span className="font-semibold block">{mapping.skill?.name ?? mapping.skillId}</span>
                           <span className="text-xs text-muted-foreground">{mapping.skill?.description}</span>
                         </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      {canWrite ? (
-                        <Select value={mapping.targetQueue} onValueChange={(val) => { if (val) updateMapping.mutate({ id: mapping.id, targetQueue: val }); }}>
-                          <SelectTrigger className="max-w-xs" size="sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="ai.conversation">ai.conversation</SelectItem>
-                            <SelectItem value="ai.extract">ai.extract</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <code className="text-xs">{mapping.targetQueue}</code>
                       )}
                     </td>
                     <td className="p-4">
