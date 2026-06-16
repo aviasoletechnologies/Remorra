@@ -1,34 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Circle, LoaderCircle, MessageSquareText, Play, Sparkles } from "lucide-react";
+import { MessageSquareText, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, LoadingState, Page, PageHeader } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
-type FlowStep = {
-  key: string;
-  displayName: string;
-  executionMode: "visible_chat" | "internal_helper" | "deterministic" | "explicit_action" | "human_review";
-  position: number;
-  status: "pending" | "active" | "completed" | "skipped" | "failed";
+type WorkspaceActiveSkill = {
+  id: string;
+  name: string;
+  description: string;
+  version: number;
+  versionId: string;
 };
 
-type WorkspaceFlow = {
+type WorkspaceConversation = {
   id: string;
   status: string;
-  version: number;
-  flow: { id: string; name: string; version: number };
-  currentStep: (FlowStep & {
-    description?: string;
-    skillId?: string;
-    skillVersion?: number;
-    missingOutputs: string[];
-  }) | null;
-  steps: FlowStep[];
+  activeSkill: WorkspaceActiveSkill | null;
   messages: { id: string; role: "user" | "assistant"; content: string; createdAt: string }[];
 };
+
+type PendingMessage = { id: string; role: "user"; content: string };
 
 export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -36,58 +30,69 @@ export function AiWorkspacePage() {
   const [message, setMessage] = useState("");
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
-  const [pendingMessages, setPendingMessages] = useState<{ id: string; role: "user"; content: string }[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
-  
-  const { data: flow, isLoading, error } = useQuery({
+
+  const { data: conversation, isLoading, error } = useQuery({
     queryKey: ["workspace-flow", projectId],
-    queryFn: () => api<WorkspaceFlow>(`/workspace/projects/${projectId}/flow`),
+    queryFn: () => api<WorkspaceConversation>(`/workspace/projects/${projectId}/flow`),
     enabled: Boolean(projectId),
   });
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [flow?.messages.length, pendingMessages.length, streamedReply]);
+  }, [conversation?.messages.length, pendingMessages.length, streamedReply]);
 
   const send = useMutation({
     mutationFn: async () => {
       const content = message.trim();
-      const job = await api<{ id: string }>(`/workspace/projects/${projectId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      });
+      if (!content) {
+        return { id: null as string | null };
+      }
+
       const pendingId = globalThis.crypto.randomUUID();
       setPendingMessages((current) => [...current, { id: pendingId, role: "user", content }]);
       setMessage("");
       setStreamedReply("");
+
       try {
-        await new Promise<void>((resolve, reject) => {
-          let stop = () => {};
-          stop = streamTextJob(
-            job.id,
-            setStreamedReply,
-            (state) => {
-              if (state === "connecting" || state === "reconnecting" || state === "connected") {
-                setStreamState(state);
-              }
-              if (state === "done") {
-                stop();
-                setStreamState("idle");
-                resolve();
-              }
-              if (state === "failed") {
-                stop();
-                setStreamState("idle");
-                reject(new Error("The guided response failed."));
-              }
-            },
-            (streamError) => {
-              stop();
-              setStreamState("idle");
-              reject(streamError);
-            },
-          );
+        const result = await api<{ id: string | null }>(`/workspace/projects/${projectId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ content }),
         });
+
+        const jobId = result.id;
+        if (jobId) {
+          await new Promise<void>((resolve, reject) => {
+            let stop = () => {};
+            stop = streamTextJob(
+              jobId,
+              setStreamedReply,
+              (state) => {
+                if (state === "connecting" || state === "reconnecting" || state === "connected") {
+                  setStreamState(state);
+                }
+                if (state === "done") {
+                  stop();
+                  setStreamState("idle");
+                  resolve();
+                }
+                if (state === "failed") {
+                  stop();
+                  setStreamState("idle");
+                  reject(new Error("The routed response failed."));
+                }
+              },
+              (streamError) => {
+                stop();
+                setStreamState("idle");
+                reject(streamError);
+              },
+            );
+          });
+        }
+
+        return { ...result, pendingId };
       } catch (error) {
         setPendingMessages((current) => current.filter((item) => item.id !== pendingId));
         throw error;
@@ -100,146 +105,110 @@ export function AiWorkspacePage() {
     },
   });
 
-  const action = useMutation({
-    mutationFn: () =>
-      api(`/workspace/projects/${projectId}/actions`, {
-        method: "POST",
-        body: JSON.stringify({ note: message.trim() || undefined }),
-      }),
-    onSuccess: async (result: any) => {
-      setMessage("");
-      if (result?.id && result?.queue) {
-        setStreamedReply("");
-        await new Promise<void>((resolve, reject) => {
-          let stop = () => {};
-          stop = streamTextJob(result.id, setStreamedReply, (state) => {
-            if (state === "done") {
-              stop();
-              resolve();
-            } else if (state === "failed") {
-              stop();
-              reject(new Error("The flow action failed."));
-            }
-          }, reject);
-        });
-      }
-      setStreamedReply("");
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
-    },
-  });
-
   if (isLoading) {
-    return <LoadingState label="Loading your guided product journey..." />;
+    return <LoadingState label="Loading your workspace..." />;
   }
 
-  if (error || !flow) {
+  if (error || !conversation) {
     return (
       <Page className="max-w-3xl">
         <ErrorState
           title="Workspace unavailable"
-          description={error?.message ?? "The published flow could not be loaded."}
-          action={<Button variant="outline" onClick={() => void queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] })}>
-            Try again
-          </Button>}
+          description={error?.message ?? "The workspace conversation could not be loaded."}
+          action={(
+            <Button variant="outline" onClick={() => void queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] })}>
+              Try again
+            </Button>
+          )}
         />
       </Page>
     );
   }
 
-  const current = flow.currentStep;
-  const completed = flow.steps.filter((step) => step.status === "completed").length;
-  const canChat = current?.executionMode === "visible_chat";
-  const busy = send.isPending || action.isPending;
+  const activeSkill = conversation.activeSkill;
+  const busy = send.isPending;
+  const visibleMessages = [...conversation.messages, ...pendingMessages];
+  const placeholder = activeSkill
+    ? `Ask about ${activeSkill.name.toLowerCase()}...`
+    : "Describe your product idea or ask a normal question...";
 
   return (
     <Page>
       <PageHeader
-        eyebrow="Guided workspace"
+        eyebrow="Intent routed workspace"
         title="One conversation, one skill at a time"
-        description={`${flow.flow.name} v${flow.flow.version}. Your run remains pinned to this published version.`}
-        actions={<Badge tone={flow.status === "completed" ? "green" : "neutral"}>
-          {completed}/{flow.steps.length} complete
-        </Badge>}
+        description="The first clear message activates the best matching skill. If nothing matches yet, the conversation continues normally and the router keeps checking each new message."
+        actions={(
+          <Badge tone={activeSkill ? "green" : "neutral"}>
+            {activeSkill ? `${activeSkill.name} v${activeSkill.version}` : "Awaiting intent"}
+          </Badge>
+        )}
       />
 
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-        {/* Journey Progress Panel */}
         <Card className="flex flex-col overflow-hidden p-0 xl:sticky xl:top-20">
           <div className="flex min-h-[58px] items-center justify-between border-b border-border bg-secondary/65 px-5">
-            <span className="flex items-center gap-2 text-xs font-bold text-ink uppercase tracking-wider">Journey</span>
-            <Badge tone="neutral">v{flow.flow.version}</Badge>
+            <span className="flex items-center gap-2 text-xs font-bold text-ink uppercase tracking-wider">Skill router</span>
+            <Badge tone={activeSkill ? "green" : "neutral"}>{activeSkill ? "Pinned" : "Idle"}</Badge>
           </div>
-          <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto p-4 xl:max-h-[calc(100vh-230px)]">
-            {flow.steps.map((step, index) => {
-              const isActive = step.status === "active";
-              const isCompleted = step.status === "completed";
-              
-              return (
-                <div
-                  key={step.key}
-                  className={`flex items-center gap-3 rounded-xl border p-3.5 transition-colors duration-200 ${
-                    isActive
-                      ? "border-primary/25 bg-accent-soft/50 text-ink shadow-sm"
-                      : isCompleted
-                      ? "border-border bg-card text-ink opacity-90"
-                      : "border-border/70 bg-card/70 text-muted"
-                  }`}
-                >
-                  {isCompleted ? (
-                    <CheckCircle2 size={17} className="text-accent flex-shrink-0" />
-                  ) : isActive ? (
-                    <LoaderCircle size={17} className="text-accent animate-spin flex-shrink-0" />
-                  ) : (
-                    <Circle size={17} className="text-muted flex-shrink-0" />
-                  )}
-                  <div>
-                    <strong className="block text-xs font-bold leading-tight">{step.displayName}</strong>
-                    <small className="block text-[9px] text-muted font-medium mt-0.5">{modeLabel(step.executionMode)}</small>
+          <div className="flex flex-col gap-4 p-5">
+            {activeSkill ? (
+              <>
+                <div className="rounded-2xl border border-primary/15 bg-accent-soft/20 p-4 shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Active skill</p>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <strong className="text-sm text-ink">{activeSkill.name}</strong>
+                    <Badge tone="neutral">v{activeSkill.version}</Badge>
                   </div>
+                  <p className="mt-2 text-xs leading-relaxed text-muted">{activeSkill.description}</p>
                 </div>
-              );
-            })}
+                <p className="text-[11px] leading-relaxed text-muted">
+                  Future messages will skip intent routing and go straight to this skill until the conversation is reset.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-card/70 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <Sparkles size={16} className="text-accent" />
+                  Skill not selected yet
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted">
+                  Send a clear product idea or request. If nothing matches yet, Remorra will still reply normally and keep checking future messages for a better skill match.
+                </p>
+              </div>
+            )}
           </div>
         </Card>
 
-        {/* Chat / Decision Panel */}
         <Card className="flex flex-col overflow-hidden p-0">
           <div className="flex min-h-[58px] flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/65 px-5 py-3">
             <span className="flex items-center gap-2 text-xs font-bold text-ink uppercase tracking-wider">
               <MessageSquareText size={17} className="text-accent" />
-              <span>{current?.displayName ?? "Journey complete"}</span>
+              <span>{activeSkill ? activeSkill.name : "Waiting for the first intent"}</span>
             </span>
-            {current?.skillId ? (
+            {activeSkill ? (
               <Badge tone="green">
-                {current.skillId} v{current.skillVersion}
+                {activeSkill.id}
               </Badge>
-            ) : null}
+            ) : (
+              <Badge tone="neutral">No active skill</Badge>
+            )}
           </div>
 
-          {current?.missingOutputs?.length ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-warning/15 bg-warning-soft/35 px-5 py-3 text-xs">
-              <strong className="text-amber uppercase tracking-wider text-[9px]">Still gathering</strong>
-              <span className="text-muted font-medium truncate max-w-[400px]">
-                {current.missingOutputs.map(humanize).join(", ")}
-              </span>
-            </div>
-          ) : null}
-
-          {/* Conversation History */}
           <div className="flex h-[min(58vh,620px)] min-h-[420px] flex-col gap-4 overflow-y-auto bg-background/65 p-4 sm:p-6" aria-live="polite">
-            {flow.messages.length === 0 ? (
+            {visibleMessages.length === 0 ? (
               <div className="mx-auto my-auto flex max-w-[520px] gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
                 <Sparkles size={24} className="text-accent flex-shrink-0" />
                 <div className="flex flex-col gap-1">
-                  <strong className="font-bold text-ink">Let&apos;s build the product context together.</strong>
+                  <strong className="font-bold text-ink">Start with what you want to build.</strong>
                   <p className="text-muted leading-relaxed">
-                    Start by describing the product idea in your own words. The active skill will ask one focused question at a time.
+                    The router will read your first message, compare it against the active skill descriptions, and either activate the best match or continue the conversation normally.
                   </p>
                 </div>
               </div>
             ) : null}
 
-            {flow.messages.map((item) => {
+            {visibleMessages.map((item) => {
               const isAssistant = item.role === "assistant";
               return (
                 <motion.div
@@ -275,78 +244,42 @@ export function AiWorkspacePage() {
                 </div>
               </div>
             ) : null}
-            {[...flow.messages, ...pendingMessages].map((item) => (
-              <div className={`chat-message chat-message--${item.role}`} key={item.id}>{item.content}</div>
-            ))}
-            {streamedReply ? <div className="chat-message chat-message--assistant">{streamedReply}</div> : null}
+
             <div ref={endRef} />
           </div>
 
-          {/* Action composer */}
-          {current ? (
-            <div className="border-t border-border bg-card p-4">
-              <Textarea
-                className="min-h-[92px] max-h-[150px] resize-y text-sm leading-relaxed"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder={canChat ? "Answer the current question..." : "Optional note for this action..."}
-                disabled={busy}
-              />
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-3">
-                <span className="text-[10px] text-muted leading-tight">
-                  {streamState === "reconnecting"
-                    ? "Connection interrupted. Resuming stream..."
-                    : canChat
-                    ? "Your answer is saved before AI processing."
-                    : "This step runs only after your confirmation."}
-                </span>
-                
-                {canChat ? (
-                  <Button
-                    className="w-full sm:w-auto"
-                    disabled={busy || message.trim().length < 2}
-                    onClick={() => send.mutate()}
-                  >
-                    {busy ? "Thinking..." : "Send answer"}
-                  </Button>
-                ) : (
-                  <Button
-                    className="w-full sm:w-auto flex items-center gap-1.5 justify-center"
-                    disabled={busy}
-                    onClick={() => action.mutate()}
-                  >
-                    <Play size={14} />
-                    <span>{current.executionMode === "human_review" ? "Confirm and continue" : "Run step"}</span>
-                  </Button>
-                )}
-              </div>
-              {(send.error || action.error) ? (
-                <p className="form-message mt-2 text-xs text-destructive">
-                  {send.error?.message ?? action.error?.message}
-                </p>
-              ) : null}
+          <div className="border-t border-border bg-card p-4">
+            <Textarea
+              className="min-h-[92px] max-h-[150px] resize-y text-sm leading-relaxed"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder={placeholder}
+              disabled={busy}
+            />
+            <div className="mt-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <span className="text-[10px] text-muted leading-tight">
+                {streamState === "reconnecting"
+                  ? "Connection interrupted. Resuming stream..."
+                  : activeSkill
+                  ? "Your message will continue through the pinned skill."
+                  : "The router will select the first matching skill for this conversation."}
+              </span>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={busy || message.trim().length < 2}
+                onClick={() => send.mutate()}
+              >
+                {busy ? "Thinking..." : activeSkill ? "Send message" : "Route skill"}
+              </Button>
             </div>
-          ) : (
-            <div className="border-t border-border p-6 text-center text-xs text-muted">
-              This guided journey is complete. Confirmed product records remain available throughout the workspace.
-            </div>
-          )}
+            {send.error ? (
+              <p className="form-message mt-2 text-xs text-destructive">
+                {send.error.message}
+              </p>
+            ) : null}
+          </div>
         </Card>
       </div>
     </Page>
   );
-}
-
-function modeLabel(mode: FlowStep["executionMode"]) {
-  return {
-    visible_chat: "Guided conversation",
-    internal_helper: "Background helper",
-    deterministic: "Deterministic assembly",
-    explicit_action: "Run on request",
-    human_review: "Founder review",
-  }[mode];
-}
-
-function humanize(value: string) {
-  return value.replace(/([A-Z])/g, " $1").replace(/[-_]/g, " ").trim().toLowerCase();
 }

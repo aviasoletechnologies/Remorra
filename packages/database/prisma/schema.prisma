@@ -521,16 +521,22 @@ model Conversation {
   projectId      String                @db.Uuid
   kind           ConversationKind
   status         SessionStatus         @default(active)
+  activeSkillId  String?
+  activeSkillVersionId String?         @db.Uuid
+  activeSkillPinnedAt DateTime?
   encryptedTitle String?
   retentionUntil DateTime?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   project        Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activeSkill    Skill?                @relation(fields: [activeSkillId], references: [id], onDelete: SetNull)
+  activeSkillVersion SkillVersion?     @relation(fields: [activeSkillVersionId], references: [id], onDelete: SetNull)
   messages       ConversationMessage[]
   extracts       StructuredExtract[]
   flowRuns       FlowRun[]
 
   @@index([projectId, kind])
+  @@index([activeSkillId])
 }
 
 model ConversationMessage {
@@ -696,6 +702,7 @@ model Skill {
   versions    SkillVersion[]
   mappings    SkillEventMapping[]
   flowSteps   FlowStep[]
+  conversations Conversation[]
 }
 
 model SkillVersion {
@@ -716,6 +723,7 @@ model SkillVersion {
   tokenUsage          TokenUsage[]
   aiInvocations       AiInvocation[]
   flowStepRuns        FlowStepRun[]
+  pinnedConversations Conversation[]
 
   @@unique([skillId, version])
 }

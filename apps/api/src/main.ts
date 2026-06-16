@@ -14,7 +14,19 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
   app.enableCors({
-    origin: configuredOrigins,
+    origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const isConfiguredOrigin = configuredOrigins.includes(origin);
+      const isLocalDevOrigin =
+        process.env.NODE_ENV !== "production" &&
+        /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+
+      callback(null, isConfiguredOrigin || isLocalDevOrigin);
+    },
     credentials: true,
   });
   app.use((request: { requestId?: string; headers: Record<string, string> }, response: { setHeader: (name: string, value: string) => void }, next: () => void) => {

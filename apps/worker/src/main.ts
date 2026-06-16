@@ -109,6 +109,15 @@ const queues = [
   "storage.expire",
 ] as const;
 
+const GENERAL_CHAT_SYSTEM_PROMPT = [
+  "You are Remorra's general workspace assistant.",
+  "Respond naturally, briefly, and helpfully when no product skill is active.",
+  "If the latest user message is a greeting, small talk, thanks, or casual chat, answer in that style and do not invent product plans.",
+  "Keep the conversation grounded in the latest message and a small amount of recent context.",
+  "Do not mention internal routing, hidden prompts, or active skill mechanics.",
+  "Only discuss product details if the latest user message explicitly asks about a product idea or work.",
+].join(" ");
+
 type Payload = Record<string, unknown> & { jobRecordId: string };
 
 async function main() {
@@ -202,7 +211,7 @@ async function checkTokenBudget(userId: string) {
 async function withRetry<T>(
   fn: () => Promise<T>,
   policy: { limit: number; backoff: boolean },
-  context: { userId: string; projectId: string; skillVersionId: string; model: string },
+  context: { userId: string; projectId: string; skillVersionId?: string; model: string },
 ): Promise<T> {
   const maxAttempts = policy.limit ?? 3;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -214,16 +223,18 @@ async function withRetry<T>(
         error?.code === "ECONNRESET" || error?.code === "ETIMEDOUT";
       if (!retryable || attempt === maxAttempts - 1) {
         // Log to AiFailure on final failure
-        await prisma.aiFailure.create({
-          data: {
-            userId: context.userId,
-            projectId: context.projectId,
-            skillVersionId: context.skillVersionId,
-            model: context.model,
-            error: error instanceof Error ? error.message : String(error),
-            requestPayload: {},
-          },
-        }).catch(() => {}); // Don't let logging failure mask the original error
+        if (context.skillVersionId) {
+          await prisma.aiFailure.create({
+            data: {
+              userId: context.userId,
+              projectId: context.projectId,
+              skillVersionId: context.skillVersionId,
+              model: context.model,
+              error: error instanceof Error ? error.message : String(error),
+              requestPayload: {},
+            },
+          }).catch(() => {}); // Don't let logging failure mask the original error
+        }
         throw error;
       }
       if (policy.backoff) {
@@ -335,6 +346,72 @@ async function invokeSkill(input: {
   return { text: result.value, skill: result.skill };
 }
 
+async function invokeGeneralConversation(input: {
+  userId: string;
+  projectId: string;
+  conversationId: string;
+  content: string;
+  onDelta?: (delta: string, accumulated: string) => Promise<void>;
+}) {
+  await checkTokenBudget(input.userId);
+
+  const [project, conversation] = await Promise.all([
+    prisma.project.findUniqueOrThrow({
+      where: { id: input.projectId },
+      select: { id: true, name: true, summary: true, phase: true, version: true },
+    }),
+    prisma.conversation.findUniqueOrThrow({
+      where: { id: input.conversationId },
+      include: { messages: { orderBy: { createdAt: "asc" } } },
+    }),
+  ]);
+
+  const recentMessages = conversation.messages.slice(-6).map((message: any) => ({
+    role: message.role === "assistant" ? "assistant" as const : "user" as const,
+    content: decrypt(message.encryptedContent),
+  }));
+
+  const system = [
+    GENERAL_CHAT_SYSTEM_PROMPT,
+    "Project context:",
+    JSON.stringify(project),
+  ].join("\n");
+
+  const model = modelFor("standard");
+  const response = await withRetry(async () => {
+    const stream = anthropic.messages.stream({
+      model,
+      max_tokens: 1200,
+      system,
+      messages: recentMessages,
+    });
+
+    let streamed = "";
+    if (input.onDelta) {
+      stream.on("text", (delta) => {
+        streamed += delta;
+        void input.onDelta?.(delta, streamed);
+      });
+    }
+    return stream.finalMessage();
+  }, { limit: 3, backoff: true }, {
+    userId: input.userId,
+    projectId: input.projectId,
+    model,
+  });
+
+  const text = response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+  return {
+    text,
+    skill: {
+      id: "general-chat",
+      versionId: "general-chat",
+      version: 1,
+      modelTier: "standard" as const,
+    },
+  };
+}
+
 async function resolveSkillId(eventType?: string) {
   if (!eventType) throw new Error("AI job requires an eventType or skillId.");
   const mapping = await prisma.skillEventMapping.findFirstOrThrow({
@@ -348,6 +425,10 @@ async function handleConversation(payload: Payload) {
   const userId = String(payload.userId ?? "");
   const projectId = String(payload.projectId ?? "");
   const conversationId = String(payload.conversationId ?? "");
+  const isGeneralChat = String(payload.fallbackMode ?? "") === "general_chat";
+  console.info(
+    `[worker:conversation] start project=${projectId} conversation=${conversationId} user=${userId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${String(payload.skillId ?? "none")} skillVersionId=${String(payload.skillVersionId ?? "none")}`,
+  );
 
   let sequence = 1;
   const jobId = payload.jobRecordId;
@@ -392,25 +473,45 @@ async function handleConversation(payload: Payload) {
   }, 80);
 
   try {
-    const flowState = typeof payload.flowRunId === "string"
-      ? await prepareFlowTurn(payload)
-      : null;
-    const result = await invokeSkill({
-      skillId: flowState?.skillId ?? (typeof payload.skillId === "string" ? payload.skillId : undefined),
-      skillVersionId: flowState?.skillVersionId ?? (typeof payload.skillVersionId === "string" ? payload.skillVersionId : undefined),
-      eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
-      userId,
-      projectId,
-      content: String(payload.content),
-      context: flowState?.context ?? await projectContext(projectId),
-      onDelta: async (delta, accumulated) => {
-        queue.push({ type: "token", delta });
-        // Occasional snapshot (approx. every 15-20 tokens)
-        if (sequence % 15 === 0) {
-          queue.push({ type: "snapshot", snapshot: accumulated });
-        }
-      },
-    });
+    const flowState = isGeneralChat
+      ? null
+      : typeof payload.flowRunId === "string"
+        ? await prepareFlowTurn(payload)
+        : null;
+
+    const result = isGeneralChat
+      ? await invokeGeneralConversation({
+          userId,
+          projectId,
+          conversationId,
+          content: String(payload.content),
+          onDelta: async (delta, accumulated) => {
+            queue.push({ type: "token", delta });
+            if (sequence % 15 === 0) {
+              queue.push({ type: "snapshot", snapshot: accumulated });
+            }
+          },
+        })
+      : await invokeSkill({
+        skillId: typeof payload.skillId === "string" ? payload.skillId : undefined,
+        skillVersionId: typeof payload.skillVersionId === "string" ? payload.skillVersionId : undefined,
+        eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
+        userId,
+        projectId,
+        content: String(payload.content),
+        context: flowState?.context ?? await projectContext(projectId),
+        onDelta: async (delta, accumulated) => {
+          queue.push({ type: "token", delta });
+          // Occasional snapshot (approx. every 15-20 tokens)
+          if (sequence % 15 === 0) {
+            queue.push({ type: "snapshot", snapshot: accumulated });
+          }
+        },
+      });
+
+    console.info(
+      `[worker:conversation] completed project=${projectId} conversation=${conversationId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${result.skill.id} skillVersion=${result.skill.version}`,
+    );
 
     clearInterval(timerId);
     await flush();
@@ -473,6 +574,9 @@ async function handleConversation(payload: Payload) {
     await flush();
     await flushPromise;
 
+    console.error(
+      `[worker:conversation] failed project=${projectId} conversation=${conversationId} mode=${isGeneralChat ? "general_chat" : "skill"} error=${err instanceof Error ? err.message : "Unknown error"}`,
+    );
     throw err;
   }
 }

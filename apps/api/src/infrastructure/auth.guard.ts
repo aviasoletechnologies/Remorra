@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
@@ -22,6 +23,7 @@ export interface AuthenticatedRequest {
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
+  private readonly logger = new Logger(SupabaseAuthGuard.name);
   private readonly issuer = process.env.SUPABASE_JWT_ISSUER;
   private readonly audience = process.env.SUPABASE_JWT_AUDIENCE ?? "authenticated";
   private readonly supabase: SupabaseClient | null;
@@ -71,11 +73,7 @@ export class SupabaseAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException("The access token is invalid or expired.");
     }
-    const profile = await this.prisma.client.profile.upsert({
-      where: { id: identity.userId },
-      create: { id: identity.userId, email: identity.email },
-      update: { email: identity.email },
-    });
+    const profile = await this.resolveProfile(identity.userId, identity.email);
     if (profile.status === "deleted") {
       throw new UnauthorizedException("This account has been deleted.");
     }
@@ -86,6 +84,72 @@ export class SupabaseAuthGuard implements CanActivate {
       status: profile.status,
     };
     return true;
+  }
+
+  private async resolveProfile(userId: string, email: string) {
+    const profileById = await this.prisma.client.profile.findUnique({
+      where: { id: userId },
+    });
+    if (profileById) {
+      if (profileById.email === email) {
+        return profileById;
+      }
+
+      try {
+        return await this.prisma.client.profile.update({
+          where: { id: profileById.id },
+          data: { email },
+        });
+      } catch (error: any) {
+        if (this.isEmailConflict(error)) {
+          const profileByEmail = await this.prisma.client.profile.findUnique({
+            where: { email },
+          });
+          if (profileByEmail) {
+            this.logger.warn(
+              `Profile email conflict during auth userId=${userId} email=${email}; using existing profile id=${profileByEmail.id}`,
+            );
+            return profileByEmail;
+          }
+        }
+        throw error;
+      }
+    }
+
+    const profileByEmail = await this.prisma.client.profile.findUnique({
+      where: { email },
+    });
+    if (profileByEmail) {
+      if (profileByEmail.id !== userId) {
+        this.logger.warn(
+          `Auth resolved by email instead of userId userId=${userId} email=${email} profileId=${profileByEmail.id}`,
+        );
+      }
+      return profileByEmail;
+    }
+
+    try {
+      return await this.prisma.client.profile.create({
+        data: { id: userId, email },
+      });
+    } catch (error: any) {
+      if (this.isEmailConflict(error)) {
+        const retryProfile = await this.prisma.client.profile.findUnique({
+          where: { email },
+        });
+        if (retryProfile) {
+          this.logger.warn(
+            `Profile create raced on email conflict userId=${userId} email=${email}; using existing profile id=${retryProfile.id}`,
+          );
+          return retryProfile;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private isEmailConflict(error: any) {
+    return error?.code === "P2002" && String(error?.message ?? "").includes("email");
   }
 
   private async verifyIdentity(token: string) {
