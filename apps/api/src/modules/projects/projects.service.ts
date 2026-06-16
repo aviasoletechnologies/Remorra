@@ -11,6 +11,7 @@ import {
   type ProjectRepository,
 } from "./project.repository.js";
 import { EvolveService } from "../evolve/evolve.service.js";
+import { EventRouterService } from "../event-router/event-router.service.js";
 
 const REMORRA_BUILD_RULES = `# REMORRA BUILD RULES
 
@@ -44,6 +45,7 @@ export class ProjectsService {
     private readonly repository: ProjectRepository,
     private readonly prisma: PrismaService,
     private readonly evolve: EvolveService,
+    private readonly eventRouter: EventRouterService,
   ) {}
 
   list(userId: string) {
@@ -73,11 +75,25 @@ export class ProjectsService {
     if (role !== "founder") {
       forbidden("Only the project founder can advance the DRIVE phase.");
     }
-    return this.repository.advance(
+    const project = await this.repository.find(projectId);
+    if (!project) notFound("Project", projectId);
+    const fromPhase = project.phase;
+    const toPhase = drivePhaseSchema.parse(phase);
+
+    const result = await this.repository.advance(
       projectId,
       expectedVersion,
-      drivePhaseSchema.parse(phase),
+      toPhase,
     );
+
+    await this.eventRouter.route({
+      eventType: "project.update",
+      projectId,
+      userId,
+      payload: { field: "phase", from: fromPhase, to: toPhase },
+    });
+
+    return result;
   }
 
   async developerExport(projectId: string, userId: string) {

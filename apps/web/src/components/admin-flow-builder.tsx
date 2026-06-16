@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Copy, Plus, Rocket, Save, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { TableEmptyState, TableToolbar } from "./app-ui";
 
 type Step = {
@@ -126,12 +127,22 @@ export function AdminFlowBuilder({ canWrite }: { canWrite: boolean }) {
           <p className="section-description">Configure the exact skill order used by the single customer conversation. Event routing remains separate.</p>
         </div>
         <div className="heading-actions">
-          <select className="admin-input" value={selectedFlow.id} onChange={(event) => { setFlowId(event.target.value); setVersionId(""); }}>
-            {flows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}
-          </select>
-          <select className="admin-input" value={selectedVersion.id} onChange={(event) => setVersionId(event.target.value)}>
-            {selectedFlow.versions.map((version) => <option key={version.id} value={version.id}>v{version.version} - {version.status}</option>)}
-          </select>
+          <Select value={selectedFlow.id} onValueChange={(val) => { setFlowId(val ?? ""); setVersionId(""); }}>
+            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {flows.map((flow) => <SelectItem key={flow.id} value={flow.id}>{flow.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={selectedVersion.id} onValueChange={(val) => setVersionId(val ?? "")}>
+            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {selectedFlow.versions.map((version) => (
+                <SelectItem key={version.id} value={version.id}>
+                  v{version.version} - {version.status}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Badge tone={selectedVersion.status === "published" ? "green" : selectedVersion.status === "draft" ? "amber" : "neutral"}>{selectedVersion.status}</Badge>
         </div>
       </div>
@@ -164,17 +175,31 @@ export function AdminFlowBuilder({ canWrite }: { canWrite: boolean }) {
             <div className="flow-builder__fields">
               <label>Step key<input className="admin-input" disabled={!editable} value={step.key} onChange={(event) => update(index, { key: event.target.value })} /></label>
               <label>Display name<input className="admin-input" disabled={!editable} value={step.displayName} onChange={(event) => update(index, { displayName: event.target.value })} /></label>
-              <label>Execution mode<select className="admin-input" disabled={!editable} value={step.executionMode} onChange={(event) => update(index, { executionMode: event.target.value })}>
-                <option value="visible_chat">Visible chat</option>
-                <option value="internal_helper">Internal helper</option>
-                <option value="deterministic">Deterministic</option>
-                <option value="explicit_action">Explicit action</option>
-                <option value="human_review">Human review</option>
-              </select></label>
-              <label>Skill<select className="admin-input" disabled={!editable} value={step.skillId ?? ""} onChange={(event) => update(index, { skillId: event.target.value || null })}>
-                <option value="">No LLM skill</option>
-                {skills.map((skill: any) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
-              </select></label>
+              <label>Execution mode
+                <Select disabled={!editable} value={step.executionMode} onValueChange={(val) => update(index, { executionMode: val ?? "" })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="visible_chat">Visible chat</SelectItem>
+                    <SelectItem value="internal_helper">Internal helper</SelectItem>
+                    <SelectItem value="deterministic">Deterministic</SelectItem>
+                    <SelectItem value="explicit_action">Explicit action</SelectItem>
+                    <SelectItem value="human_review">Human review</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+              <label>Skill
+                <Select disabled={!editable} value={step.skillId ?? ""} onValueChange={(val) => update(index, { skillId: val || null })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No LLM skill</SelectItem>
+                    {skills.map((skill: any) => (
+                      <SelectItem key={skill.id} value={skill.id}>
+                        {skill.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
               <label>Parent step<input className="admin-input" disabled={!editable} value={step.parentStepKey ?? ""} onChange={(event) => update(index, { parentStepKey: event.target.value || null })} placeholder="Only for internal helpers" /></label>
               <label>Next step<input className="admin-input" disabled={!editable} value={step.transitionRules?.nextStepKey ?? ""} onChange={(event) => update(index, { transitionRules: event.target.value ? { nextStepKey: event.target.value } : { terminal: true } })} placeholder="Blank means terminal" /></label>
               <label className="flow-builder__wide">Required outputs<input className="admin-input" disabled={!editable} value={step.requiredOutputs.join(", ")} onChange={(event) => update(index, { requiredOutputs: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="problemStatement, targetAudience" /></label>

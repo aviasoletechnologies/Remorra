@@ -26,7 +26,7 @@ Button.displayName = "Button";
 
 export const Card = forwardRef<HTMLDivElement, ComponentProps<typeof ShadcnCard>>(
   ({ className, ...props }, ref) => (
-    <ShadcnCard ref={ref} className={cn("border border-border/80 shadow-[0_1px_2px_rgba(22,35,28,.03),0_12px_32px_rgba(22,35,28,.04)]", className)} {...props} />
+    <ShadcnCard ref={ref} className={cn("rounded-2xl border border-border/70 ring-0 shadow-[var(--shadow-card)]", className)} {...props} />
   ),
 );
 Card.displayName = "Card";

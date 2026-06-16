@@ -43,10 +43,10 @@ export function AuthPage() {
   }
 
   return (
-    <main className="min-h-screen grid lg:grid-cols-2 bg-canvas">
+    <main className="min-h-screen grid lg:grid-cols-2 bg-background">
       {/* Left side: Premium Branding */}
-      <section className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-[#131d18]">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1b2f25] to-[#0f1713] opacity-90 z-0" />
+      <section className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-[#16132a]">
+        <div className="absolute inset-0 bg-gradient-to-br from-[#241d4d] to-[#100d20] opacity-90 z-0" />
         {/* Animated background blobs */}
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/30 blur-[120px] rounded-full z-0" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-accent-dark/40 blur-[140px] rounded-full z-0" />
@@ -72,7 +72,7 @@ export function AuthPage() {
       </section>
 
       {/* Right side: Auth Form */}
-      <section className="flex flex-col items-center justify-center p-6 sm:p-12 bg-canvas relative">
+      <section className="flex flex-col items-center justify-center p-6 sm:p-12 bg-background relative">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-accent/5 via-transparent to-transparent opacity-60" />
         
         <div className="w-full max-w-[420px] relative z-10">
@@ -86,19 +86,19 @@ export function AuthPage() {
             >
               <Card className="rounded-2xl border-border bg-card/85 p-8 shadow-2xl shadow-ink/5 backdrop-blur-xl">
                 <div className="mb-8">
-                  <h2 className="text-2xl font-bold tracking-tight text-ink mb-2">
+                  <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
                     {mode === "login" ? "Welcome back" : mode === "signup" ? "Start with clarity" : "Reset your password"}
                   </h2>
-                  <p className="text-sm text-muted">
+                  <p className="text-sm text-muted-foreground">
                     {mode === "login" ? "Enter your credentials to access your workspace." : mode === "signup" ? "Create your workspace and start building." : "We'll send you instructions to recover access."}
                   </p>
                 </div>
 
                 <form onSubmit={submit} className="space-y-5">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-ink uppercase tracking-wider">Email address</label>
+                    <label className="text-xs font-bold text-foreground uppercase tracking-wider">Email address</label>
                     <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" size={16} />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
                       <Input 
                         type="email" 
                         required 
@@ -113,19 +113,19 @@ export function AuthPage() {
                   {mode !== "reset" && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-ink uppercase tracking-wider">Password</label>
+                        <label className="text-xs font-bold text-foreground uppercase tracking-wider">Password</label>
                         {mode === "login" && (
                           <button 
                             type="button" 
                             onClick={() => setMode("reset")}
-                            className="text-xs font-semibold text-accent hover:text-accent-dark transition-colors"
+                            className="text-xs font-semibold text-primary hover:text-accent-dark transition-colors"
                           >
                             Forgot password?
                           </button>
                         )}
                       </div>
                       <div className="relative">
-                        <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" size={16} />
+                        <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
                         <Input 
                           type="password" 
                           minLength={8} 
@@ -160,11 +160,11 @@ export function AuthPage() {
                 </form>
 
                 <div className="mt-8 text-center">
-                  <p className="text-sm text-muted">
+                  <p className="text-sm text-muted-foreground">
                     {mode === "signup" ? "Already have an account?" : mode === "login" ? "Don't have an account?" : "Remember your password?"}{" "}
                     <button 
                       onClick={() => setMode(mode === "signup" ? "login" : "signup")}
-                      className="font-bold text-accent hover:text-accent-dark transition-colors"
+                      className="font-bold text-primary hover:text-accent-dark transition-colors"
                     >
                       {mode === "signup" ? "Sign in" : "Create one"}
                     </button>

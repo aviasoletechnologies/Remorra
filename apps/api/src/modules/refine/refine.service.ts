@@ -3,7 +3,7 @@ import { createRefineSessionSchema } from "@remorra/contracts";
 import { CryptoService } from "../../infrastructure/crypto.service.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
-import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { EventRouterService } from "../event-router/event-router.service.js";
 import { ViabilityService } from "../viability/viability.service.js";
 
 @Injectable()
@@ -12,7 +12,7 @@ export class RefineService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly access: ProjectAccessService,
-    private readonly queue: QueueService,
+    private readonly eventRouter: EventRouterService,
     private readonly viability: ViabilityService,
   ) {}
 
@@ -73,28 +73,33 @@ export class RefineService {
         encryptedContent: this.crypto.encrypt(content),
       },
     });
-    return this.queue.enqueue({
-      queue: QUEUES.aiConversation,
+    const jobs = await this.eventRouter.route({
+      eventType: "conversation_message.create",
       projectId: session.projectId,
       userId,
       payload: {
-        skillId: "refine-prompter",
+        phase: "refine",
         refineSessionId: id,
         conversationId: session.conversationId,
         content,
       },
     });
+    return jobs[0] ?? null;
   }
 
   async extract(id: string, userId: string) {
     const session = await this.get(id, userId);
-    return this.queue.enqueue({
-      queue: QUEUES.aiExtract,
+    const jobs = await this.eventRouter.route({
+      eventType: "structured_extract.create",
       projectId: session.projectId,
       userId,
       idempotencyKey: `refine-extract:${id}`,
-      payload: { skillId: "entity-extractor", refineSessionId: id },
+      payload: {
+        phase: "refine",
+        refineSessionId: id,
+      },
     });
+    return jobs[0] ?? null;
   }
 
   async proposals(id: string, userId: string) {

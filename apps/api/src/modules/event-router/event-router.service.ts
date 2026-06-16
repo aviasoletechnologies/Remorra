@@ -12,54 +12,63 @@ export class EventRouterService {
   ) {}
 
   /**
-   * Routes an application event to the appropriate AI Skill if a mapping exists in the database.
+   * Routes an application event to the appropriate AI Skill(s) if mapping(s) exist in the database and pass conditions.
    */
   async route(input: {
     eventType: string;
     projectId: string;
     userId: string;
     payload?: Record<string, unknown>;
+    idempotencyKey?: string;
   }) {
-    const { eventType, projectId, userId, payload = {} } = input;
+    const { eventType, projectId, userId, payload = {}, idempotencyKey } = input;
     this.logger.log(`Routing event: ${eventType} for project: ${projectId}`);
 
-    // Query active SkillEventMapping for this eventType
-    const mapping = await this.prisma.client.skillEventMapping.findFirst({
+    // 1. Find ALL active mappings for this event type
+    const mappings = await this.prisma.client.skillEventMapping.findMany({
       where: { eventType, active: true },
     });
 
-    if (!mapping) {
+    if (mappings.length === 0) {
       this.logger.debug(`No active event mapping found for event: ${eventType}`);
-      return null;
+      return [];
     }
 
-    this.logger.log(`Mapped event: ${eventType} to skill: ${mapping.skillId}`);
-
-    // Determine target queue based on skill characteristics
-    let queueName: (typeof QUEUES)[keyof typeof QUEUES] = QUEUES.aiConversation;
-
-    if (mapping.skillId === "entity-extractor" || mapping.skillId === "linkage-contradiction-checker") {
-      queueName = QUEUES.aiExtract;
-    } else if (mapping.skillId === "viability-score-calculator") {
-      queueName = QUEUES.aiExtract;
-    } else if (mapping.skillId === "report-generator") {
-      queueName = QUEUES.aiReport;
-    }
-
-    const job = await this.queue.enqueue({
-      queue: queueName,
-      projectId,
-      userId,
-      payload: {
-        skillId: mapping.skillId,
-        eventType,
-        eventPayload: payload,
-      },
+    // 2. Filter by conditions — commented out for now (trigger all active mappings)
+    /*
+    const matched = mappings.filter((mapping: any) => {
+      const conditions = (mapping.conditions ?? {}) as Record<string, unknown>;
+      return Object.entries(conditions).every(
+        ([key, value]) => payload[key] === value
+      );
     });
 
-    return {
-      skillId: mapping.skillId,
-      jobId: job.id,
-    };
+    if (matched.length === 0) {
+      this.logger.debug(`Event ${eventType} matched ${mappings.length} mapping(s) but none passed conditions filter`);
+      return [];
+    }
+    */
+    const matched = mappings;
+
+    // 3. Enqueue a job for EACH matched mapping
+    const jobs = [];
+    for (const mapping of matched) {
+      this.logger.log(`Matched: ${eventType} → skill: ${mapping.skillId} on queue: ${mapping.targetQueue}`);
+      const job = await this.queue.enqueue({
+        queue: mapping.targetQueue as any,
+        projectId,
+        userId,
+        idempotencyKey: matched.length === 1 ? idempotencyKey : (idempotencyKey ? `${idempotencyKey}:${mapping.skillId}` : undefined),
+        payload: {
+          skillId: mapping.skillId,
+          eventType,
+          ...payload,
+        },
+      });
+      jobs.push({ skillId: mapping.skillId, jobId: job.id });
+    }
+
+    return jobs;
   }
 }
+

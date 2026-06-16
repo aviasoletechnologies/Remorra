@@ -30,6 +30,8 @@ export function AdminPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "support" | "templates" | "costs" | "system" | "users">("overview");
   const [userPage, setUserPage] = useState(1);
   const USER_PAGE_SIZE = 10;
+  const [supportPage, setSupportPage] = useState(1);
+  const SUPPORT_PAGE_SIZE = 10;
 
   // System drafts
   const [knowledgeDrafts, setKnowledgeDrafts] = useState<Record<string, string>>({});
@@ -88,11 +90,13 @@ export function AdminPage() {
   });
 
   // Tab 2: Support Projects List
-  const { data: supportProjects = [] } = useQuery<any[]>({
-    queryKey: ["admin-support-projects"],
-    queryFn: () => api("/admin/support/projects"),
+  const { data: supportProjectsData } = useQuery<any>({
+    queryKey: ["admin-support-projects", supportPage],
+    queryFn: () => api(`/admin/support/projects?page=${supportPage}&limit=${SUPPORT_PAGE_SIZE}`),
     enabled: activeTab === "support",
   });
+  const supportProjects = supportProjectsData?.items ?? [];
+  const supportTotalPages = supportProjectsData?.totalPages ?? 1;
 
   const [selectedSupportProjectId, setSelectedSupportProjectId] = useState<string | null>(null);
   const { data: supportProjectDetails, isFetching: loadingSupportDetails } = useQuery<any>({
@@ -393,6 +397,9 @@ export function AdminPage() {
           loading={loadingSupportDetails}
           onSelectProject={setSelectedSupportProjectId}
           onCloseProject={() => setSelectedSupportProjectId(null)}
+          page={supportPage}
+          totalPages={supportTotalPages}
+          setPage={setSupportPage}
         />
       )}
 

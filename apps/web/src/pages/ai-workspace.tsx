@@ -166,7 +166,7 @@ export function AiWorkspacePage() {
         {/* Journey Progress Panel */}
         <Card className="flex flex-col overflow-hidden p-0 xl:sticky xl:top-20">
           <div className="flex min-h-[58px] items-center justify-between border-b border-border bg-secondary/65 px-5">
-            <span className="flex items-center gap-2 text-xs font-bold text-ink uppercase tracking-wider">Journey</span>
+            <span className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">Journey</span>
             <Badge tone="neutral">v{flow.flow.version}</Badge>
           </div>
           <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto p-4 xl:max-h-[calc(100vh-230px)]">
@@ -179,22 +179,22 @@ export function AiWorkspacePage() {
                   key={step.key}
                   className={`flex items-center gap-3 rounded-xl border p-3.5 transition-colors duration-200 ${
                     isActive
-                      ? "border-primary/25 bg-accent-soft/50 text-ink shadow-sm"
+                      ? "border-primary/25 bg-accent-soft/50 text-foreground shadow-sm"
                       : isCompleted
-                      ? "border-border bg-card text-ink opacity-90"
-                      : "border-border/70 bg-card/70 text-muted"
+                      ? "border-border bg-card text-foreground opacity-90"
+                      : "border-border/70 bg-card/70 text-muted-foreground"
                   }`}
                 >
                   {isCompleted ? (
-                    <CheckCircle2 size={17} className="text-accent flex-shrink-0" />
+                    <CheckCircle2 size={17} className="text-primary flex-shrink-0" />
                   ) : isActive ? (
-                    <LoaderCircle size={17} className="text-accent animate-spin flex-shrink-0" />
+                    <LoaderCircle size={17} className="text-primary animate-spin flex-shrink-0" />
                   ) : (
-                    <Circle size={17} className="text-muted flex-shrink-0" />
+                    <Circle size={17} className="text-muted-foreground flex-shrink-0" />
                   )}
                   <div>
                     <strong className="block text-xs font-bold leading-tight">{step.displayName}</strong>
-                    <small className="block text-[9px] text-muted font-medium mt-0.5">{modeLabel(step.executionMode)}</small>
+                    <small className="block text-[9px] text-muted-foreground font-medium mt-0.5">{modeLabel(step.executionMode)}</small>
                   </div>
                 </div>
               );
@@ -205,8 +205,8 @@ export function AiWorkspacePage() {
         {/* Chat / Decision Panel */}
         <Card className="flex flex-col overflow-hidden p-0">
           <div className="flex min-h-[58px] flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/65 px-5 py-3">
-            <span className="flex items-center gap-2 text-xs font-bold text-ink uppercase tracking-wider">
-              <MessageSquareText size={17} className="text-accent" />
+            <span className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">
+              <MessageSquareText size={17} className="text-primary" />
               <span>{current?.displayName ?? "Journey complete"}</span>
             </span>
             {current?.skillId ? (
@@ -218,8 +218,8 @@ export function AiWorkspacePage() {
 
           {current?.missingOutputs?.length ? (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-warning/15 bg-warning-soft/35 px-5 py-3 text-xs">
-              <strong className="text-amber uppercase tracking-wider text-[9px]">Still gathering</strong>
-              <span className="text-muted font-medium truncate max-w-[400px]">
+              <strong className="text-warning uppercase tracking-wider text-[9px]">Still gathering</strong>
+              <span className="text-muted-foreground font-medium truncate max-w-[400px]">
                 {current.missingOutputs.map(humanize).join(", ")}
               </span>
             </div>
@@ -229,17 +229,17 @@ export function AiWorkspacePage() {
           <div className="flex h-[min(58vh,620px)] min-h-[420px] flex-col gap-4 overflow-y-auto bg-background/65 p-4 sm:p-6" aria-live="polite">
             {flow.messages.length === 0 ? (
               <div className="mx-auto my-auto flex max-w-[520px] gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
-                <Sparkles size={24} className="text-accent flex-shrink-0" />
+                <Sparkles size={24} className="text-primary flex-shrink-0" />
                 <div className="flex flex-col gap-1">
-                  <strong className="font-bold text-ink">Let&apos;s build the product context together.</strong>
-                  <p className="text-muted leading-relaxed">
+                  <strong className="font-bold text-foreground">Let&apos;s build the product context together.</strong>
+                  <p className="text-muted-foreground leading-relaxed">
                     Start by describing the product idea in your own words. The active skill will ask one focused question at a time.
                   </p>
                 </div>
               </div>
             ) : null}
 
-            {flow.messages.map((item) => {
+            {[...flow.messages, ...pendingMessages].map((item) => {
               const isAssistant = item.role === "assistant";
               return (
                 <motion.div
@@ -256,8 +256,8 @@ export function AiWorkspacePage() {
                   </div>
                   <div className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
                     isAssistant
-                      ? "bg-card border-border rounded-tl-none shadow-sm text-ink"
-                      : "bg-accent-soft/70 border-primary/15 rounded-tr-none text-ink"
+                      ? "bg-card border-border rounded-tl-none shadow-sm text-foreground"
+                      : "bg-accent-soft/70 border-primary/15 rounded-tr-none text-foreground"
                   }`}>
                     {item.content}
                   </div>
@@ -270,15 +270,11 @@ export function AiWorkspacePage() {
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold bg-primary text-primary-foreground flex-shrink-0 shadow-sm">
                   AI
                 </div>
-                <div className="p-3.5 rounded-xl border text-xs leading-relaxed bg-card border-border rounded-tl-none shadow-sm text-ink">
+                <div className="p-3.5 rounded-xl border text-xs leading-relaxed bg-card border-border rounded-tl-none shadow-sm text-foreground">
                   {streamedReply}
                 </div>
               </div>
             ) : null}
-            {[...flow.messages, ...pendingMessages].map((item) => (
-              <div className={`chat-message chat-message--${item.role}`} key={item.id}>{item.content}</div>
-            ))}
-            {streamedReply ? <div className="chat-message chat-message--assistant">{streamedReply}</div> : null}
             <div ref={endRef} />
           </div>
 
@@ -293,7 +289,7 @@ export function AiWorkspacePage() {
                 disabled={busy}
               />
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-3">
-                <span className="text-[10px] text-muted leading-tight">
+                <span className="text-[10px] text-muted-foreground leading-tight">
                   {streamState === "reconnecting"
                     ? "Connection interrupted. Resuming stream..."
                     : canChat
@@ -327,7 +323,7 @@ export function AiWorkspacePage() {
               ) : null}
             </div>
           ) : (
-            <div className="border-t border-border p-6 text-center text-xs text-muted">
+            <div className="border-t border-border p-6 text-center text-xs text-muted-foreground">
               This guided journey is complete. Confirmed product records remain available throughout the workspace.
             </div>
           )}

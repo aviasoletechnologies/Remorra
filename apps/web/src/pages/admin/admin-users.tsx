@@ -1,4 +1,5 @@
 import { Button } from "../../components/ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { DataTable, RoleBadge, StatusBadge, TableToolbar } from "../../components/app-ui";
 import { AdminShellSection } from "../../components/admin-ui";
 
@@ -43,16 +44,20 @@ export function AdminUsers({
             cell: (row: any) => (
               <div className="flex items-center gap-2">
                 <RoleBadge role={row.platformRole} />
-                <select
+                <Select
                   value={row.platformRole}
-                  onChange={(event) => onUpdateRole(row.id, event.target.value)}
+                  onValueChange={(val) => onUpdateRole(row.id, val ?? "")}
                   disabled={!isAdmin}
-                  className="admin-select max-w-36"
                 >
-                  <option value="user">User</option>
-                  <option value="support">Support</option>
-                  <option value="admin">Admin</option>
-                </select>
+                  <SelectTrigger className="max-w-36" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="support">Support</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             ),
           },

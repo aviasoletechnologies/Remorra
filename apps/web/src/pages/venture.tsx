@@ -153,8 +153,8 @@ export function VenturePage() {
           )}
 
           <div className="flex items-center justify-between border-b border-border pb-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted font-semibold">
-              <CalendarDays size={14} className="text-accent" />
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold">
+              <CalendarDays size={14} className="text-primary" />
               <span>{activeCycle?.name ?? "No active cycle"}</span>
             </div>
           </div>
@@ -166,7 +166,7 @@ export function VenturePage() {
               return (
                 <div className="flex min-h-[460px] flex-col gap-3 rounded-2xl border border-border bg-secondary/55 p-3 shadow-inner" key={status}>
                   <div className="flex justify-between items-center pb-2 border-b border-border">
-                    <strong className="text-[11px] font-bold text-ink uppercase tracking-wider">
+                    <strong className="text-[11px] font-bold text-foreground uppercase tracking-wider">
                       {status.replace("_", " ")}
                     </strong>
                     <Badge tone="neutral">{columnTasks.length}</Badge>
@@ -186,7 +186,7 @@ export function VenturePage() {
                             <div className="flex justify-between items-center">
                               <Badge tone="neutral">{task.priority}</Badge>
                               <button
-                                className="w-6 h-6 rounded-md text-muted hover:bg-destructive/10 hover:text-destructive flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-6 h-6 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center justify-center transition-colors cursor-pointer"
                                 aria-label="Delete task"
                                 onClick={() =>
                                   command.mutate({ path: `/tasks/${task.id}`, method: "DELETE", version: task.version })
@@ -196,17 +196,17 @@ export function VenturePage() {
                               </button>
                             </div>
                             
-                            <h3 className="text-xs font-bold text-ink leading-relaxed font-sans min-h-[40px] flex items-center">
+                            <h3 className="text-xs font-bold text-foreground leading-relaxed font-sans min-h-[40px] flex items-center">
                               {task.title}
                             </h3>
                             
-                            <footer className="flex justify-between items-center border-t border-border pt-2.5 mt-1 text-[9px] text-muted">
+                            <footer className="flex justify-between items-center border-t border-border pt-2.5 mt-1 text-[9px] text-muted-foreground">
                               <span className="truncate max-w-[120px] font-semibold">
                                 {task.story?.title ?? "Connected story"}
                               </span>
                               {status !== "done" && (
                                 <button
-                                  className="w-6 h-6 rounded-md hover:bg-accent-soft/40 text-accent flex items-center justify-center transition-colors cursor-pointer"
+                                  className="w-6 h-6 rounded-md hover:bg-accent-soft/40 text-primary flex items-center justify-center transition-colors cursor-pointer"
                                   aria-label="Move task forward"
                                   onClick={() =>
                                     command.mutate({
@@ -230,7 +230,7 @@ export function VenturePage() {
                     </AnimatePresence>
 
                     {columnTasks.length === 0 && (
-                      <div className="rounded-xl border border-dashed border-border py-12 text-center text-[10px] text-muted">
+                      <div className="rounded-xl border border-dashed border-border py-12 text-center text-[10px] text-muted-foreground">
                         No tasks
                       </div>
                     )}
@@ -398,13 +398,8 @@ export function VenturePage() {
 
 function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disabled = false }: any) {
   return (
-    <Card className="overflow-hidden flex flex-col bg-card">
-      <div className="min-h-[62px] px-5 py-4 border-b border-border flex items-center justify-between bg-secondary/65">
-        <h2 className="text-sm font-bold text-foreground">{title}</h2>
-        <Badge tone="neutral">{items.length}</Badge>
-      </div>
-      
-      <div className="p-4 bg-secondary/35 border-b border-border flex gap-2">
+    <SectionCard title={title} action={<Badge tone="neutral">{items.length}</Badge>}>
+      <div className="flex gap-2">
         <Input
           className="flex-1"
           value={value}
@@ -422,7 +417,7 @@ function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disab
         </Button>
       </div>
 
-      <div className="divide-y divide-border">
+      <div className="mt-4 overflow-hidden rounded-xl border border-border divide-y divide-border">
         {items.length ? (
           items.map((item: any) => (
             <motion.div
@@ -433,20 +428,20 @@ function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disab
               key={item.id}
             >
               <div>
-                <strong className="block text-xs font-semibold text-ink leading-tight">
+                <strong className="block text-xs font-semibold text-foreground leading-tight">
                   {item.title ?? item.name}
                 </strong>
-                <small className="block text-[10px] text-muted font-medium mt-0.5">{item.subtitle}</small>
+                <small className="block text-[10px] text-muted-foreground font-medium mt-0.5">{item.subtitle}</small>
               </div>
               {item.action}
             </motion.div>
           ))
         ) : (
-          <div className="p-10 text-center text-sm text-muted leading-relaxed">
+          <div className="p-10 text-center text-sm text-muted-foreground leading-relaxed">
             Nothing here yet.
           </div>
         )}
       </div>
-    </Card>
+    </SectionCard>
   );
 }

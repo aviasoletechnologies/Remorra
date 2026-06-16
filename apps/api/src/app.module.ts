@@ -15,6 +15,7 @@ import { GdprModule } from "./modules/gdpr/gdpr.module.js";
 import { AdminModule } from "./modules/admin/admin.module.js";
 import { SanitizeMiddleware } from "./infrastructure/sanitize.middleware.js";
 import { EventRouterModule } from "./modules/event-router/event-router.module.js";
+import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.module.js";
 
 
 @Module({
@@ -33,7 +34,7 @@ import { EventRouterModule } from "./modules/event-router/event-router.module.js
     GdprModule,
     AdminModule,
     EventRouterModule,
-
+    WorkspaceFlowModule,
   ],
   controllers: [HealthController],
 })

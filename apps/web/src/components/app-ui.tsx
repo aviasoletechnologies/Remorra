@@ -32,6 +32,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "./ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 
 type PageHeaderProps = {
   eyebrow?: string;
@@ -41,11 +48,12 @@ type PageHeaderProps = {
   tone?: "green" | "blue" | "neutral";
 };
 
-export function PageHeader({ actions }: PageHeaderProps) {
-  if (!actions) return null;
+export function PageHeader({ eyebrow, actions, tone = "green" }: PageHeaderProps) {
+  if (!eyebrow && !actions) return null;
   return (
-    <header className="page-header justify-end">
-      <div className="page-header-actions">{actions}</div>
+    <header className={cn("page-header", !eyebrow && "justify-end")}>
+      {eyebrow ? <Badge tone={tone}>{eyebrow}</Badge> : null}
+      {actions ? <div className="page-header-actions">{actions}</div> : null}
     </header>
   );
 }
@@ -175,6 +183,8 @@ export function DataTable<T>({
   emptyTitle = "No records found",
   emptyDescription = "When data exists, it will appear here.",
   minWidth = 720,
+  onRowClick,
+  compactEmpty = false,
 }: {
   columns: Array<DataTableColumn<T>>;
   rows: T[];
@@ -182,9 +192,11 @@ export function DataTable<T>({
   emptyTitle?: string;
   emptyDescription?: string;
   minWidth?: number;
+  onRowClick?: (row: T) => void;
+  compactEmpty?: boolean;
 }) {
   if (!rows.length) {
-    return <TableEmptyState title={emptyTitle} description={emptyDescription} />;
+    return <TableEmptyState title={emptyTitle} description={emptyDescription} compact={compactEmpty} />;
   }
 
   return (
@@ -201,7 +213,11 @@ export function DataTable<T>({
         </TableHeader>
         <TableBody>
           {rows.map((row, index) => (
-            <TableRow key={getRowKey(row, index)}>
+            <TableRow
+              key={getRowKey(row, index)}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={onRowClick ? "cursor-pointer" : undefined}
+            >
               {columns.map((column) => (
                 <TableCell className={column.className} key={column.key}>
                   {column.cell(row)}
@@ -250,12 +266,15 @@ export function TableToolbar({
   );
 }
 
-export function TableEmptyState({ title, description }: { title: string; description: string }) {
+export function TableEmptyState({ title, description, compact = false }: { title: string; description?: string; compact?: boolean }) {
+  if (compact) {
+    return <div className="table-empty-state table-empty-state-compact"><Inbox size={15} /><span>{title}</span></div>;
+  }
   return (
     <div className="table-empty-state">
       <Inbox size={18} />
       <strong>{title}</strong>
-      <span>{description}</span>
+      {description ? <span>{description}</span> : null}
     </div>
   );
 }
@@ -427,6 +446,32 @@ export function DetailDrawer({
         <div className="detail-drawer-content">{children}</div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+export function DetailDialog({
+  open,
+  title,
+  description,
+  children,
+  onOpenChange,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100vh-3rem)] w-full overflow-y-auto p-7 sm:max-w-3xl">
+        <DialogHeader className="pr-10">
+          <DialogTitle className="text-lg font-bold tracking-[-.02em]">{title}</DialogTitle>
+          {description ? <DialogDescription>{description}</DialogDescription> : null}
+        </DialogHeader>
+        <div className="detail-drawer-content">{children}</div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

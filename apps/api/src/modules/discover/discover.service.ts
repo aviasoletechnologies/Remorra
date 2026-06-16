@@ -10,7 +10,7 @@ import { PDFParse } from "pdf-parse";
 import { CryptoService } from "../../infrastructure/crypto.service.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
-import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { EventRouterService } from "../event-router/event-router.service.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +20,7 @@ export class DiscoverService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly access: ProjectAccessService,
-    private readonly queue: QueueService,
+    private readonly eventRouter: EventRouterService,
   ) {}
 
   async start(projectId: string, userId: string) {
@@ -73,17 +73,18 @@ export class DiscoverService {
         encryptedContent: this.crypto.encrypt(content),
       },
     });
-    return this.queue.enqueue({
-      queue: QUEUES.aiConversation,
+    const jobs = await this.eventRouter.route({
+      eventType: "conversation_message.create",
       projectId: session.projectId,
       userId,
       idempotencyKey: `discover-message:${id}:${this.crypto.encrypt(content).slice(-16)}`,
       payload: {
-        skillId: "brain-dump-facilitator",
+        phase: "discover",
         conversationId: id,
         content,
       },
     });
+    return jobs[0] ?? null;
   }
 
   async extract(id: string, userId: string) {
@@ -91,17 +92,18 @@ export class DiscoverService {
       where: { id },
     });
     await this.access.require(session.projectId, userId, ["founder"]);
-    return this.queue.enqueue({
-      queue: QUEUES.aiExtract,
+    const jobs = await this.eventRouter.route({
+      eventType: "structured_extract.create",
       projectId: session.projectId,
       userId,
       idempotencyKey: `discover-extract:${id}`,
       payload: {
-        skillId: "entity-extractor",
+        phase: "discover",
         conversationId: id,
         extractType: "founder-pack",
       },
     });
+    return jobs[0] ?? null;
   }
 
   async confirmExtract(id: string, extractId: string, userId: string) {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { AdminService } from "./admin.service.js";
 
@@ -60,15 +60,26 @@ export class AdminController {
   }
 
 
+  @Get("event-types")
+  getEventTypes(@CurrentActor() actor: Actor) {
+    return this.admin.getEventTypes(actor);
+  }
+
   @Get("event-mappings")
-  eventMappings(@CurrentActor() actor: Actor) {
-    return this.admin.eventMappings(actor);
+  eventMappings(
+    @CurrentActor() actor: Actor,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.admin.eventMappings(actor, pageNum, limitNum);
   }
 
   @Post("event-mappings")
   createEventMapping(
     @CurrentActor() actor: Actor,
-    @Body() body: { eventType: string; skillId: string; active?: boolean },
+    @Body() body: { eventType: string; skillId: string; targetQueue: string; conditions?: Record<string, unknown>; active?: boolean },
   ) {
     return this.admin.createEventMapping(actor, body);
   }
@@ -77,9 +88,17 @@ export class AdminController {
   updateEventMapping(
     @CurrentActor() actor: Actor,
     @Param("id") id: string,
-    @Body() body: { active?: boolean; skillId?: string },
+    @Body() body: { active?: boolean; skillId?: string; targetQueue?: string; conditions?: Record<string, unknown> },
   ) {
     return this.admin.updateEventMapping(actor, id, body);
+  }
+
+  @Delete("event-mappings/:id")
+  deleteEventMapping(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+  ) {
+    return this.admin.deleteEventMapping(actor, id);
   }
 
 
@@ -245,8 +264,14 @@ export class AdminController {
   // --- Support Workspace Endpoints ---
 
   @Get("support/projects")
-  getSupportProjects(@CurrentActor() actor: Actor) {
-    return this.admin.getSupportProjects(actor);
+  getSupportProjects(
+    @CurrentActor() actor: Actor,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.admin.getSupportProjects(actor, pageNum, limitNum);
   }
 
   @Get("support/projects/:id")

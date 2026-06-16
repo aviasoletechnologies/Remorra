@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
-import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { EventRouterService } from "../event-router/event-router.service.js";
 
 @Injectable()
 export class ViabilityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
-    private readonly queue: QueueService,
+    private readonly eventRouter: EventRouterService,
   ) {}
 
   async calculate(projectId: string, userId: string) {
@@ -22,13 +22,14 @@ export class ViabilityService {
         `Viability recalculation limit reached (${config.recalculationLimit}).`,
       );
     }
-    return this.queue.enqueue({
-      queue: QUEUES.aiExtract,
+    const jobs = await this.eventRouter.route({
+      eventType: "viability_snapshot.create",
       projectId,
       userId,
       idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
-      payload: { skillId: "viability-score-calculator", projectId },
+      payload: { projectId },
     });
+    return jobs[0] ?? null;
   }
 
   async current(projectId: string, userId: string) {
@@ -54,13 +55,14 @@ export class ViabilityService {
     const existing = await this.prisma.client.viabilitySnapshot.count({ where: { projectId } });
     const config = this.config();
     if (existing >= config.recalculationLimit) return; // Limit reached
-    return this.queue.enqueue({
-      queue: QUEUES.aiExtract,
+    const jobs = await this.eventRouter.route({
+      eventType: "viability_snapshot.create",
       projectId,
       userId,
       idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
-      payload: { skillId: "viability-score-calculator", projectId },
+      payload: { projectId },
     });
+    return jobs[0] ?? null;
   }
 
   private config() {

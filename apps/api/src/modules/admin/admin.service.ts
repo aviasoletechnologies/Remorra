@@ -178,6 +178,37 @@ export class AdminService {
     });
   }
 
+  async skill(actor: Actor, id: string) {
+    this.requireAdmin(actor);
+    const skill = await this.prisma.client.skill.findUnique({
+      where: { id },
+      include: {
+        versions: { orderBy: { version: "desc" } },
+      },
+    });
+    if (!skill) throw new BadRequestException(`Skill with ID ${id} not found.`);
+    return skill;
+  }
+
+  async updateSkill(
+    actor: Actor,
+    id: string,
+    body: Record<string, any>,
+  ) {
+    this.requireWriteAdmin(actor);
+    const data: Record<string, any> = {};
+    if (typeof body.name === "string") data.name = body.name.trim();
+    if (typeof body.description === "string") data.description = body.description.trim();
+
+    const skill = await this.prisma.client.skill.update({
+      where: { id },
+      data,
+    });
+
+    await this.auditPlatform(actor, "platform.skill.updated", "skill", id, data);
+    return skill;
+  }
+
   async activateSkill(actor: Actor, skillId: string, versionId: string) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -790,20 +821,28 @@ export class AdminService {
 
   // --- Support Workspace Endpoints ---
 
-  async getSupportProjects(actor: Actor) {
+  async getSupportProjects(actor: Actor, page: number = 1, limit: number = 10) {
     this.requireAdmin(actor);
-    const projects = await this.prisma.client.project.findMany({
-      include: {
-        owner: true,
-        memberships: true,
-        jobs: { where: { status: "failed" } },
-        raidItems: { where: { severity: "critical", status: { not: "done" } } },
-        viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-      orderBy: { updatedAt: "desc" },
-    });
+    const skip = (page - 1) * limit;
+    const take = limit;
 
-    return projects.map((p: any) => {
+    const [projects, total] = await Promise.all([
+      this.prisma.client.project.findMany({
+        include: {
+          owner: true,
+          memberships: true,
+          jobs: { where: { status: "failed" } },
+          raidItems: { where: { severity: "critical", status: { not: "done" } } },
+          viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+        orderBy: { updatedAt: "desc" },
+        skip,
+        take,
+      }),
+      this.prisma.client.project.count(),
+    ]);
+
+    const items = projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
       const hasCriticalRisk = p.raidItems.length > 0;
       const lowViability = p.viabilitySnapshots[0]?.overall < 50;
@@ -821,6 +860,14 @@ export class AdminService {
         createdAt: p.createdAt,
       };
     });
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async getSupportProjectDetails(actor: Actor, projectId: string) {
@@ -914,17 +961,84 @@ export class AdminService {
   }
 
 
-  async eventMappings(actor: Actor) {
+  async getEventTypes(actor: Actor) {
     this.requireAdmin(actor);
-    return this.prisma.client.skillEventMapping.findMany({
-      orderBy: { eventType: "asc" },
-      include: { skill: true },
-    });
+
+    // All business tables that can trigger skills
+    const tables = [
+      // Core entities
+      { table: "project", group: "Project" },
+      { table: "conversation", group: "Conversation" },
+      { table: "conversation_message", group: "Conversation" },
+      // Discover/Refine entities
+      { table: "ambition", group: "Entity" },
+      { table: "okr", group: "Entity" },
+      { table: "persona", group: "Entity" },
+      { table: "okr_persona", group: "Entity" },
+      { table: "pain_point", group: "Entity" },
+      { table: "user_need", group: "Entity" },
+      { table: "user_story", group: "Entity" },
+      { table: "task", group: "Entity" },
+      // Refine
+      { table: "refine_session", group: "Refine" },
+      { table: "refine_proposal", group: "Refine" },
+      { table: "structured_extract", group: "Refine" },
+      { table: "entity_link_check", group: "Refine" },
+      // Evolve
+      { table: "evolve_session", group: "Evolve" },
+      { table: "impact_item", group: "Evolve" },
+      // Output / Reports
+      { table: "viability_snapshot", group: "Output" },
+      { table: "founder_pack", group: "Output" },
+      { table: "product_pack", group: "Output" },
+      // Cycle management
+      { table: "cycle", group: "Cycle" },
+      { table: "raid_item", group: "Cycle" },
+      { table: "daily_meeting", group: "Cycle" },
+      { table: "retrospective", group: "Cycle" },
+    ];
+
+    const operations = ["create", "update", "delete"];
+
+    const items = tables.flatMap(({ table, group }) =>
+      operations.map(op => ({
+        eventType: `${table}.${op}`,
+        table,
+        operation: op,
+        group,
+      }))
+    );
+
+    return { items };
+  }
+
+  async eventMappings(actor: Actor, page: number = 1, limit: number = 10) {
+    this.requireAdmin(actor);
+    const skip = (page - 1) * limit;
+    const take = limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.client.skillEventMapping.findMany({
+        orderBy: { eventType: "asc" },
+        include: { skill: true },
+        skip,
+        take,
+      }),
+      this.prisma.client.skillEventMapping.count(),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async createEventMapping(
     actor: Actor,
-    body: { eventType: string; skillId: string; active?: boolean },
+    body: { eventType: string; skillId: string; targetQueue?: string; conditions?: Record<string, unknown>; active?: boolean },
   ) {
     this.requireWriteAdmin(actor);
     const eventType = body.eventType?.trim();
@@ -932,24 +1046,30 @@ export class AdminService {
     if (!eventType || !skillId) {
       throw new BadRequestException("Event type and Skill ID are required.");
     }
+    const targetQueue = body.targetQueue?.trim();
+    if (!targetQueue) {
+      throw new BadRequestException("Target queue is required.");
+    }
     await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
 
     const mapping = await this.prisma.client.skillEventMapping.create({
       data: {
         eventType,
         skillId,
+        targetQueue,
+        conditions: body.conditions ?? {},
         active: body.active ?? true,
       },
       include: { skill: true },
     });
-    await this.auditPlatform(actor, "platform.event_mapping.created", "event_mapping", mapping.id, { eventType, skillId });
+    await this.auditPlatform(actor, "platform.event_mapping.created", "event_mapping", mapping.id, { eventType, skillId, targetQueue, conditions: body.conditions ?? {} });
     return mapping;
   }
 
   async updateEventMapping(
     actor: Actor,
     id: string,
-    body: { active?: boolean; skillId?: string },
+    body: { active?: boolean; skillId?: string; targetQueue?: string; conditions?: Record<string, unknown> },
   ) {
     this.requireWriteAdmin(actor);
     const data: Record<string, any> = {};
@@ -958,6 +1078,12 @@ export class AdminService {
       const skillId = body.skillId.trim();
       await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
       data.skillId = skillId;
+    }
+    if (typeof body.targetQueue === "string") {
+      data.targetQueue = body.targetQueue.trim();
+    }
+    if (body.conditions !== undefined) {
+      data.conditions = body.conditions;
     }
 
     const mapping = await this.prisma.client.skillEventMapping.update({
@@ -968,6 +1094,15 @@ export class AdminService {
 
     await this.auditPlatform(actor, "platform.event_mapping.updated", "event_mapping", mapping.id, data);
     return mapping;
+  }
+
+  async deleteEventMapping(actor: Actor, id: string) {
+    this.requireWriteAdmin(actor);
+    const mapping = await this.prisma.client.skillEventMapping.delete({
+      where: { id },
+    });
+    await this.auditPlatform(actor, "platform.event_mapping.deleted", "event_mapping", id, { eventType: mapping.eventType });
+    return { success: true };
   }
 
   private auditPlatform(

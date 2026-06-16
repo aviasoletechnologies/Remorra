@@ -118,10 +118,12 @@ export function AdminAuditTable<T>({
   rows,
   columns,
   getRowKey,
+  compactEmpty = false,
 }: {
   rows: T[];
   columns: Array<DataTableColumn<T>>;
   getRowKey: (row: T, index: number) => string;
+  compactEmpty?: boolean;
 }) {
   return (
     <DataTable
@@ -131,6 +133,7 @@ export function AdminAuditTable<T>({
       emptyTitle="No audit records"
       emptyDescription="Audited activity will appear here when available."
       minWidth={760}
+      compactEmpty={compactEmpty}
     />
   );
 }
