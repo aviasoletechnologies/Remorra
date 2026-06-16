@@ -1,6 +1,7 @@
-import { Inbox } from "lucide-react";
+import { useState } from "react";
+import { Inbox, Copy, Check, Mail, TrendingUp, Hash } from "lucide-react";
 import { Badge, Button } from "../../components/ui";
-import { DataTable, DetailDialog, KeyValueList, LoadingState, TableToolbar } from "../../components/app-ui";
+import { DataTable, DetailDialog, LoadingState, TableToolbar } from "../../components/app-ui";
 import { AdminAuditTable, AdminJsonPreview, AdminShellSection } from "../../components/admin-ui";
 
 export function AdminSupport({
@@ -24,6 +25,14 @@ export function AdminSupport({
   totalPages: number;
   setPage: (updater: (page: number) => number) => void;
 }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   return (
     <AdminShellSection
       title="Support workspace"
@@ -92,17 +101,78 @@ export function AdminSupport({
           <LoadingState label="Loading project diagnostics..." />
         ) : (
           <>
-            <KeyValueList
-              items={[
-                { label: "Project ID", value: projectDetails?.id ?? "-" },
-                { label: "Owner", value: projectDetails?.ownerEmail ?? "-" },
-                {
-                  label: "Usage spike",
-                  value: `${projectDetails?.usageSpikePercent ?? 0}%`,
-                  tone: (projectDetails?.usageSpikePercent ?? 0) > 50 ? "red" : "neutral",
-                },
-              ]}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              {/* Project ID Card */}
+              <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-card shadow-sm hover:border-primary/50 transition-all group relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Project ID</span>
+                  <Hash size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1 z-10">
+                  <code className="text-xs font-mono font-medium truncate text-foreground select-all" title={projectDetails?.id}>
+                    {projectDetails?.id ? `${projectDetails.id.slice(0, 8)}...${projectDetails.id.slice(-8)}` : "-"}
+                  </code>
+                  {projectDetails?.id && (
+                    <button
+                      onClick={() => handleCopy(projectDetails.id, "projectId")}
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      title="Copy Project ID"
+                    >
+                      {copiedId === "projectId" ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Owner Card */}
+              <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-card shadow-sm hover:border-primary/50 transition-all group relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Owner</span>
+                  <Mail size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1 min-w-0 z-10">
+                  <span className="text-xs font-medium truncate text-foreground block" title={projectDetails?.ownerEmail}>
+                    {projectDetails?.ownerEmail ?? "-"}
+                  </span>
+                  {projectDetails?.ownerEmail && (
+                    <button
+                      onClick={() => handleCopy(projectDetails.ownerEmail, "ownerEmail")}
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex-shrink-0"
+                      title="Copy Owner Email"
+                    >
+                      {copiedId === "ownerEmail" ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Usage Spike Card */}
+              <div className={`flex flex-col justify-between p-4 rounded-xl border shadow-sm transition-all group relative overflow-hidden ${
+                (projectDetails?.usageSpikePercent ?? 0) > 50 
+                  ? "border-destructive/30 bg-destructive-soft/10 hover:border-destructive/50" 
+                  : "border-border bg-card hover:border-primary/50"
+              }`}>
+                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">Usage Spike</span>
+                  <TrendingUp size={16} className={(projectDetails?.usageSpikePercent ?? 0) > 50 ? "text-destructive" : "text-muted-foreground group-hover:text-primary transition-colors"} />
+                </div>
+                <div className="flex items-end justify-between mt-1 z-10">
+                  <div className="flex flex-col">
+                    <span className={`text-base font-bold tracking-tight ${
+                      (projectDetails?.usageSpikePercent ?? 0) > 50 ? "text-destructive" : "text-foreground"
+                    }`}>
+                      {projectDetails?.usageSpikePercent ?? 0}%
+                    </span>
+                  </div>
+                  <Badge tone={(projectDetails?.usageSpikePercent ?? 0) > 50 ? "red" : "neutral"}>
+                    {(projectDetails?.usageSpikePercent ?? 0) > 50 ? "High Risk" : "Normal"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
 
             <section className="grid gap-3">
               <h3>Team membership roles</h3>
