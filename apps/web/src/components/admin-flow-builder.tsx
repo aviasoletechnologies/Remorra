@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Copy, Plus, Rocket, Save, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
+import { TableEmptyState, TableToolbar } from "./app-ui";
 
 type Step = {
   id?: string;
@@ -90,7 +91,15 @@ export function AdminFlowBuilder({ canWrite }: { canWrite: boolean }) {
   });
 
   if (!selectedFlow || !selectedVersion) {
-    return <Card><h2>Flow Builder</h2><p>No flow definition exists. Seed the default journey or create one through the admin API.</p></Card>;
+    return (
+      <Card className="flow-builder">
+        <TableToolbar title="Guided Flow Builder" description="Configure the exact skill order used by the single customer conversation." />
+        <TableEmptyState
+          title="No flow definitions"
+          description="Seed the default journey or create one through the admin API. Flow records will appear here using the same admin empty-state pattern as other tables."
+        />
+      </Card>
+    );
   }
   const editable = canWrite && selectedVersion.status === "draft";
 
@@ -121,7 +130,7 @@ export function AdminFlowBuilder({ canWrite }: { canWrite: boolean }) {
             {flows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}
           </select>
           <select className="admin-input" value={selectedVersion.id} onChange={(event) => setVersionId(event.target.value)}>
-            {selectedFlow.versions.map((version) => <option key={version.id} value={version.id}>v{version.version} · {version.status}</option>)}
+            {selectedFlow.versions.map((version) => <option key={version.id} value={version.id}>v{version.version} - {version.status}</option>)}
           </select>
           <Badge tone={selectedVersion.status === "published" ? "green" : selectedVersion.status === "draft" ? "amber" : "neutral"}>{selectedVersion.status}</Badge>
         </div>
