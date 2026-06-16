@@ -24,21 +24,16 @@ export function AdminShellSection({
 }
 
 export function AdminModuleHeader({
-  title,
-  description,
   actions,
 }: {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
 }) {
+  if (!actions) return null;
   return (
-    <div className="admin-module-header">
-      <div>
-        <h2>{title}</h2>
-        {description ? <p>{description}</p> : null}
-      </div>
-      {actions ? <div className="admin-module-actions">{actions}</div> : null}
+    <div className="admin-module-header justify-end">
+      <div className="admin-module-actions">{actions}</div>
     </div>
   );
 }
@@ -90,13 +85,33 @@ export function AdminEditorCard({
   description,
   action,
   children,
+  icon,
 }: {
   title: string;
   description?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
+  icon?: ReactNode;
 }) {
-  return <EditorPanel title={title} description={description} action={action}>{children}</EditorPanel>;
+  return (
+    <Card className="editor-panel flow-builder">
+      <div className="flow-builder__header flex justify-between items-center mb-6">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            {icon}
+            {title}
+          </h2>
+          {description ? (
+            <p className="text-sm text-muted-foreground mt-1">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action}
+      </div>
+      <div className="editor-panel-body">{children}</div>
+    </Card>
+  );
 }
 
 export function AdminAuditTable<T>({

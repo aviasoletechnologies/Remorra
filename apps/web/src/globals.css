@@ -738,7 +738,8 @@ a {
   align-items: start;
 }
 
-.admin-tabbar {
+.admin-tabbar,
+.period-tabs {
   display: flex;
   gap: 6px;
   max-width: 100%;
@@ -746,12 +747,17 @@ a {
   overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: var(--color-card);
+  background: color-mix(in oklch, var(--color-card) 78%, var(--color-secondary));
+  box-shadow: 0 1px 2px oklch(0.22 0.025 145 / 0.04);
 }
 
 .admin-tabbar button,
 .period-tabs button {
+  display: inline-flex;
   min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border-radius: 10px;
   border: 1px solid transparent;
   padding: 0 13px;
@@ -760,7 +766,7 @@ a {
   font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
-  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .admin-tabbar button:hover,
@@ -773,13 +779,8 @@ a {
 .period-tabs button[data-active="true"] {
   color: var(--color-foreground);
   border-color: var(--color-border);
-  background: var(--color-secondary);
-}
-
-.period-tabs {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  background: var(--color-card);
+  box-shadow: 0 8px 18px oklch(0.22 0.025 145 / 0.06);
 }
 
 .admin-danger-note {

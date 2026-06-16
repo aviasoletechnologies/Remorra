@@ -73,11 +73,6 @@ describe("Admin & Support Ops Console Tests", () => {
           update: vi.fn(),
           updateMany: vi.fn(),
         },
-        skillEventMapping: {
-          findMany: vi.fn(),
-          updateMany: vi.fn(),
-          upsert: vi.fn(),
-        },
         skill: {
           findMany: vi.fn(),
           findUniqueOrThrow: vi.fn(),
@@ -460,36 +455,5 @@ describe("Admin & Support Ops Console Tests", () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it("maps an event to a skill and registers platform audits", async () => {
-      prismaMock.client.skill.findUniqueOrThrow.mockResolvedValue({ id: "test-skill" });
-      prismaMock.client.skillEventMapping.upsert.mockResolvedValue({ id: "mapping-1" });
-
-      const res = await adminService.setMapping(
-        { userId: "admin-1", platformRole: "admin" } as any,
-        "custom.event",
-        "test-skill",
-      );
-
-      expect(prismaMock.client.skill.findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: "test-skill" } });
-      expect(prismaMock.client.skillEventMapping.updateMany).toHaveBeenCalledWith({
-        where: { eventType: "custom.event" },
-        data: { active: false },
-      });
-      expect(prismaMock.client.skillEventMapping.upsert).toHaveBeenCalledWith({
-        where: { eventType_skillId: { eventType: "custom.event", skillId: "test-skill" } },
-        create: { eventType: "custom.event", skillId: "test-skill", active: true },
-        update: { active: true },
-      });
-      expect(prismaMock.client.platformAuditEvent.create).toHaveBeenCalledWith({
-        data: {
-          actorId: "admin-1",
-          eventType: "skill.mapping.changed",
-          targetType: "skill_event_mapping",
-          targetId: "mapping-1",
-          metadata: { eventType: "custom.event", skillId: "test-skill" },
-        },
-      });
-      expect(res.id).toBe("mapping-1");
-    });
   });
 });

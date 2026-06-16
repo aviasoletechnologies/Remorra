@@ -59,59 +59,29 @@ export class AdminController {
     return this.admin.createSkillVersion(actor, skillId, body);
   }
 
-  @Get("skill-mappings")
-  mappings(@CurrentActor() actor: Actor) {
-    return this.admin.mappings(actor);
+
+  @Get("event-mappings")
+  eventMappings(@CurrentActor() actor: Actor) {
+    return this.admin.eventMappings(actor);
   }
 
-  @Get("flows")
-  flows(@CurrentActor() actor: Actor) {
-    return this.admin.flows(actor);
-  }
-
-  @Post("flows")
-  createFlow(
+  @Post("event-mappings")
+  createEventMapping(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description?: string },
+    @Body() body: { eventType: string; skillId: string; active?: boolean },
   ) {
-    return this.admin.createFlow(actor, body);
+    return this.admin.createEventMapping(actor, body);
   }
 
-  @Post("flows/:id/versions")
-  cloneFlowVersion(
+  @Put("event-mappings/:id")
+  updateEventMapping(
     @CurrentActor() actor: Actor,
     @Param("id") id: string,
+    @Body() body: { active?: boolean; skillId?: string },
   ) {
-    return this.admin.cloneFlowVersion(actor, id);
+    return this.admin.updateEventMapping(actor, id, body);
   }
 
-  @Put("flow-versions/:id")
-  saveFlowVersion(
-    @CurrentActor() actor: Actor,
-    @Param("id") id: string,
-    @Body() body: { steps: Record<string, unknown>[] },
-  ) {
-    return this.admin.saveFlowVersion(actor, id, body.steps);
-  }
-
-  @Post("flow-versions/:id/validate")
-  validateFlowVersion(@CurrentActor() actor: Actor, @Param("id") id: string) {
-    return this.admin.validateFlowVersion(actor, id);
-  }
-
-  @Post("flow-versions/:id/publish")
-  publishFlowVersion(@CurrentActor() actor: Actor, @Param("id") id: string) {
-    return this.admin.publishFlowVersion(actor, id);
-  }
-
-  @Put("skill-mappings/:eventType")
-  setMapping(
-    @CurrentActor() actor: Actor,
-    @Param("eventType") eventType: string,
-    @Body() body: { skillId: string },
-  ) {
-    return this.admin.setMapping(actor, eventType, body.skillId);
-  }
 
   @Get("jobs")
   jobs(@CurrentActor() actor: Actor) {

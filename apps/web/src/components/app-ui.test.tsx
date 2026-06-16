@@ -15,8 +15,6 @@ describe("application UI primitives", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "People and permissions" })).toBeInTheDocument();
-    expect(screen.getByText("Roles are resolved per project.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
   });
 

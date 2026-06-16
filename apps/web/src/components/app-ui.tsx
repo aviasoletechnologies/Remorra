@@ -41,15 +41,11 @@ type PageHeaderProps = {
   tone?: "green" | "blue" | "neutral";
 };
 
-export function PageHeader({ eyebrow, title, description, actions, tone = "green" }: PageHeaderProps) {
+export function PageHeader({ actions }: PageHeaderProps) {
+  if (!actions) return null;
   return (
-    <header className="page-header">
-      <div className="min-w-0">
-        {eyebrow ? <Badge tone={tone}>{eyebrow}</Badge> : null}
-        <h1>{title}</h1>
-        {description ? <p>{description}</p> : null}
-      </div>
-      {actions ? <div className="page-header-actions">{actions}</div> : null}
+    <header className="page-header justify-end">
+      <div className="page-header-actions">{actions}</div>
     </header>
   );
 }

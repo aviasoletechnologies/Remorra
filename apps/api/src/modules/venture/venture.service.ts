@@ -507,10 +507,10 @@ export class VentureService {
       payload: {
         resourceId,
         kind,
-        eventType:
+        skillId:
           kind === "meeting"
-            ? "venture.meeting-summary"
-            : "venture.retrospective-insights",
+            ? "daily-meeting-summary"
+            : "retrospective-insights",
       },
     });
   }

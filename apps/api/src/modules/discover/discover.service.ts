@@ -79,7 +79,7 @@ export class DiscoverService {
       userId,
       idempotencyKey: `discover-message:${id}:${this.crypto.encrypt(content).slice(-16)}`,
       payload: {
-        eventType: "discover.message",
+        skillId: "brain-dump-facilitator",
         conversationId: id,
         content,
       },
@@ -97,7 +97,7 @@ export class DiscoverService {
       userId,
       idempotencyKey: `discover-extract:${id}`,
       payload: {
-        eventType: "discover.extract",
+        skillId: "entity-extractor",
         conversationId: id,
         extractType: "founder-pack",
       },

@@ -78,7 +78,7 @@ export class RefineService {
       projectId: session.projectId,
       userId,
       payload: {
-        eventType: "refine.message",
+        skillId: "refine-prompter",
         refineSessionId: id,
         conversationId: session.conversationId,
         content,
@@ -93,7 +93,7 @@ export class RefineService {
       projectId: session.projectId,
       userId,
       idempotencyKey: `refine-extract:${id}`,
-      payload: { eventType: "refine.extract", refineSessionId: id },
+      payload: { skillId: "entity-extractor", refineSessionId: id },
     });
   }
 

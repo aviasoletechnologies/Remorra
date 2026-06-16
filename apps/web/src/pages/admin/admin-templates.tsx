@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldAlert } from "lucide-react";
+import { AlertTriangle, FileText, ShieldAlert } from "lucide-react";
 import { Badge, Button, Card, Textarea } from "../../components/ui";
 import { DataTable, DangerZone, EmptyState, FormActions, FormGrid, TableToolbar } from "../../components/app-ui";
 import { AdminEditorCard, AdminShellSection } from "../../components/admin-ui";
@@ -42,14 +42,26 @@ export function AdminTemplates({
   onCreateVersion: () => void;
   onActivateVersion: (versionId: string) => void;
 }) {
+  const activeVersion = selectedTemplate?.versions?.find((v: any) => v.active);
+
   return (
     <AdminShellSection
       title="Document templates"
       description="Edit versioned HTML, CSS, validation schemas, and preview payloads for generated packs and reports."
     >
       <div className="admin-template-grid">
-        <Card className="admin-master-pane">
-          <TableToolbar title="Templates" description="Choose a template to edit or preview." />
+        <Card className="admin-master-pane flow-builder">
+          <div className="flow-builder__header flex justify-between items-center mb-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <FileText className="text-emerald-500" size={20} />
+                Templates
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Choose a template to edit or preview.
+              </p>
+            </div>
+          </div>
           <div className="admin-template-list">
             {templates.map((template) => (
               <button
@@ -72,6 +84,14 @@ export function AdminTemplates({
           <AdminEditorCard
             title={`Template editor: ${selectedTemplate.name}`}
             description={<>Type: <strong>{selectedTemplate.type}</strong></>}
+            icon={<FileText className="text-emerald-500" size={20} />}
+            action={
+              activeVersion ? (
+                <Badge tone="green">v{activeVersion.version} Active</Badge>
+              ) : (
+                <Badge tone="neutral">No active version</Badge>
+              )
+            }
           >
             {!isAdmin ? (
               <DangerZone

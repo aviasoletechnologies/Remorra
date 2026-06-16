@@ -14,7 +14,8 @@ import { JobsModule } from "./modules/jobs/jobs.module.js";
 import { GdprModule } from "./modules/gdpr/gdpr.module.js";
 import { AdminModule } from "./modules/admin/admin.module.js";
 import { SanitizeMiddleware } from "./infrastructure/sanitize.middleware.js";
-import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.module.js";
+import { EventRouterModule } from "./modules/event-router/event-router.module.js";
+
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.mod
     JobsModule,
     GdprModule,
     AdminModule,
-    WorkspaceFlowModule,
+    EventRouterModule,
+
   ],
   controllers: [HealthController],
 })

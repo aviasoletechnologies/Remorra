@@ -104,7 +104,7 @@ export class EvolveService {
       projectId: session.projectId,
       userId,
       payload: {
-        eventType: "evolve.message",
+        skillId: "evolve-facilitator",
         evolveSessionId: id,
         conversationId: session.conversationId,
         content,
@@ -123,7 +123,7 @@ export class EvolveService {
       projectId: session.projectId,
       userId,
       idempotencyKey: `evolve-screen:${id}`,
-      payload: { eventType: "evolve.screen", evolveSessionId: id },
+      payload: { skillId: "impact-screener", evolveSessionId: id },
     });
   }
 

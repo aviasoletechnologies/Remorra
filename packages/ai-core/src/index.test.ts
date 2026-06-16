@@ -24,6 +24,7 @@ describe("FakeLlmGateway", () => {
   it("returns deterministic usage metadata", async () => {
     const skill: SkillDefinition = {
       id: "brain-dump",
+      versionId: "version-1",
       name: "Brain Dump Facilitator",
       version: 1,
       modelTier: "standard",

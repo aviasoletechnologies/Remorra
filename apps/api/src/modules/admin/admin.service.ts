@@ -243,41 +243,6 @@ export class AdminService {
     });
   }
 
-  mappings(actor: Actor) {
-    this.requireAdmin(actor);
-    return this.prisma.client.skillEventMapping.findMany({
-      where: { active: true },
-      include: { skill: true },
-      orderBy: { eventType: "asc" },
-    });
-  }
-
-  async setMapping(actor: Actor, eventType: string, skillId: string) {
-    this.requireAdmin(actor);
-    this.requireWriteAdmin(actor);
-    return this.prisma.client.$transaction(async (tx: any) => {
-      await tx.skill.findUniqueOrThrow({ where: { id: skillId } });
-      await tx.skillEventMapping.updateMany({
-        where: { eventType },
-        data: { active: false },
-      });
-      const mapping = await tx.skillEventMapping.upsert({
-        where: { eventType_skillId: { eventType, skillId } },
-        create: { eventType, skillId, active: true },
-        update: { active: true },
-      });
-      await tx.platformAuditEvent.create({
-        data: {
-          actorId: actor.userId,
-          eventType: "skill.mapping.changed",
-          targetType: "skill_event_mapping",
-          targetId: mapping.id,
-          metadata: { eventType, skillId },
-        },
-      });
-      return mapping;
-    });
-  }
 
   jobs(actor: Actor) {
     this.requireAdmin(actor);
@@ -948,180 +913,61 @@ export class AdminService {
     };
   }
 
-  async flows(actor: Actor) {
+
+  async eventMappings(actor: Actor) {
     this.requireAdmin(actor);
-    return this.prisma.client.flowDefinition.findMany({
-      orderBy: { name: "asc" },
-      include: {
-        versions: {
-          orderBy: { version: "desc" },
-          include: { steps: { orderBy: { position: "asc" } } },
-        },
-      },
+    return this.prisma.client.skillEventMapping.findMany({
+      orderBy: { eventType: "asc" },
+      include: { skill: true },
     });
   }
 
-  async createFlow(
+  async createEventMapping(
     actor: Actor,
-    body: { id: string; name: string; description?: string },
+    body: { eventType: string; skillId: string; active?: boolean },
   ) {
     this.requireWriteAdmin(actor);
-    const id = body.id?.trim();
-    const name = body.name?.trim();
-    if (!id || !/^[a-z0-9-]+$/.test(id) || !name) {
-      throw new BadRequestException("Flow ID must be lowercase kebab-case and name is required.");
+    const eventType = body.eventType?.trim();
+    const skillId = body.skillId?.trim();
+    if (!eventType || !skillId) {
+      throw new BadRequestException("Event type and Skill ID are required.");
     }
-    const flow = await this.prisma.client.flowDefinition.create({
+    await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
+
+    const mapping = await this.prisma.client.skillEventMapping.create({
       data: {
-        id,
-        name,
-        description: body.description?.trim() ?? "",
-        versions: { create: { version: 1, status: "draft", createdById: actor.userId } },
+        eventType,
+        skillId,
+        active: body.active ?? true,
       },
-      include: { versions: true },
+      include: { skill: true },
     });
-    await this.auditPlatform(actor, "platform.flow.created", "flow", flow.id, { name });
-    return flow;
+    await this.auditPlatform(actor, "platform.event_mapping.created", "event_mapping", mapping.id, { eventType, skillId });
+    return mapping;
   }
 
-  async cloneFlowVersion(actor: Actor, flowDefinitionId: string) {
+  async updateEventMapping(
+    actor: Actor,
+    id: string,
+    body: { active?: boolean; skillId?: string },
+  ) {
     this.requireWriteAdmin(actor);
-    const latest = await this.prisma.client.flowVersion.findFirst({
-      where: { flowDefinitionId },
-      orderBy: { version: "desc" },
-      include: { steps: { orderBy: { position: "asc" } } },
-    });
-    if (!latest) throw new BadRequestException("Flow has no version to clone.");
-    const created = await this.prisma.client.flowVersion.create({
-      data: {
-        flowDefinitionId,
-        version: latest.version + 1,
-        status: "draft",
-        createdById: actor.userId,
-        steps: {
-          create: latest.steps.map((step: any) => ({
-            key: step.key,
-            displayName: step.displayName,
-            description: step.description,
-            skillId: step.skillId,
-            parentStepKey: step.parentStepKey,
-            position: step.position,
-            executionMode: step.executionMode,
-            optional: step.optional,
-            requiresConfirmation: step.requiresConfirmation,
-            entryRules: step.entryRules,
-            requiredOutputs: step.requiredOutputs,
-            completionRules: step.completionRules,
-            transitionRules: step.transitionRules,
-          })),
-        },
-      },
-      include: { steps: { orderBy: { position: "asc" } } },
-    });
-    await this.auditPlatform(actor, "platform.flow.version.cloned", "flow_version", created.id, {
-      flowDefinitionId,
-      version: created.version,
-    });
-    return created;
-  }
+    const data: Record<string, any> = {};
+    if (typeof body.active === "boolean") data.active = body.active;
+    if (typeof body.skillId === "string") {
+      const skillId = body.skillId.trim();
+      await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
+      data.skillId = skillId;
+    }
 
-  async saveFlowVersion(actor: Actor, versionId: string, rawSteps: Record<string, unknown>[]) {
-    this.requireWriteAdmin(actor);
-    const version = await this.prisma.client.flowVersion.findUniqueOrThrow({ where: { id: versionId } });
-    if (version.status !== "draft") {
-      throw new BadRequestException("Published flow versions are immutable. Clone a new draft first.");
-    }
-    const steps = rawSteps.map((step, index) => normalizeFlowStep(step, index));
-    await this.prisma.client.$transaction(async (tx: any) => {
-      await tx.flowStep.deleteMany({ where: { flowVersionId: versionId } });
-      if (steps.length) {
-        await tx.flowStep.createMany({
-          data: steps.map((step) => ({ ...step, flowVersionId: versionId })),
-        });
-      }
+    const mapping = await this.prisma.client.skillEventMapping.update({
+      where: { id },
+      data,
+      include: { skill: true },
     });
-    const validation = await this.validateFlowVersion(actor, versionId);
-    await this.auditPlatform(actor, "platform.flow.version.saved", "flow_version", versionId, {
-      stepCount: steps.length,
-      valid: validation.valid,
-    });
-    return validation;
-  }
 
-  async validateFlowVersion(actor: Actor, versionId: string) {
-    this.requireAdmin(actor);
-    const version = await this.prisma.client.flowVersion.findUniqueOrThrow({
-      where: { id: versionId },
-      include: { steps: { orderBy: { position: "asc" } } },
-    });
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    const keys = new Set(version.steps.map((step: any) => step.key));
-    const topLevel = version.steps.filter((step: any) => !step.parentStepKey);
-    if (!topLevel.length) errors.push("Flow must contain at least one top-level entry step.");
-    for (const step of version.steps as any[]) {
-      if (step.parentStepKey && !keys.has(step.parentStepKey)) {
-        errors.push(`${step.key}: parent step "${step.parentStepKey}" does not exist.`);
-      }
-      if (step.executionMode === "internal_helper" && !step.parentStepKey) {
-        errors.push(`${step.key}: internal helpers must name a parent step.`);
-      }
-      if (["visible_chat", "internal_helper", "explicit_action"].includes(step.executionMode) && !step.skillId) {
-        errors.push(`${step.key}: ${step.executionMode} requires a skill.`);
-      }
-      const next = flowNextKey(step);
-      if (next && !keys.has(next)) errors.push(`${step.key}: next step "${next}" does not exist.`);
-      if (!next && !(step.transitionRules as any)?.terminal && !step.parentStepKey) {
-        warnings.push(`${step.key}: no next step or terminal rule is configured.`);
-      }
-    }
-    const visited = new Set<string>();
-    let cursor = topLevel[0];
-    while (cursor && !visited.has(cursor.key)) {
-      visited.add(cursor.key);
-      const next = flowNextKey(cursor);
-      cursor = next ? topLevel.find((step: any) => step.key === next) : undefined;
-    }
-    for (const step of topLevel) {
-      if (!visited.has(step.key)) warnings.push(`${step.key}: top-level step is unreachable from the entry step.`);
-    }
-    if (cursor) errors.push(`Transition cycle detected at "${cursor.key}".`);
-    const skillIds = [...new Set(version.steps.map((step: any) => step.skillId).filter(Boolean))] as string[];
-    const activeSkills = await this.prisma.client.skillVersion.findMany({
-      where: { skillId: { in: skillIds }, active: true },
-      select: { skillId: true },
-    });
-    const activeSet = new Set(activeSkills.map((item: any) => item.skillId));
-    for (const skillId of skillIds) {
-      if (!activeSet.has(skillId)) errors.push(`Skill "${skillId}" has no active version.`);
-    }
-    return { id: version.id, status: version.status, valid: errors.length === 0, errors, warnings, steps: version.steps };
-  }
-
-  async publishFlowVersion(actor: Actor, versionId: string) {
-    this.requireWriteAdmin(actor);
-    const validation = await this.validateFlowVersion(actor, versionId);
-    if (!validation.valid) {
-      throw new BadRequestException({ message: "Flow validation failed.", errors: validation.errors });
-    }
-    const version = await this.prisma.client.flowVersion.findUniqueOrThrow({ where: { id: versionId } });
-    if (version.status !== "draft") throw new BadRequestException("Only draft versions can be published.");
-    const published = await this.prisma.client.$transaction(async (tx: any) => {
-      await tx.flowVersion.updateMany({
-        where: { flowDefinitionId: version.flowDefinitionId, status: "published" },
-        data: { status: "archived" },
-      });
-      return tx.flowVersion.update({
-        where: { id: versionId },
-        data: { status: "published", publishedAt: new Date() },
-        include: { steps: { orderBy: { position: "asc" } } },
-      });
-    });
-    await this.auditPlatform(actor, "platform.flow.version.published", "flow_version", versionId, {
-      flowDefinitionId: version.flowDefinitionId,
-      version: version.version,
-    });
-    return published;
+    await this.auditPlatform(actor, "platform.event_mapping.updated", "event_mapping", mapping.id, data);
+    return mapping;
   }
 
   private auditPlatform(
@@ -1135,36 +981,4 @@ export class AdminService {
       data: { actorId: actor.userId, eventType, targetType, targetId, metadata },
     });
   }
-}
-
-function normalizeFlowStep(step: Record<string, unknown>, index: number) {
-  const key = String(step.key ?? "").trim();
-  const displayName = String(step.displayName ?? "").trim();
-  if (!key || !/^[a-z0-9-]+$/.test(key) || !displayName) {
-    throw new BadRequestException(`Step ${index + 1} needs a kebab-case key and display name.`);
-  }
-  const executionMode = String(step.executionMode ?? "visible_chat");
-  const allowed = ["visible_chat", "internal_helper", "deterministic", "explicit_action", "human_review"];
-  if (!allowed.includes(executionMode)) throw new BadRequestException(`${key}: invalid execution mode.`);
-  return {
-    key,
-    displayName,
-    description: step.description ? String(step.description) : null,
-    skillId: step.skillId ? String(step.skillId) : null,
-    parentStepKey: step.parentStepKey ? String(step.parentStepKey) : null,
-    position: Number(step.position ?? (index + 1) * 10),
-    executionMode,
-    optional: Boolean(step.optional),
-    requiresConfirmation: Boolean(step.requiresConfirmation),
-    entryRules: (step.entryRules as object) ?? {},
-    requiredOutputs: Array.isArray(step.requiredOutputs) ? step.requiredOutputs : [],
-    completionRules: (step.completionRules as object) ?? { operator: "all_required_outputs" },
-    transitionRules: (step.transitionRules as object) ?? {},
-  };
-}
-
-function flowNextKey(step: any) {
-  return typeof step.transitionRules?.nextStepKey === "string"
-    ? step.transitionRules.nextStepKey
-    : null;
 }

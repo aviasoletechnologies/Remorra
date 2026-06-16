@@ -1,9 +1,9 @@
-import { Activity, BrainCircuit, BookOpen, Clock, FileText } from "lucide-react";
+import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge, Button, Card, Input, Textarea } from "../../components/ui";
 import { DataTable, FieldGroup, FormActions, FormGrid, TableToolbar } from "../../components/app-ui";
 import { AdminMasterDetail, AdminShellSection } from "../../components/admin-ui";
-import { AdminFlowBuilder } from "../../components/admin-flow-builder";
+import { AdminEventRouter } from "../../components/admin-event-router";
 
 export type AdminSystemSubTab = "skills" | "flows" | "reports" | "knowledge" | "retention";
 
@@ -18,7 +18,7 @@ export function AdminSystemLayout({
 }) {
   const items = [
     { value: "skills", label: "Skill Registry", icon: BrainCircuit },
-    { value: "flows", label: "Guided Flows", icon: Activity },
+    { value: "flows", label: "Event Routing", icon: Activity },
     { value: "reports", label: "Report Definitions", icon: FileText },
     { value: "knowledge", label: "Knowledge Bases", icon: BookOpen },
     { value: "retention", label: "Retention Policies", icon: Clock },
@@ -67,12 +67,24 @@ export function AdminSkills({
   onPage: (updater: (page: number) => number) => void;
 }) {
   return (
-    <div className="grid gap-4">
-      <TableToolbar
-        title="Skill registry"
-        description="Register agent skills, edit prompt templates, and activate versions."
-        actions={isAdmin ? <Button onClick={onCreate}>Create skill</Button> : null}
-      />
+    <Card className="flow-builder">
+      <div className="flow-builder__header flex justify-between items-center mb-6">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <BrainCircuit className="text-emerald-500" size={20} />
+            Skill Registry
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Register agent skills, edit prompt templates, and activate versions.
+          </p>
+        </div>
+        {isAdmin && (
+          <Button onClick={onCreate} className="flex items-center gap-2">
+            <Plus size={15} /> Create skill
+          </Button>
+        )}
+      </div>
+
       <DataTable
         rows={skills}
         getRowKey={(row: any) => row.id}
@@ -103,7 +115,7 @@ export function AdminSkills({
         <span className="pagination-info">Page {page} of {totalPages}</span>
         <Button variant="secondary" onClick={() => onPage((prev) => Math.min(prev + 1, totalPages))} disabled={page >= totalPages}>Next</Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -117,8 +129,18 @@ export function AdminRetention({
   onUpdate: (id: string, retentionDays: number) => void;
 }) {
   return (
-    <div className="grid gap-4">
-      <TableToolbar title="Retention policies" description="Configure data retention and cleanup schedules for compliance." />
+    <Card className="flow-builder">
+      <div className="flow-builder__header flex justify-between items-center mb-6">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <Clock className="text-emerald-500" size={20} />
+            Retention Policies
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure data retention and cleanup schedules for compliance.
+          </p>
+        </div>
+      </div>
       <DataTable
         rows={retention}
         getRowKey={(row: any) => row.id}
@@ -155,12 +177,12 @@ export function AdminRetention({
           },
         ]}
       />
-    </div>
+    </Card>
   );
 }
 
 export function AdminFlows({ isAdmin }: { isAdmin: boolean }) {
-  return <AdminFlowBuilder canWrite={isAdmin} />;
+  return <AdminEventRouter canWrite={isAdmin} />;
 }
 
 export function AdminReports({
@@ -208,11 +230,16 @@ export function AdminReports({
       }
       detail={
         activeReport ? (
-          <Card className="detail-card">
-            <div className="detail-header">
+          <Card className="detail-card flow-builder">
+            <div className="flow-builder__header flex justify-between items-center mb-6">
               <div>
-                <h2>{activeReport.name}</h2>
-                <p className="subtitle">{activeVer?.requiresLlm ? "Requires Large Language Model processing" : "Generates deterministically via engine"}</p>
+                <h2 className="flex items-center gap-2 text-xl font-semibold">
+                  <FileText className="text-emerald-500" size={20} />
+                  {activeReport.name}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {activeVer?.requiresLlm ? "Requires Large Language Model processing" : "Generates deterministically via engine"}
+                </p>
               </div>
               <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
             </div>
@@ -282,11 +309,16 @@ export function AdminKnowledge({
       }
       detail={
         activeKb ? (
-          <Card className="detail-card">
-            <div className="detail-header">
+          <Card className="detail-card flow-builder">
+            <div className="flow-builder__header flex justify-between items-center mb-6">
               <div>
-                <h2>{activeKb.name}</h2>
-                <span className="topic-tag">{activeKb.topic}</span>
+                <h2 className="flex items-center gap-2 text-xl font-semibold">
+                  <BookOpen className="text-emerald-500" size={20} />
+                  {activeKb.name}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Topic: <span className="font-semibold">{activeKb.topic}</span>
+                </p>
               </div>
               <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
             </div>

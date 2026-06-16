@@ -27,7 +27,7 @@ export class ViabilityService {
       projectId,
       userId,
       idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
-      payload: { eventType: "viability.calculate", projectId },
+      payload: { skillId: "viability-score-calculator", projectId },
     });
   }
 
@@ -59,7 +59,7 @@ export class ViabilityService {
       projectId,
       userId,
       idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
-      payload: { eventType: "viability.calculate", projectId },
+      payload: { skillId: "viability-score-calculator", projectId },
     });
   }
 
