@@ -4,6 +4,7 @@ export type ModelTier = "fast" | "standard" | "reasoning";
 
 export interface SkillDefinition<TOutput = unknown> {
   id: string;
+  versionId: string;
   name: string;
   version: number;
   modelTier: ModelTier;

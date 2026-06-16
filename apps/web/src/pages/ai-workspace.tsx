@@ -36,6 +36,7 @@ export function AiWorkspacePage() {
   const [message, setMessage] = useState("");
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
+  const [pendingMessages, setPendingMessages] = useState<{ id: string; role: "user"; content: string }[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
   
   const { data: flow, isLoading, error } = useQuery({
@@ -45,10 +46,8 @@ export function AiWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((flow?.messages.length ?? 0) > 0 || streamedReply) {
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [flow?.messages.length, streamedReply]);
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [flow?.messages.length, pendingMessages.length, streamedReply]);
 
   const send = useMutation({
     mutationFn: async () => {
@@ -57,38 +56,46 @@ export function AiWorkspacePage() {
         method: "POST",
         body: JSON.stringify({ content }),
       });
+      const pendingId = globalThis.crypto.randomUUID();
+      setPendingMessages((current) => [...current, { id: pendingId, role: "user", content }]);
       setMessage("");
       setStreamedReply("");
-      return new Promise<void>((resolve, reject) => {
-        let stop = () => {};
-        stop = streamTextJob(
-          job.id,
-          setStreamedReply,
-          (state) => {
-            if (state === "connecting" || state === "reconnecting" || state === "connected") {
-              setStreamState(state);
-            }
-            if (state === "done") {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let stop = () => {};
+          stop = streamTextJob(
+            job.id,
+            setStreamedReply,
+            (state) => {
+              if (state === "connecting" || state === "reconnecting" || state === "connected") {
+                setStreamState(state);
+              }
+              if (state === "done") {
+                stop();
+                setStreamState("idle");
+                resolve();
+              }
+              if (state === "failed") {
+                stop();
+                setStreamState("idle");
+                reject(new Error("The guided response failed."));
+              }
+            },
+            (streamError) => {
               stop();
               setStreamState("idle");
-              resolve();
-            }
-            if (state === "failed") {
-              stop();
-              setStreamState("idle");
-              reject(new Error("The guided response failed."));
-            }
-          },
-          (streamError) => {
-            stop();
-            setStreamState("idle");
-            reject(streamError);
-          },
-        );
-      });
+              reject(streamError);
+            },
+          );
+        });
+      } catch (error) {
+        setPendingMessages((current) => current.filter((item) => item.id !== pendingId));
+        throw error;
+      }
     },
     onSuccess: async () => {
       setStreamedReply("");
+      setPendingMessages([]);
       await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
     },
   });
@@ -268,6 +275,10 @@ export function AiWorkspacePage() {
                 </div>
               </div>
             ) : null}
+            {[...flow.messages, ...pendingMessages].map((item) => (
+              <div className={`chat-message chat-message--${item.role}`} key={item.id}>{item.content}</div>
+            ))}
+            {streamedReply ? <div className="chat-message chat-message--assistant">{streamedReply}</div> : null}
             <div ref={endRef} />
           </div>
 
