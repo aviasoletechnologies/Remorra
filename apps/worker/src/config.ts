@@ -22,4 +22,21 @@ export const config = {
   supabasePrivateBucket: process.env.SUPABASE_PRIVATE_BUCKET ?? "private-documents",
   encryptionKey: required("ENCRYPTION_KEY"),
   freeTierTokenCap: Number(process.env.FREE_TIER_TOKEN_CAP ?? 500000),
+  get enabledQueues(): string[] {
+    const val = process.env.ENABLED_QUEUES || "ai.conversation";
+    if (val === "all") {
+      return [
+        "ai.conversation",
+        "ai.extract",
+        "ai.report",
+        "ai.summary",
+        "document.render",
+        "gdpr.export",
+        "gdpr.delete",
+        "retention.cleanup",
+        "storage.expire",
+      ];
+    }
+    return val.split(",").map((q) => q.trim());
+  },
 };

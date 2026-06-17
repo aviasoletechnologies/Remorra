@@ -2,6 +2,7 @@ import { type Job } from "pg-boss";
 import { prisma } from "./lib/prisma";
 import { boss } from "./lib/boss";
 import { jsonValue } from "./lib/utils";
+import { config } from "./config";
 import {
   handleConversation,
   handleExtract,
@@ -34,19 +35,45 @@ export async function startQueue() {
     await boss.createQueue(queue);
   }
 
-  await boss.work<Payload>("ai.conversation", handleJobs(handleConversation));
-  await boss.work<Payload>("ai.extract", handleJobs(handleExtract));
-  await boss.work<Payload>("ai.summary", handleJobs(handleSummary));
-  await boss.work<Payload>("ai.report", handleJobs(handleReport));
-  await boss.work<Payload>("document.render", handleJobs(handleDocument));
-  await boss.work<Payload>("gdpr.export", handleJobs(handleGdprExport));
-  await boss.work<Payload>("gdpr.delete", handleJobs(handleGdprDelete));
-  await boss.work<Payload>("retention.cleanup", handleJobs(handleRetention));
-  await boss.work<Payload>("storage.expire", handleJobs(handleStorageExpiry));
+  const enabled = config.enabledQueues;
 
-  await boss.schedule("retention.cleanup", "0 2 * * *", {});
-  await boss.schedule("storage.expire", "30 2 * * *", {});
-  console.info(JSON.stringify({ service: "remorra-worker", event: "ready" }));
+  if (enabled.includes("ai.conversation")) {
+    await boss.work<Payload>("ai.conversation", handleJobs(handleConversation));
+  }
+  if (enabled.includes("ai.extract")) {
+    await boss.work<Payload>("ai.extract", handleJobs(handleExtract));
+  }
+  if (enabled.includes("ai.summary")) {
+    await boss.work<Payload>("ai.summary", handleJobs(handleSummary));
+  }
+  if (enabled.includes("ai.report")) {
+    await boss.work<Payload>("ai.report", handleJobs(handleReport));
+  }
+  if (enabled.includes("document.render")) {
+    await boss.work<Payload>("document.render", handleJobs(handleDocument));
+  }
+  if (enabled.includes("gdpr.export")) {
+    await boss.work<Payload>("gdpr.export", handleJobs(handleGdprExport));
+  }
+  if (enabled.includes("gdpr.delete")) {
+    await boss.work<Payload>("gdpr.delete", handleJobs(handleGdprDelete));
+  }
+  if (enabled.includes("retention.cleanup")) {
+    await boss.work<Payload>("retention.cleanup", handleJobs(handleRetention));
+    await boss.schedule("retention.cleanup", "0 2 * * *", {});
+  }
+  if (enabled.includes("storage.expire")) {
+    await boss.work<Payload>("storage.expire", handleJobs(handleStorageExpiry));
+    await boss.schedule("storage.expire", "30 2 * * *", {});
+  }
+
+  console.info(
+    JSON.stringify({
+      service: "remorra-worker",
+      event: "ready",
+      enabledQueues: enabled,
+    }),
+  );
 }
 
 function handleJobs(handler: (payload: Payload) => Promise<unknown>) {
