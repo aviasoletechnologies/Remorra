@@ -75,7 +75,6 @@ export class WorkspaceFlowService {
         projectId,
         userId,
         skillId: activeSkill.id,
-        skillVersionId: activeSkill.versionId,
         content,
       });
     }

@@ -211,7 +211,11 @@ export class IntentRouterService {
         .join("\n");
     }
 
-    const parsed = this.parseIntentResponse(text);
+    this.logger.debug(
+      `Intent router raw response project=${projectId} user=${userId} raw=${text.slice(0, 400)}`,
+    );
+
+    const parsed = this.parseIntentResponse(text, candidates);
 
     // If JSON parse failed entirely, default to general — never infer skill from prose.
     if (!parsed.routeType) {
@@ -267,22 +271,44 @@ export class IntentRouterService {
       }));
   }
 
-  private parseIntentResponse(text: string): Partial<IntentRouteResult> {
+  private parseIntentResponse(text: string, candidates: IntentCandidate[]): Partial<IntentRouteResult> {
     try {
       return ResponseParser.extractJson(text) as Partial<IntentRouteResult>;
     } catch {
       this.logger.warn(`Failed to parse intent router JSON response, falling back to regex extraction.`);
       const objectMatch = text.match(/\{[\s\S]*\}/);
       if (!objectMatch) {
-        return {};
+        return this.inferIntentFromText(text, candidates);
       }
 
       try {
         return JSON.parse(objectMatch[0]) as Partial<IntentRouteResult>;
       } catch {
-        return {};
+        return this.inferIntentFromText(text, candidates);
       }
     }
+  }
+
+  private inferIntentFromText(text: string, candidates: IntentCandidate[]): Partial<IntentRouteResult> {
+    const normalized = text.toLowerCase();
+    const matched = candidates.filter((candidate) => {
+      const skillId = candidate.skillId.toLowerCase();
+      const skillName = candidate.name.toLowerCase();
+      return normalized.includes(skillId) || normalized.includes(skillName);
+    });
+
+    if (matched.length !== 1) {
+      return {};
+    }
+
+    const selected = matched[0]!;
+
+    return {
+      routeType: "skill",
+      skillId: selected.skillId,
+      confidence: 0.5,
+      reason: `Inferred from model text mentioning ${selected.name}.`,
+    };
   }
 
 }
