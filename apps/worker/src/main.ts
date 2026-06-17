@@ -196,6 +196,39 @@ const supabase = createClient(
 const bucket = process.env.SUPABASE_PRIVATE_BUCKET ?? "private-documents";
 const ajv = new Ajv({ allErrors: true, strict: false });
 
+// Build multi-turn messages for skills: conversation_history becomes actual
+// user/assistant turns so the LLM sees proper context and follows its system prompt.
+function buildSkillMessages(sections: readonly { tag: string; trust: string; content: string }[]): Array<{ role: string; content: string }> {
+  const historySection = sections.find(s => s.tag === "conversation_history");
+  const contextSections = sections.filter(s => s.tag !== "conversation_history");
+  const contextStr = contextSections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+
+  const messages: Array<{ role: string; content: string }> = [];
+
+  if (historySection) {
+    const lines = historySection.content.split("\n");
+    let currentRole: "user" | "assistant" | null = null;
+    let currentLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("User: ")) {
+        if (currentRole && currentLines.length > 0) messages.push({ role: currentRole, content: currentLines.join("\n").trim() });
+        currentRole = "user";
+        currentLines = [line.slice(6)];
+      } else if (line.startsWith("Assistant: ")) {
+        if (currentRole && currentLines.length > 0) messages.push({ role: currentRole, content: currentLines.join("\n").trim() });
+        currentRole = "assistant";
+        currentLines = [line.slice(11)];
+      } else if (currentRole) {
+        currentLines.push(line);
+      }
+    }
+    if (currentRole && currentLines.length > 0) messages.push({ role: currentRole, content: currentLines.join("\n").trim() });
+  }
+
+  messages.push({ role: "user", content: contextStr });
+  return messages;
+}
+
 const orchestrator = new AiOrchestrator(
   new PrismaSkillRegistry(prisma),
   new PrismaContextAssembler(prisma),
@@ -203,7 +236,10 @@ const orchestrator = new AiOrchestrator(
     async invoke(invocation) {
       const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
       const model = isGrok ? grokModelFor(invocation.skill.modelTier) : modelFor(invocation.skill.modelTier);
-      const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
+      const messages = buildSkillMessages(invocation.sections);
+      console.info(`[llm:invoke] skillId=${invocation.skill.id} model=${model} turns=${messages.length} systemPromptLen=${invocation.skill.systemPrompt?.length ?? 0}`);
+      console.info(`[llm:invoke] systemPrompt=${JSON.stringify(invocation.skill.systemPrompt?.slice(0, 300))}`);
+      messages.forEach((m, i) => console.info(`[llm:invoke] msg[${i}] role=${m.role} content=${JSON.stringify(m.content.slice(0, 200))}`));
       const rawRetry = invocation.skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
       const retryPolicy = { limit: rawRetry?.limit ?? 3, backoff: rawRetry?.backoff ?? true };
       const retryContext = { userId: invocation.userId, projectId: invocation.projectId, skillVersionId: invocation.skill.versionId, model };
@@ -216,7 +252,7 @@ const orchestrator = new AiOrchestrator(
               model,
               max_tokens: invocation.skill.tokenCeiling ?? 4096,
               system: invocation.skill.systemPrompt,
-              messages: [{ role: "user", content: sections }],
+              messages,
               onDelta: invocation.onDelta,
             });
           }, retryPolicy, retryContext);
@@ -226,7 +262,7 @@ const orchestrator = new AiOrchestrator(
               model,
               max_tokens: invocation.skill.tokenCeiling ?? 4096,
               system: invocation.skill.systemPrompt,
-              messages: [{ role: "user", content: sections }],
+              messages,
             });
           }, retryPolicy, retryContext);
         }
@@ -238,7 +274,7 @@ const orchestrator = new AiOrchestrator(
               model,
               max_tokens: invocation.skill.tokenCeiling ?? 4096,
               system: invocation.skill.systemPrompt,
-              messages: [{ role: "user", content: sections }],
+              messages: messages as any,
             });
             let streamed = "";
             stream.on("text", (delta) => {
@@ -253,7 +289,7 @@ const orchestrator = new AiOrchestrator(
               model,
               max_tokens: invocation.skill.tokenCeiling ?? 4096,
               system: invocation.skill.systemPrompt,
-              messages: [{ role: "user", content: sections }],
+              messages: messages as any,
             }),
             retryPolicy, retryContext,
           );
@@ -261,6 +297,7 @@ const orchestrator = new AiOrchestrator(
       }
 
       const text = (response.content as any[]).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+      console.info(`[llm:response] skillId=${invocation.skill.id} response=${JSON.stringify(text.slice(0, 500))}`);
       return {
         value: text as any,
         usage: { model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
@@ -269,24 +306,25 @@ const orchestrator = new AiOrchestrator(
     },
     async *stream(invocation) {
       const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+      const messages = buildSkillMessages(invocation.sections);
+      console.info(`[llm:stream] skillId=${invocation.skill.id} turns=${messages.length}`);
+      messages.forEach((m, i) => console.info(`[llm:stream] msg[${i}] role=${m.role} content=${JSON.stringify(m.content.slice(0, 200))}`));
       if (isGrok) {
         const model = grokModelFor(invocation.skill.modelTier);
-        const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
         yield* streamGrok({
           model,
           max_tokens: invocation.skill.tokenCeiling ?? 4096,
           system: invocation.skill.systemPrompt,
-          messages: [{ role: "user", content: sections }],
+          messages,
         });
       } else {
         if (!anthropic) throw new Error("Anthropic client is not initialized.");
         const model = modelFor(invocation.skill.modelTier);
-        const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
         const stream = anthropic.messages.stream({
           model,
           max_tokens: invocation.skill.tokenCeiling ?? 4096,
           system: invocation.skill.systemPrompt,
-          messages: [{ role: "user", content: sections }],
+          messages: messages as any,
         });
         for await (const event of stream) {
           if (event.type === "content_block_delta" && (event as any).delta?.text) {
@@ -479,6 +517,7 @@ async function invokeSkill(input: {
   eventType?: string;
   userId: string;
   projectId: string;
+  conversationId?: string;
   content: string;
   context: unknown;
   onDelta?: (delta: string, accumulated: string) => Promise<void>;
@@ -514,6 +553,34 @@ async function invokeSkill(input: {
       trust: "trusted",
       content: kb.markdown,
     });
+  }
+
+  // Conversation history — gives conversational skills (e.g. Brain Dump) full context.
+  // Only include messages from AFTER the skill was pinned so pre-skill general-chat
+  // responses don't bleed into the skill context and corrupt the LLM's style.
+  if (input.conversationId) {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: { activeSkillPinnedAt: true },
+    });
+    const skillPinnedAt = conversation?.activeSkillPinnedAt ?? null;
+    const pastMessages = await prisma.conversationMessage.findMany({
+      where: {
+        conversationId: input.conversationId,
+        ...(skillPinnedAt ? { createdAt: { gte: skillPinnedAt } } : {}),
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (pastMessages.length > 0) {
+      const historyText = pastMessages
+        .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${decrypt(m.encryptedContent)}`)
+        .join("\n");
+      additionalSections.push({
+        tag: "conversation_history",
+        trust: "trusted",
+        content: historyText,
+      });
+    }
   }
 
   // User message
@@ -752,6 +819,7 @@ async function handleConversation(payload: Payload) {
         eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
         userId,
         projectId,
+        conversationId: conversationId || undefined,
         content: String(payload.content),
         context: flowState?.context ?? await projectContext(projectId),
         onDelta: async (delta, accumulated) => {
@@ -777,9 +845,41 @@ async function handleConversation(payload: Payload) {
     clearInterval(timerId);
     await flush();
 
+    // If the skill response is valid JSON, it means the skill completed its capture
+    // (e.g. Brain Dump Facilitator collected all topics). Save structured data and
+    // replace raw JSON with a friendly confirmation message.
+    let displayText = result.text;
+    if (!isGeneralChat && conversationId) {
+      const trimmed = result.text.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          try { parsed = parseJson(trimmed); } catch { /* not JSON */ }
+        }
+        if (parsed !== null) {
+          try {
+            await prisma.structuredExtract.create({
+              data: { conversationId, schemaVersion: 1, payload: jsonValue(parsed) },
+            });
+            console.info(
+              `[worker:conversation] structured extract saved project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
+            );
+          } catch (extractErr) {
+            console.warn(
+              `[worker:conversation] failed to save structured extract project=${projectId} conversation=${conversationId} error=${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+            );
+          }
+          displayText =
+            "I've captured everything I need. Your product idea is saved — you can now generate your Founder Pack or continue refining.";
+        }
+      }
+    }
+
     queue.push({
       type: "completed",
-      snapshot: result.text,
+      snapshot: displayText,
       metadata: {
         modelTier: result.skill.modelTier,
         model: modelFor(result.skill.modelTier),
@@ -794,7 +894,7 @@ async function handleConversation(payload: Payload) {
         data: {
           conversationId,
           role: "assistant",
-          encryptedContent: encrypt(result.text),
+          encryptedContent: encrypt(displayText),
         },
       });
     }
