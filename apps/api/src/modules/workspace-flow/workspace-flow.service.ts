@@ -4,7 +4,6 @@ import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 import { IntentRouterService } from "./intent-router.service.js";
-import { EventRouterService } from "../event-router/event-router.service.js";
 
 type WorkspaceActiveSkill = {
   id: string;
@@ -38,7 +37,6 @@ export class WorkspaceFlowService {
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
     private readonly intentRouter: IntentRouterService,
-    private readonly eventRouter: EventRouterService,
   ) {}
 
   async getOrCreate(projectId: string, userId: string) {
@@ -62,6 +60,8 @@ export class WorkspaceFlowService {
         actorId: userId,
         role: "user",
         encryptedContent: this.crypto.encrypt(content),
+        skillId: conversation.activeSkill?.id ?? null,        // save whichever skill was pinned when user sent this
+        skillVersionId: conversation.activeSkill?.versionId ?? null,
       },
     });
 
@@ -79,96 +79,51 @@ export class WorkspaceFlowService {
       });
     }
 
-    // Check if there are active event mappings in the system
-    const hasMappings = await this.prisma.client.skillEventMapping.count({
-      where: { active: true },
-    });
+    // No skill pinned → always use Intent Router (AI decides which skill fits)
+    // Note: Event Router is only used for skill.{id}.completed chaining (in worker),
+    // NOT for initial message routing — that would break when chaining mappings exist.
+    this.logger.debug(`No active skill pinned. Using Intent Router. project=${projectId} conversation=${conversation.id}`);
+    const intent = await this.intentRouter.routeMessage(projectId, userId, content);
 
-    if (hasMappings > 0) {
-      this.logger.debug(`Active event mappings found (${hasMappings}). Using Event Routing.`);
-      const routedJobs = await this.eventRouter.route({
-        eventType: "conversation_message.create",
-        projectId,
-        userId,
-        payload: {
-          conversationId: conversation.id,
-          content,
-        },
-      });
-
-      const jobInfo = routedJobs[0];
-      if (!jobInfo) {
-        this.logger.log(`General chat fallback selected via empty event routing project=${projectId} conversation=${conversation.id}`);
-        const job = await this.enqueueConversationTurn({
-          conversationId: conversation.id,
-          projectId,
-          userId,
-          content,
-          fallbackMode: "general_chat",
-        });
-        return { id: job.id };
-      }
-
+    if (intent.routeType === "skill" && intent.skillId) {
       const version = await this.prisma.client.skillVersion.findFirstOrThrow({
-        where: { skillId: jobInfo.skillId, active: true },
+        where: { skillId: intent.skillId, active: true },
         orderBy: { version: "desc" },
       });
+
       await this.prisma.client.conversation.update({
         where: { id: conversation.id },
         data: {
-          activeSkillId: jobInfo.skillId,
+          activeSkillId:        intent.skillId,
           activeSkillVersionId: version.id,
-          activeSkillPinnedAt: new Date(),
+          activeSkillPinnedAt:  new Date(),
         },
       });
       this.logger.log(
-        `Pinned skill matched by Event Routing to conversation project=${projectId} conversation=${conversation.id} skillId=${jobInfo.skillId} versionId=${version.id}`,
+        `Pinned skill via Intent Router project=${projectId} conversation=${conversation.id} skillId=${intent.skillId} versionId=${version.id}`,
       );
 
-      return { id: jobInfo.jobId };
-    } else {
-      this.logger.debug("No active event mappings. Using Intent Routing.");
-      const intent = await this.intentRouter.routeMessage(projectId, userId, content);
-
-      if (intent.routeType === "skill" && intent.skillId) {
-        const version = await this.prisma.client.skillVersion.findFirstOrThrow({
-          where: { skillId: intent.skillId, active: true },
-          orderBy: { version: "desc" },
-        });
-
-        await this.prisma.client.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            activeSkillId: intent.skillId,
-            activeSkillVersionId: version.id,
-            activeSkillPinnedAt: new Date(),
-          },
-        });
-        this.logger.log(
-          `Pinned skill matched by Intent Router to conversation project=${projectId} conversation=${conversation.id} skillId=${intent.skillId} versionId=${version.id}`,
-        );
-
-        const job = await this.enqueueConversationTurn({
-          conversationId: conversation.id,
-          projectId,
-          userId,
-          skillId: intent.skillId,
-          skillVersionId: version.id,
-          content,
-        });
-        return { id: job.id };
-      } else {
-        this.logger.log(`General chat fallback selected via intent routing project=${projectId} conversation=${conversation.id}`);
-        const job = await this.enqueueConversationTurn({
-          conversationId: conversation.id,
-          projectId,
-          userId,
-          content,
-          fallbackMode: "general_chat",
-        });
-        return { id: job.id };
-      }
+      const job = await this.enqueueConversationTurn({
+        conversationId: conversation.id,
+        projectId,
+        userId,
+        skillId:        intent.skillId,
+        skillVersionId: version.id,
+        content,
+      });
+      return { id: job.id };
     }
+
+    // Intent Router found no skill match → general chat
+    this.logger.log(`General chat fallback via Intent Router project=${projectId} conversation=${conversation.id}`);
+    const job = await this.enqueueConversationTurn({
+      conversationId: conversation.id,
+      projectId,
+      userId,
+      content,
+      fallbackMode: "general_chat",
+    });
+    return { id: job.id };
   }
 
   async action(

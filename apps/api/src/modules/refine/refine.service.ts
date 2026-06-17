@@ -71,6 +71,8 @@ export class RefineService {
         actorId: userId,
         role: "user",
         encryptedContent: this.crypto.encrypt(content),
+        skillId: null,        // refine phase uses event routing — skill resolved in worker
+        skillVersionId: null,
       },
     });
     const jobs = await this.eventRouter.route({

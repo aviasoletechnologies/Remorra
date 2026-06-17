@@ -71,6 +71,8 @@ export class DiscoverService {
         actorId: userId,
         role: "user",
         encryptedContent: this.crypto.encrypt(content),
+        skillId: null,        // discover phase uses event routing — skill not pinned here
+        skillVersionId: null,
       },
     });
     const jobs = await this.eventRouter.route({
@@ -199,6 +201,8 @@ export class DiscoverService {
         encryptedContent: this.crypto.encrypt(
           `[Uploaded document: ${safeName}]\n${cleaned}`,
         ),
+        skillId: null,
+        skillVersionId: null,
       },
     });
     return {

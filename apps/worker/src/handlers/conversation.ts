@@ -1,5 +1,4 @@
 import { prisma } from "../lib/prisma";
-import { boss } from "../lib/boss";
 import { encrypt, decrypt } from "../lib/crypto";
 import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { modelFor } from "../services/llm";
@@ -231,6 +230,8 @@ export async function handleConversation(payload: Payload) {
           conversationId,
           role: "assistant",
           encryptedContent: encrypt(displayText),
+          skillId: isGeneralChat ? null : result.skill.id,                // which skill generated this
+          skillVersionId: isGeneralChat ? null : (result.skill.versionId ?? null), // exact version
         },
       });
     }
@@ -250,52 +251,98 @@ export async function handleConversation(payload: Payload) {
       await completeFlowStep(flowState.flowRunId, flowState.flowStepId, flowState.outputs);
     }
 
-    // ── Skill completion chaining ────────────────────────────────────────────
-    // When a skill signals it is fully done (via <skill_done/> tag or JSON),
-    // fire a "skill.{skillId}.completed" event. If the admin has mapped this
-    // event type to another skill, automatically enqueue that chained job.
-    if (skillIsDone && !isGeneralChat) {
+    // ── Skill completion: pin next skill OR close the session ───────────────────
+    // When a skill signals it is done (via <skill_done/> tag or JSON), check
+    // SkillEventMapping for 'skill.{id}.completed'. If a next skill is mapped,
+    // PIN it to the Conversation row and wait for the user's next message to
+    // activate it. If no mapping exists, unpin and close the session gracefully.
+    if (skillIsDone && !isGeneralChat && conversationId) {
       try {
         const completionEventType = `skill.${result.skill.id}.completed`;
-        const chainedMappings = await prisma.skillEventMapping.findMany({
+
+        const nextMapping = await prisma.skillEventMapping.findFirst({
           where: { eventType: completionEventType, active: true },
+          orderBy: { id: "asc" },
         });
 
-        for (const mapping of chainedMappings) {
-          const chainedJob = await prisma.jobRecord.create({
-            data: {
-              queue: mapping.targetQueue,
-              payload: {
-                skillId: mapping.skillId,
-                eventType: completionEventType,
-                projectId: projectId || null,
-                userId: userId || null,
-                conversationId: conversationId || null,
+        if (nextMapping) {
+          // ── NEXT SKILL EXISTS → pin it, wait for user ───────────────────────────
+          const nextVersion = await prisma.skillVersion.findFirst({
+            where: { skillId: nextMapping.skillId, active: true },
+            orderBy: { version: "desc" },
+          });
+
+          if (nextVersion) {
+            await prisma.conversation.update({
+              where: { id: conversationId },
+              data: {
+                activeSkillId:        nextMapping.skillId,  // ← pin next skill
+                activeSkillVersionId: nextVersion.id,
+                activeSkillPinnedAt:  new Date(),
               },
-              projectId: projectId || null,
-              userId: userId || null,
-              runAfter: new Date(),
+            });
+
+            // Inform the frontend which skill is coming next
+            queue.push({
+              type: "skill_transition",
+              snapshot: "",
+              metadata: {
+                completedSkillId: result.skill.id,
+                nextSkillId:      nextMapping.skillId,
+              },
+            });
+
+            console.info(
+              `[worker:conversation] next skill pinned completedSkill=${result.skill.id} nextSkill=${nextMapping.skillId} conversation=${conversationId}`,
+            );
+          }
+
+        } else {
+          // ── NO NEXT SKILL → unpin + close session gracefully ───────────────
+          await prisma.conversation.update({
+            where: { id: conversationId },
+            data: {
+              activeSkillId:        null,  // ← unpin
+              activeSkillVersionId: null,
+              activeSkillPinnedAt:  null,
             },
           });
-          await boss.send(
-            mapping.targetQueue,
-            { ...chainedJob, jobRecordId: chainedJob.id },
-            { retryLimit: 4, retryBackoff: true, expireInMinutes: 15 },
-          );
+
+          const closingText =
+            "You've completed all the steps — great work! 🎉 " +
+            "Everything has been saved. Feel free to ask me anything else.";
+
+          // Persist the closing message as a real assistant turn
+          await prisma.conversationMessage.create({
+            data: {
+              conversationId,
+              role: "assistant",
+              encryptedContent: encrypt(closingText),
+              skillId:        null,
+              skillVersionId: null,
+            },
+          });
+
+          // Push SSE event so frontend renders the closing message immediately
+          queue.push({
+            type: "session_complete",
+            snapshot: closingText,
+            metadata: {
+              completedSkillId: result.skill.id,
+            },
+          });
+
           console.info(
-            `[worker:conversation] chained job enqueued eventType=${completionEventType} targetSkill=${mapping.skillId} jobId=${chainedJob.id}`,
+            `[worker:conversation] session complete — no next skill mapped skillId=${result.skill.id} conversation=${conversationId}`,
           );
         }
 
-        if (chainedMappings.length > 0) {
-          console.info(
-            `[worker:conversation] skill_completion_event fired eventType=${completionEventType} chainedJobs=${chainedMappings.length} project=${projectId}`,
-          );
-        }
       } catch (chainErr) {
-        // Non-fatal: skill response is already saved, chaining failure should not break the turn
+        // Non-fatal — the skill turn is already saved, transition failure should not break the turn
         console.warn(
-          `[worker:conversation] skill_completion_chain_failed skillId=${result.skill.id} error=${chainErr instanceof Error ? chainErr.message : String(chainErr)}`,
+          `[worker:conversation] skill_transition_failed skillId=${result.skill.id} error=${
+            chainErr instanceof Error ? chainErr.message : String(chainErr)
+          }`,
         );
       }
     }

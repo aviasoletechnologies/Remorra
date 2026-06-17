@@ -97,6 +97,8 @@ export class EvolveService {
         actorId: userId,
         role: "user",
         encryptedContent: this.crypto.encrypt(content),
+        skillId: null,        // evolve phase uses event routing — skill resolved in worker
+        skillVersionId: null,
       },
     });
     const jobs = await this.eventRouter.route({
