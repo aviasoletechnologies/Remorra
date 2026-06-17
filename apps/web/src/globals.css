@@ -1460,3 +1460,59 @@ select.admin-select option {
 .no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari and Opera */
 }
+
+/* Premium Skeleton Custom Layout Styling */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="skeleton"],
+  .animate-pulse {
+    animation: none !important;
+  }
+}
+
+.skeleton-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-muted) 25%,
+    color-mix(in oklch, var(--color-muted) 80%, var(--color-foreground) 20%) 50%,
+    var(--color-muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer-anim 1.5s infinite linear;
+}
+
+@keyframes skeleton-shimmer-anim {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.chat-skeleton-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-skeleton-bubble-left {
+  align-self: flex-start;
+  max-width: 70%;
+  border-radius: 16px 16px 16px 4px;
+  background-color: var(--color-card, #ffffff);
+  border: 1px border-color var(--color-border);
+}
+
+.chat-skeleton-bubble-right {
+  align-self: flex-end;
+  max-width: 70%;
+  border-radius: 16px 16px 4px 16px;
+  background-color: color-mix(in oklch, var(--color-primary) 10%, var(--color-card, #ffffff));
+  border: 1px border-color var(--color-border);
+}
+

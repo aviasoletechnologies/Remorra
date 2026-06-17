@@ -32,7 +32,7 @@ export class ViabilityService {
     if (jobs.length === 0) {
       throw new BadRequestException("Admin has disabled this feature");
     }
-    return { id: jobs[0].jobId };
+    return { id: jobs[0]!.jobId };
   }
 
   async current(projectId: string, userId: string) {

@@ -3,7 +3,7 @@ import { Activity, CheckCircle2, CircleAlert, Gauge, ListChecks, Sparkles } from
 import { api } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Card, Progress } from "../components/ui";
-import { ActionLink, LoadingState, MetricCard, Page, PageHeader, SectionCard } from "../components/app-ui";
+import { ActionLink, MetricCard, Page, PageHeader, SectionCard, PageSkeleton, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
 
 export function OverviewPage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -18,7 +18,17 @@ export function OverviewPage() {
     enabled: Boolean(projectId),
   });
 
-  if (isLoading) return <LoadingState label="Loading product evidence..." />;
+  if (isLoading) {
+    return (
+      <PageSkeleton eyebrow={true} title={true} actionsCount={2}>
+        <MetricGridSkeleton count={4} />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_.65fr]">
+          <CardSkeleton rows={4} />
+          <CardSkeleton rows={4} />
+        </div>
+      </PageSkeleton>
+    );
+  }
 
   const tasks = data?.tasks ?? [];
   const done = tasks.filter((task: any) => task.status === "done").length;

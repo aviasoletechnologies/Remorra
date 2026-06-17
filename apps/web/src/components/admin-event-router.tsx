@@ -4,6 +4,7 @@ import { Activity, Plus, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./ui/select";
+import { DataTable } from "./app-ui";
 
 type Skill = {
   id: string;
@@ -292,108 +293,114 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
         </div>
       )}
 
-      <div className="border border-border/45 rounded-lg overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-muted/40 border-b border-border/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <th className="p-4">Event Type</th>
-              <th className="p-4">Conditions</th>
-              <th className="p-4">Target AI Skill</th>
-              <th className="p-4">Status</th>
-              {canWrite && <th className="p-4 text-right">Actions</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/30 text-sm">
-            {mappings.length === 0 ? (
-              <tr>
-                <td colSpan={canWrite ? 5 : 4} className="p-8 text-center text-muted-foreground">
-                  <ShieldAlert className="mx-auto mb-2 opacity-50" size={24} />
-                  No event routing rules configured.
-                </td>
-              </tr>
-            ) : (
-              mappings.map((mapping) => {
-                const mappingConditions = (mapping.conditions ?? {}) as Record<string, string>;
-                const conditionEntries = Object.entries(mappingConditions);
-
-                return (
-                  <tr key={mapping.id} className="hover:bg-muted/10 transition-colors">
-                    <td className="p-4">
-                      <div className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                        {mapping.eventType}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {conditionEntries.length === 0 ? (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {conditionEntries.map(([k, v]) => (
-                            <Badge key={k} tone="neutral" className="text-xs font-mono py-0.5 px-1.5">
-                              {k}: {v}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      {canWrite ? (
-                        <Select value={mapping.skillId} onValueChange={(val) => { if (val) updateMapping.mutate({ id: mapping.id, skillId: val }); }}>
-                          <SelectTrigger className="max-w-xs" size="sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {skills.map((skill: any) => (
-                              <SelectItem key={skill.id} value={skill.id}>
-                                {skill.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div>
-                          <span className="font-semibold block">{mapping.skill?.name ?? mapping.skillId}</span>
-                          <span className="text-xs text-muted-foreground">{mapping.skill?.description}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <Badge tone={mapping.active ? "green" : "neutral"}>
-                        {mapping.active ? "Active" : "Disabled"}
-                      </Badge>
-                    </td>
-                    {canWrite && (
-                      <td className="p-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => updateMapping.mutate({ id: mapping.id, active: !mapping.active })}
-                          >
-                            {mapping.active ? "Disable" : "Enable"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="p-1 px-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/20"
-                            onClick={() => {
-                              if (confirm("Are you sure you want to delete this route?")) {
-                                deleteMapping.mutate(mapping.id);
-                              }
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        rows={mappings}
+        getRowKey={(row: EventMapping) => row.id}
+        minWidth={720}
+        emptyTitle="No event routing rules"
+        emptyDescription="No event routing rules configured."
+        columns={[
+          {
+            key: "eventType",
+            header: "Event Type",
+            cell: (row: EventMapping) => (
+              <div className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                {row.eventType}
+              </div>
+            ),
+          },
+          {
+            key: "conditions",
+            header: "Conditions",
+            cell: (row: EventMapping) => {
+              const mappingConditions = (row.conditions ?? {}) as Record<string, string>;
+              const conditionEntries = Object.entries(mappingConditions);
+              return conditionEntries.length === 0 ? (
+                <span className="text-muted-foreground text-xs">—</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {conditionEntries.map(([k, v]) => (
+                    <Badge key={k} tone="neutral" className="text-xs font-mono py-0.5 px-1.5">
+                      {k}: {v}
+                    </Badge>
+                  ))}
+                </div>
+              );
+            },
+          },
+          {
+            key: "skillId",
+            header: "Target AI Skill",
+            cell: (row: EventMapping) => {
+              return canWrite ? (
+                <Select
+                  value={row.skillId}
+                  onValueChange={(val) => {
+                    if (val) updateMapping.mutate({ id: row.id, skillId: val });
+                  }}
+                >
+                  <SelectTrigger className="max-w-xs" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {skills.map((skill: any) => (
+                      <SelectItem key={skill.id} value={skill.id}>
+                        {skill.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div>
+                  <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
+                  <span className="text-xs text-muted-foreground">{row.skill?.description}</span>
+                </div>
+              );
+            },
+          },
+          {
+            key: "status",
+            header: "Status",
+            cell: (row: EventMapping) => (
+              <Badge tone={row.active ? "green" : "neutral"}>
+                {row.active ? "Active" : "Disabled"}
+              </Badge>
+            ),
+          },
+          ...(canWrite
+            ? [
+                {
+                  key: "actions",
+                  header: "Actions",
+                  className: "text-right",
+                  cell: (row: EventMapping) => (
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => updateMapping.mutate({ id: row.id, active: !row.active })}
+                      >
+                        {row.active ? "Disable" : "Enable"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="p-1 px-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/20"
+                        onClick={() => {
+                          if (confirm("Are you sure you want to delete this route?")) {
+                            deleteMapping.mutate(row.id);
+                          }
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
 
       <div className="pagination-controls">
         <Button variant="secondary" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1}>

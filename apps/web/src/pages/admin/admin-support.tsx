@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Inbox, Copy, Check, Mail, TrendingUp, Hash, Users } from "lucide-react";
 import { Badge, Button, Card } from "../../components/ui";
-import { DataTable, DetailDialog, LoadingState } from "../../components/app-ui";
+import { DataTable, DetailDialog, MetricGridSkeleton, CardSkeleton, RichTableSkeleton } from "../../components/app-ui";
 import { AdminAuditTable, AdminJsonPreview, AdminShellSection } from "../../components/admin-ui";
 
 export function AdminSupport({
@@ -110,7 +110,13 @@ export function AdminSupport({
         description="Support data is redacted and scoped to the selected project."
       >
         {loading ? (
-          <LoadingState label="Loading project diagnostics..." />
+          <div className="flex flex-col gap-6">
+            <MetricGridSkeleton count={3} />
+            <div className="grid gap-3">
+              <CardSkeleton rows={3} />
+              <CardSkeleton rows={4} />
+            </div>
+          </div>
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

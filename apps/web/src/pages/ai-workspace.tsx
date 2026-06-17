@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
-import { ErrorState, LoadingState, Page } from "../components/app-ui";
+import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
@@ -135,7 +135,7 @@ export function AiWorkspacePage() {
 
 
   if (isLoading) {
-    return <LoadingState label="Loading your workspace..." />;
+    return <ChatWorkspaceSkeleton />;
   }
 
   if (error || !conversation) {

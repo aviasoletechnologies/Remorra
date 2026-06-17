@@ -2,7 +2,23 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { ActionLink, AppTabs, DataTable, EmptyState, FieldGroup, PageHeader, StatusBadge } from "./app-ui";
+import {
+  ActionLink,
+  AppTabs,
+  DataTable,
+  EmptyState,
+  FieldGroup,
+  PageHeader,
+  StatusBadge,
+  PageSkeleton,
+  CardSkeleton,
+  MetricGridSkeleton,
+  RichTableSkeleton,
+  FormSkeleton,
+  ChatWorkspaceSkeleton,
+  KanbanSkeleton,
+  AdminConsoleSkeleton,
+} from "./app-ui";
 
 describe("application UI primitives", () => {
   it("renders a structured page heading with actions", () => {
@@ -81,5 +97,31 @@ describe("application UI primitives", () => {
     expect(screen.getByText("Visible in Admin")).toBeInTheDocument();
     expect(screen.getByText("Required")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  it("renders premium skeletons with animation container", () => {
+    const { container: pageCont } = render(<PageSkeleton />);
+    expect(pageCont.firstChild).toHaveClass("animate-pulse");
+
+    const { container: cardCont } = render(<CardSkeleton rows={3} />);
+    expect(cardCont.querySelector(".animate-pulse")).toBeInTheDocument();
+
+    const { container: metricsCont } = render(<MetricGridSkeleton count={4} />);
+    expect(metricsCont.querySelectorAll(".metric-card").length).toBe(4);
+
+    const { container: tableCont } = render(<RichTableSkeleton rows={4} columns={3} />);
+    expect(tableCont.querySelector("table")).toBeInTheDocument();
+
+    const { container: formCont } = render(<FormSkeleton fieldsCount={2} />);
+    expect(formCont.querySelectorAll(".field-group").length).toBe(2);
+
+    const { container: chatCont } = render(<ChatWorkspaceSkeleton />);
+    expect(chatCont.querySelector(".chat-skeleton-messages")).toBeInTheDocument();
+
+    const { container: kanbanCont } = render(<KanbanSkeleton />);
+    expect(kanbanCont.querySelector(".animate-pulse")).toBeInTheDocument();
+
+    const { container: adminCont } = render(<AdminConsoleSkeleton />);
+    expect(adminCont.querySelector(".admin-tabbar")).toBeInTheDocument();
   });
 });

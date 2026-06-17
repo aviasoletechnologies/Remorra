@@ -9,7 +9,7 @@ import {
 import { useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
-import { Page, PageHeader } from "../components/app-ui";
+import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
 import { AdminOverview } from "./admin/admin-overview";
 import { AdminSupport } from "./admin/admin-support";
 import { AdminCosts } from "./admin/admin-costs";
@@ -71,18 +71,18 @@ export function AdminPage() {
   const periodQuery = Object.entries(periodDates).map(([k, v]) => `${k}=${v}`).join("&");
 
   // Tab 1: Overview & Metrics Queries
-  const { data: actor } = useQuery<any>({ queryKey: ["me"], queryFn: () => api("/auth/me") });
-  const { data: overviewMetrics } = useQuery<any>({
+  const { data: actor, isLoading: loadingActor } = useQuery<any>({ queryKey: ["me"], queryFn: () => api("/auth/me") });
+  const { data: overviewMetrics, isLoading: loadingOverview } = useQuery<any>({
     queryKey: ["admin-overview-metrics", period],
     queryFn: () => api(`/admin/metrics/overview${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
   });
-  const { data: usageMetrics } = useQuery<any>({
+  const { data: usageMetrics, isLoading: loadingUsage } = useQuery<any>({
     queryKey: ["admin-usage-metrics", period],
     queryFn: () => api(`/admin/metrics/usage${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
   });
-  const { data: jobsMetrics } = useQuery<any>({
+  const { data: jobsMetrics, isLoading: loadingJobs } = useQuery<any>({
     queryKey: ["admin-jobs-metrics", period],
     queryFn: () => api(`/admin/metrics/jobs${periodQuery ? `?${periodQuery}` : ""}`),
     enabled: activeTab === "overview",
@@ -90,7 +90,7 @@ export function AdminPage() {
   });
 
   // Tab 2: Support Projects List
-  const { data: supportProjectsData } = useQuery<any>({
+  const { data: supportProjectsData, isLoading: loadingSupport } = useQuery<any>({
     queryKey: ["admin-support-projects", supportPage],
     queryFn: () => api(`/admin/support/projects?page=${supportPage}&limit=${SUPPORT_PAGE_SIZE}`),
     enabled: activeTab === "support",
@@ -106,7 +106,7 @@ export function AdminPage() {
   });
 
   // Tab 3: Template Manager Queries
-  const { data: templates = [] } = useQuery<any[]>({
+  const { data: templates = [], isLoading: loadingTemplates } = useQuery<any[]>({
     queryKey: ["admin-templates"],
     queryFn: () => api("/admin/templates"),
     enabled: activeTab === "templates",
@@ -167,7 +167,7 @@ export function AdminPage() {
   };
 
   // Tab 4: Cost Config Queries
-  const { data: costConfigs = [] } = useQuery<any[]>({
+  const { data: costConfigs = [], isLoading: loadingCosts } = useQuery<any[]>({
     queryKey: ["admin-cost-configs"],
     queryFn: () => api("/admin/cost-configs"),
     enabled: activeTab === "costs",
@@ -178,7 +178,7 @@ export function AdminPage() {
   const [skillPage, setSkillPage] = useState(1);
   const SKILL_PAGE_SIZE = 10;
 
-  const { data: skillsData } = useQuery<any>({
+  const { data: skillsData, isLoading: loadingSkills } = useQuery<any>({
     queryKey: ["admin-skills", skillPage],
     queryFn: () => api(`/admin/skills?page=${skillPage}&limit=${SKILL_PAGE_SIZE}`),
     enabled: activeTab === "system",
@@ -193,18 +193,22 @@ export function AdminPage() {
   });
   const allSkills = allSkillsData?.items ?? [];
 
-  const { data: retention = [] } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
-  const { data: usersData } = useQuery<any>({
+  const { data: retention = [], isLoading: loadingRetention } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
+  const { data: usersData, isLoading: loadingUsers } = useQuery<any>({
     queryKey: ["admin-users", userPage],
     queryFn: () => api(`/admin/users?page=${userPage}&limit=${USER_PAGE_SIZE}`),
     enabled: activeTab === "users",
   });
   const users = usersData?.items ?? [];
   const totalPages = usersData?.totalPages ?? 1;
-  const { data: reports = [] } = useQuery<any[]>({ queryKey: ["admin-reports"], queryFn: () => api("/admin/reports"), enabled: activeTab === "system" });
-  const { data: knowledge = [] } = useQuery<any[]>({ queryKey: ["admin-knowledge"], queryFn: () => api("/admin/knowledge-bases"), enabled: activeTab === "system" });
+  const { data: reports = [], isLoading: loadingReports } = useQuery<any[]>({ queryKey: ["admin-reports"], queryFn: () => api("/admin/reports"), enabled: activeTab === "system" });
+  const { data: knowledge = [], isLoading: loadingKnowledge } = useQuery<any[]>({ queryKey: ["admin-knowledge"], queryFn: () => api("/admin/knowledge-bases"), enabled: activeTab === "system" });
 
   const isAdmin = actor?.platformRole === "admin";
+
+  if (loadingActor) {
+    return <AdminConsoleSkeleton />;
+  }
 
   // Mutations
   const createTemplateVersion = useMutation({
@@ -379,127 +383,165 @@ export function AdminPage() {
       </div>
 
       {activeTab === "overview" && (
-        <AdminOverview
-          period={period}
-          setPeriod={setPeriod}
-          overviewMetrics={overviewMetrics}
-          usageMetrics={usageMetrics}
-          jobsMetrics={jobsMetrics}
-          onRetryJob={(id) => retryJob.mutate(id)}
-        />
+        loadingOverview || loadingUsage || loadingJobs ? (
+          <div className="flex flex-col gap-6 mt-6">
+            <MetricGridSkeleton count={4} />
+            <RichTableSkeleton rows={4} columns={5} />
+          </div>
+        ) : (
+          <AdminOverview
+            period={period}
+            setPeriod={setPeriod}
+            overviewMetrics={overviewMetrics}
+            usageMetrics={usageMetrics}
+            jobsMetrics={jobsMetrics}
+            onRetryJob={(id) => retryJob.mutate(id)}
+          />
+        )
       )}
 
       {activeTab === "support" && (
-        <AdminSupport
-          projects={supportProjects}
-          selectedProjectId={selectedSupportProjectId}
-          projectDetails={supportProjectDetails}
-          loading={loadingSupportDetails}
-          onSelectProject={setSelectedSupportProjectId}
-          onCloseProject={() => setSelectedSupportProjectId(null)}
-          page={supportPage}
-          totalPages={supportTotalPages}
-          setPage={setSupportPage}
-        />
+        loadingSupport ? (
+          <div className="mt-6">
+            <RichTableSkeleton rows={8} columns={4} />
+          </div>
+        ) : (
+          <AdminSupport
+            projects={supportProjects}
+            selectedProjectId={selectedSupportProjectId}
+            projectDetails={supportProjectDetails}
+            loading={loadingSupportDetails}
+            onSelectProject={setSelectedSupportProjectId}
+            onCloseProject={() => setSelectedSupportProjectId(null)}
+            page={supportPage}
+            totalPages={supportTotalPages}
+            setPage={setSupportPage}
+          />
+        )
       )}
 
       {activeTab === "templates" && (
-        <AdminTemplates
-          templates={templates}
-          selectedTemplate={selectedTemplate}
-          selectedTemplateId={selectedTemplateId}
-          isAdmin={isAdmin}
-          templateHtml={templateHtml}
-          templateCss={templateCss}
-          templateSchemaText={templateSchemaText}
-          sampleJsonText={sampleJsonText}
-          previewHtml={previewHtml}
-          validationError={validationError}
-          onSelectTemplate={selectTemplate}
-          onTemplateHtml={setTemplateHtml}
-          onTemplateCss={setTemplateCss}
-          onTemplateSchema={setTemplateSchemaText}
-          onSampleJson={setSampleJsonText}
-          onPreview={previewSelectedTemplate}
-          onCreateVersion={createSelectedTemplateVersion}
-          onActivateVersion={(versionId) => activateTemplateVersion.mutate({ id: selectedTemplate.id, versionId })}
-        />
+        loadingTemplates ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 mt-6">
+            <CardSkeleton rows={5} />
+            <CardSkeleton rows={8} />
+          </div>
+        ) : (
+          <AdminTemplates
+            templates={templates}
+            selectedTemplate={selectedTemplate}
+            selectedTemplateId={selectedTemplateId}
+            isAdmin={isAdmin}
+            templateHtml={templateHtml}
+            templateCss={templateCss}
+            templateSchemaText={templateSchemaText}
+            sampleJsonText={sampleJsonText}
+            previewHtml={previewHtml}
+            validationError={validationError}
+            onSelectTemplate={selectTemplate}
+            onTemplateHtml={setTemplateHtml}
+            onTemplateCss={setTemplateCss}
+            onTemplateSchema={setTemplateSchemaText}
+            onSampleJson={setSampleJsonText}
+            onPreview={previewSelectedTemplate}
+            onCreateVersion={createSelectedTemplateVersion}
+            onActivateVersion={(versionId) => activateTemplateVersion.mutate({ id: selectedTemplate.id, versionId })}
+          />
+        )
       )}
 
       {activeTab === "costs" && (
-        <AdminCosts
-          configs={costConfigs}
-          drafts={costDrafts}
-          isAdmin={isAdmin}
-          setDrafts={setCostDrafts}
-          onSave={(key, data) => updateCostConfig.mutate({ key, data })}
-        />
+        loadingCosts ? (
+          <div className="mt-6">
+            <RichTableSkeleton rows={5} columns={4} />
+          </div>
+        ) : (
+          <AdminCosts
+            configs={costConfigs}
+            drafts={costDrafts}
+            isAdmin={isAdmin}
+            setDrafts={setCostDrafts}
+            onSave={(key, data) => updateCostConfig.mutate({ key, data })}
+          />
+        )
       )}
 
       {/* Tab Content 5: System Settings (Sub-nav Layout) */}
       {activeTab === "system" && (
-        <AdminSystemLayout active={systemSubTab} onChange={setSystemSubTab}>
-            {systemSubTab === "flows" && <AdminFlows isAdmin={isAdmin} />}
-            {systemSubTab === "skills" && (
-              <AdminSkills
-                skills={skills}
-                page={skillPage}
-                totalPages={totalSkillPages}
-                isAdmin={isAdmin}
-                onCreate={() => setIsCreateSkillOpen(true)}
-                onEdit={(skill) => {
-                  setEditingSkill(skill);
-                  const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
-                  setEditPromptText(currentVer?.systemPrompt ?? "");
-                }}
-                onPage={setSkillPage}
-              />
-            )}
+        loadingSkills || loadingRetention || loadingReports || loadingKnowledge ? (
+          <div className="mt-6">
+            <RichTableSkeleton rows={6} columns={4} />
+          </div>
+        ) : (
+          <AdminSystemLayout active={systemSubTab} onChange={setSystemSubTab}>
+              {systemSubTab === "flows" && <AdminFlows isAdmin={isAdmin} />}
+              {systemSubTab === "skills" && (
+                <AdminSkills
+                  skills={skills}
+                  page={skillPage}
+                  totalPages={totalSkillPages}
+                  isAdmin={isAdmin}
+                  onCreate={() => setIsCreateSkillOpen(true)}
+                  onEdit={(skill) => {
+                    setEditingSkill(skill);
+                    const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
+                    setEditPromptText(currentVer?.systemPrompt ?? "");
+                  }}
+                  onPage={setSkillPage}
+                />
+              )}
 
 
-            {systemSubTab === "reports" && (
-              <AdminReports
-                reports={reports}
-                selectedReportId={selectedReportId}
-                reportDrafts={reportDrafts}
-                isAdmin={isAdmin}
-                onSelectReport={setSelectedReportId}
-                onDraft={setReportDrafts}
-                onPublish={(id, templateKey) => createReportVersion.mutate({ id, templateKey })}
-              />
-            )}
+              {systemSubTab === "reports" && (
+                <AdminReports
+                  reports={reports}
+                  selectedReportId={selectedReportId}
+                  reportDrafts={reportDrafts}
+                  isAdmin={isAdmin}
+                  onSelectReport={setSelectedReportId}
+                  onDraft={setReportDrafts}
+                  onPublish={(id, templateKey) => createReportVersion.mutate({ id, templateKey })}
+                />
+              )}
 
-            {systemSubTab === "knowledge" && (
-              <AdminKnowledge
-                knowledge={knowledge}
-                selectedKbId={selectedKbId}
-                knowledgeDrafts={knowledgeDrafts}
-                isAdmin={isAdmin}
-                onSelectKnowledge={setSelectedKbId}
-                onDraft={setKnowledgeDrafts}
-                onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
-              />
-            )}
+              {systemSubTab === "knowledge" && (
+                <AdminKnowledge
+                  knowledge={knowledge}
+                  selectedKbId={selectedKbId}
+                  knowledgeDrafts={knowledgeDrafts}
+                  isAdmin={isAdmin}
+                  onSelectKnowledge={setSelectedKbId}
+                  onDraft={setKnowledgeDrafts}
+                  onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
+                />
+              )}
 
-            {systemSubTab === "retention" && (
-              <AdminRetention
-                retention={retention}
-                isAdmin={isAdmin}
-                onUpdate={(id, retentionDays) => updateRetention.mutate({ id, retentionDays })}
-              />
-            )}
-        </AdminSystemLayout>
+              {systemSubTab === "retention" && (
+                <AdminRetention
+                  retention={retention}
+                  isAdmin={isAdmin}
+                  onUpdate={(id, retentionDays) => updateRetention.mutate({ id, retentionDays })}
+                />
+              )}
+          </AdminSystemLayout>
+        )
       )}
 
       {activeTab === "users" && (
-        <AdminUsers
-          users={users}
-          page={userPage}
-          totalPages={totalPages}
-          isAdmin={isAdmin}
-          setPage={setUserPage}
-          onUpdateRole={(id, platformRole) => updateRole.mutate({ id, platformRole })}
-        />
+        loadingUsers ? (
+          <div className="mt-6">
+            <RichTableSkeleton rows={8} columns={4} />
+          </div>
+        ) : (
+          <AdminUsers
+            users={users}
+            page={userPage}
+            totalPages={totalPages}
+            isAdmin={isAdmin}
+            setPage={setUserPage}
+            onUpdateRole={(id, platformRole) => updateRole.mutate({ id, platformRole })}
+          />
+        )
       )}
       {/* Skill Edit Modal */}
       {editingSkill && (

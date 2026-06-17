@@ -4,7 +4,7 @@ import { AuthGate } from "./components/auth-gate";
 import { Shell } from "./components/shell";
 import { TokenBudgetModal } from "./components/token-budget-modal";
 import { PageErrorBoundary } from "./components/page-error-boundary";
-import { LoadingState } from "./components/app-ui";
+import { CardSkeleton, PageSkeleton } from "./components/app-ui";
 
 const AdminPage = lazy(() => import("./pages/admin").then((module) => ({ default: module.AdminPage })));
 const AiWorkspacePage = lazy(() => import("./pages/ai-workspace").then((module) => ({ default: module.AiWorkspacePage })));
@@ -23,7 +23,7 @@ export function App() {
     <AuthGate>
       <Shell>
         <PageErrorBoundary>
-          <Suspense fallback={<LoadingState label="Opening workspace..." />}>
+          <Suspense fallback={<PageSkeleton actionsCount={0} eyebrow={false} title={false}><CardSkeleton rows={4} /></PageSkeleton>}>
             <Routes>
               <Route path="/" element={<OverviewPage />} />
               <Route path="/workspace" element={<AiWorkspacePage />} />

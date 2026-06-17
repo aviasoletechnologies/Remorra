@@ -36,22 +36,22 @@ export async function startQueue() {
   }
 
   await boss.work<Payload>("ai.conversation", handleJobs("ai.conversation", handleConversation));
-  await boss.work<Payload>("ai.extract", handleJobs("ai.extract", handleExtract));
-  await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
-  await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
-  await boss.work<Payload>("document.render", handleJobs("document.render", handleDocument));
-  await boss.work<Payload>("gdpr.export", handleJobs("gdpr.export", handleGdprExport));
-  await boss.work<Payload>("gdpr.delete", handleJobs("gdpr.delete", handleGdprDelete));
-  await boss.work<Payload>("retention.cleanup", handleJobs("retention.cleanup", handleRetention));
-  await boss.work<Payload>("storage.expire", handleJobs("storage.expire", handleStorageExpiry));
+  // await boss.work<Payload>("ai.extract", handleJobs("ai.extract", handleExtract));
+  // await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
+  // await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
+  // await boss.work<Payload>("document.render", handleJobs("document.render", handleDocument));
+  // await boss.work<Payload>("gdpr.export", handleJobs("gdpr.export", handleGdprExport));
+  // await boss.work<Payload>("gdpr.delete", handleJobs("gdpr.delete", handleGdprDelete));
+  // await boss.work<Payload>("retention.cleanup", handleJobs("retention.cleanup", handleRetention));
+  // await boss.work<Payload>("storage.expire", handleJobs("storage.expire", handleStorageExpiry));
 
   const enabled = config.enabledQueues;
-  if (enabled.includes("retention.cleanup")) {
-    await boss.schedule("retention.cleanup", "0 2 * * *", {});
-  }
-  if (enabled.includes("storage.expire")) {
-    await boss.schedule("storage.expire", "30 2 * * *", {});
-  }
+  // if (enabled.includes("retention.cleanup")) {
+  //   await boss.schedule("retention.cleanup", "0 2 * * *", {});
+  // }
+  // if (enabled.includes("storage.expire")) {
+  //   await boss.schedule("storage.expire", "30 2 * * *", {});
+  // }
 
   console.info(
     JSON.stringify({

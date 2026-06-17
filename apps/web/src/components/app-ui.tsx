@@ -513,6 +513,274 @@ export function LoadingState({ label = "Loading workspace..." }: { label?: strin
   );
 }
 
+export function PageSkeleton({
+  eyebrow = true,
+  title = true,
+  actionsCount = 2,
+  children,
+}: {
+  eyebrow?: boolean;
+  title?: boolean;
+  actionsCount?: number;
+  children?: ReactNode;
+}) {
+  return (
+    <Page className="animate-pulse">
+      {(eyebrow || title || actionsCount > 0) && (
+        <header className="page-header mb-6">
+          <div className="flex flex-col gap-2">
+            {eyebrow && <Skeleton className="h-5 w-24 rounded-full" />}
+            {title && <Skeleton className="h-8 w-64 mt-1" />}
+            {title && <Skeleton className="h-4 w-96 mt-2" />}
+          </div>
+          {actionsCount > 0 && (
+            <div className="skeleton-header-actions">
+              {Array.from({ length: actionsCount }).map((_, i) => (
+                <Skeleton className="h-10 w-28 rounded-lg" key={i} />
+              ))}
+            </div>
+          )}
+        </header>
+      )}
+      {children}
+    </Page>
+  );
+}
+
+export function CardSkeleton({ rows = 3, className }: { rows?: number; className?: string }) {
+  return (
+    <Card className={cn("p-6 flex flex-col gap-4", className)}>
+      <div className="flex justify-between items-center pb-2 border-b border-border">
+        <div className="flex flex-col gap-2 w-1/3">
+          <Skeleton className="h-5 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+        <Skeleton className="h-5 w-12 rounded-full" />
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {Array.from({ length: rows }).map((_, i) => {
+          const widths = ["w-full", "w-11/12", "w-4/5", "w-3/4"];
+          return (
+            <Skeleton
+              className={cn("h-4", widths[i % widths.length])}
+              key={i}
+            />
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+export function MetricGridSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-6">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card className="metric-card p-6 flex flex-col gap-2 relative overflow-hidden" key={i}>
+          <div className="flex items-center justify-between mb-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="size-8 rounded-full" />
+          </div>
+          <Skeleton className="h-8 w-20" />
+          <Skeleton className="h-3 w-32 mt-1" />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function RichTableSkeleton({ rows = 5, columns = 4 }: { rows?: number; columns?: number }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Toolbar skeleton */}
+      <div className="table-toolbar flex justify-between items-center">
+        <div className="flex flex-col gap-2 w-1/4">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+        <div className="table-toolbar-actions flex gap-2">
+          <Skeleton className="h-10 w-48 rounded-lg" />
+          <Skeleton className="h-10 w-28 rounded-lg" />
+        </div>
+      </div>
+      <div className="data-table-wrap border border-border rounded-xl overflow-hidden">
+        <Table className="data-table">
+          <TableHeader>
+            <TableRow>
+              {Array.from({ length: columns }).map((_, i) => (
+                <TableHead key={i}>
+                  <Skeleton className="h-4 w-16" />
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: rows }).map((_, rowIndex) => (
+              <TableRow key={rowIndex}>
+                {Array.from({ length: columns }).map((_, colIndex) => {
+                  const widths = ["w-2/3", "w-1/2", "w-3/4", "w-5/6"];
+                  return (
+                    <TableCell key={colIndex}>
+                      <Skeleton className={cn("h-4", widths[(rowIndex + colIndex) % widths.length])} />
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+export function FormSkeleton({ fieldsCount = 4 }: { fieldsCount?: number }) {
+  return (
+    <div className="form-grid form-grid-2">
+      {Array.from({ length: fieldsCount }).map((_, i) => (
+        <div className="field-group" key={i}>
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ChatWorkspaceSkeleton() {
+  return (
+    <Page className="h-[calc(100vh-64px)] !p-4 md:!p-6 flex flex-col overflow-hidden animate-pulse">
+      {/* Simulated top status bar/header */}
+      <div className="flex justify-between items-center border-b border-border pb-4 mb-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-10 rounded-xl" />
+          <div className="flex flex-col gap-1.5">
+            <Skeleton className="h-5 w-44" />
+            <Skeleton className="h-3.5 w-60" />
+          </div>
+        </div>
+        <Skeleton className="h-9 w-24 rounded-lg" />
+      </div>
+
+      <div className="w-full flex-grow flex gap-4 min-h-0 overflow-hidden">
+        {/* Chat window panel */}
+        <div className="flex-grow flex flex-col bg-secondary/15 border border-border rounded-2xl overflow-hidden p-6 relative">
+          <div className="chat-skeleton-messages flex-grow overflow-y-auto pb-24">
+            <div className="chat-skeleton-bubble-left p-4 mb-2">
+              <Skeleton className="h-4 w-48 mb-2" />
+              <Skeleton className="h-4 w-64" />
+            </div>
+            <div className="chat-skeleton-bubble-right p-4 mb-2">
+              <Skeleton className="h-4 w-36" />
+            </div>
+            <div className="chat-skeleton-bubble-left p-4 mb-2">
+              <Skeleton className="h-4 w-52 mb-2" />
+              <Skeleton className="h-4 w-44" />
+            </div>
+            <div className="chat-skeleton-bubble-right p-4 mb-2">
+              <Skeleton className="h-4 w-40" />
+            </div>
+          </div>
+          <div className="absolute bottom-6 left-6 right-6 flex gap-2 bg-background p-2 border border-border rounded-xl">
+            <Skeleton className="h-10 flex-grow rounded-lg" />
+            <Skeleton className="size-10 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+export function KanbanSkeleton() {
+  return (
+    <PageSkeleton eyebrow={true} title={true} actionsCount={1}>
+      <div className="flex flex-col gap-6 animate-pulse">
+        {/* Fake tabs */}
+        <div className="app-tabs flex gap-2 border-b border-border pb-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton className="h-9 w-24 rounded-lg" key={i} />
+          ))}
+        </div>
+
+        {/* Input cards */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="p-5 flex flex-col gap-3">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-3 w-48 mb-2" />
+            <div className="flex gap-2">
+              <Skeleton className="h-10 flex-grow" />
+              <Skeleton className="h-10 w-20" />
+            </div>
+          </Card>
+          <Card className="p-5 flex flex-col gap-3">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-3 w-48 mb-2" />
+            <div className="flex gap-2">
+              <Skeleton className="h-10 flex-grow" />
+              <Skeleton className="h-10 w-20" />
+            </div>
+          </Card>
+        </div>
+
+        {/* Column headings */}
+        <div className="flex items-center gap-1.5 border-b border-border pb-2 mt-4">
+          <Skeleton className="h-4 w-32" />
+        </div>
+
+        {/* Kanban grid */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, colIndex) => (
+            <div className="flex min-h-[460px] flex-col gap-3 rounded-2xl border border-border bg-secondary/35 p-3" key={colIndex}>
+              <div className="flex justify-between items-center pb-2 border-b border-border">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-6 rounded-full" />
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {Array.from({ length: colIndex === 0 ? 2 : colIndex === 1 ? 1 : 0 }).map((_, cardIndex) => (
+                  <Card className="p-4 flex flex-col gap-3 bg-card" key={cardIndex}>
+                    <div className="flex justify-between items-center">
+                      <Skeleton className="h-4.5 w-12 rounded-full" />
+                      <Skeleton className="size-4" />
+                    </div>
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-5/6" />
+                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-border/40">
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </PageSkeleton>
+  );
+}
+
+export function AdminConsoleSkeleton() {
+  return (
+    <PageSkeleton eyebrow={true} title={true} actionsCount={0}>
+      <div className="flex flex-col gap-6 animate-pulse">
+        {/* Fake admin tabs */}
+        <div className="admin-tabbar flex gap-2 border-b border-border pb-2 overflow-x-auto">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton className="h-9 w-32 rounded-lg flex-shrink-0" key={i} />
+          ))}
+        </div>
+
+        {/* Dashboard metrics preview */}
+        <MetricGridSkeleton count={4} />
+
+        {/* Main table module skeleton */}
+        <RichTableSkeleton rows={6} columns={5} />
+      </div>
+    </PageSkeleton>
+  );
+}
+
 export function EmptyState({
   title,
   description,
@@ -580,5 +848,22 @@ export function ActionLink({
       {children}
       <ArrowRight size={15} />
     </Link>
+  );
+}
+
+export function DisabledOverlay({ message = "Admin has disabled this feature" }: { message?: string }) {
+  return (
+    <div className="fixed top-16 bottom-0 right-0 left-0 md:left-[var(--sidebar-width)] z-30 flex flex-col items-center justify-center bg-background/50 transition-all duration-300">
+      <Card className="max-w-md p-8 text-center shadow-2xl border border-destructive/25 bg-card relative overflow-hidden group">
+        <div className="absolute -inset-px bg-gradient-to-r from-destructive/20 to-warning/20 rounded-2xl opacity-50 blur-sm group-hover:opacity-75 transition-opacity" />
+        <div className="relative flex flex-col items-center">
+          <div className="grid size-12 place-items-center rounded-2xl bg-destructive-soft text-destructive mb-4 shadow-inner">
+            <LockKeyhole size={24} className="animate-pulse" />
+          </div>
+          <h2 className="text-xl font-bold text-foreground tracking-tight mb-2">Access Disabled</h2>
+          <p className="text-sm leading-relaxed text-foreground/80">{message}</p>
+        </div>
+      </Card>
+    </div>
   );
 }
