@@ -483,6 +483,27 @@ async function main() {
       update: { description, retentionDays },
     });
   }
+
+  const mappings = [
+    { eventType: "pain_point.create", skillId: "entity-extractor", targetQueue: "ai.conversation", conditions: {} },
+    { eventType: "viability_snapshot.create", skillId: "viability-score-calculator", targetQueue: "ai.extract", conditions: {} },
+  ];
+  for (const mapping of mappings) {
+    const existingMapping = await prisma.skillEventMapping.findFirst({
+      where: { eventType: mapping.eventType, skillId: mapping.skillId },
+    });
+    if (!existingMapping) {
+      await prisma.skillEventMapping.create({
+        data: {
+          eventType: mapping.eventType,
+          skillId: mapping.skillId,
+          targetQueue: mapping.targetQueue,
+          conditions: mapping.conditions,
+          active: true,
+        },
+      });
+    }
+  }
 }
 
 main()

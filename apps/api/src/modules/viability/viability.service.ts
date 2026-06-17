@@ -29,7 +29,10 @@ export class ViabilityService {
       idempotencyKey: `viability:${projectId}:${new Date().toISOString().slice(0, 13)}`,
       payload: { projectId },
     });
-    return jobs[0] ?? null;
+    if (jobs.length === 0) {
+      throw new BadRequestException("Admin has disabled this feature");
+    }
+    return { id: jobs[0].jobId };
   }
 
   async current(projectId: string, userId: string) {
