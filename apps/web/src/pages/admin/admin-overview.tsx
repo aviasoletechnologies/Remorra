@@ -1,7 +1,8 @@
 import { BrainCircuit, Database, ShieldCheck, Users } from "lucide-react";
 import { Button, Card } from "../../components/ui";
-import { DataTable } from "../../components/app-ui";
+import { DataTable, TableSkeleton } from "../../components/app-ui";
 import { AdminShellSection, AdminStatCard, AdminStatGrid } from "../../components/admin-ui";
+import { Skeleton } from "../../components/ui/skeleton";
 
 type PeriodPreset = "today" | "week" | "mtd" | "ytd" | "all";
 
@@ -12,6 +13,7 @@ export function AdminOverview({
   usageMetrics,
   jobsMetrics,
   onRetryJob,
+  isLoading,
 }: {
   period: PeriodPreset;
   setPeriod: (period: PeriodPreset) => void;
@@ -19,6 +21,7 @@ export function AdminOverview({
   usageMetrics: any;
   jobsMetrics: any;
   onRetryJob: (id: string) => void;
+  isLoading?: boolean;
 }) {
   return (
     <AdminShellSection
@@ -27,17 +30,27 @@ export function AdminOverview({
       actions={<PeriodTabs value={period} onChange={setPeriod} />}
     >
       <AdminStatGrid>
-        <AdminStatCard label="Total users" value={overviewMetrics?.users ?? "-"} icon={<Users size={16} />} tone="blue" />
+        <AdminStatCard
+          label="Total users"
+          value={isLoading ? <Skeleton className="h-8 w-16 mt-1" /> : (overviewMetrics?.users ?? "-")}
+          icon={<Users size={16} />}
+          tone="blue"
+        />
         <AdminStatCard
           label="Projects active"
-          value={`${overviewMetrics?.projects ?? "-"} / ${overviewMetrics?.activeProjects ?? "-"}`}
+          value={isLoading ? <Skeleton className="h-8 w-20 mt-1" /> : `${overviewMetrics?.projects ?? "-"} / ${overviewMetrics?.activeProjects ?? "-"}`}
           icon={<Database size={16} />}
         />
-        <AdminStatCard label="Failed jobs" value={overviewMetrics?.failedJobs ?? "-"} icon={<ShieldCheck size={16} />} tone="red" />
+        <AdminStatCard
+          label="Failed jobs"
+          value={isLoading ? <Skeleton className="h-8 w-12 mt-1" /> : (overviewMetrics?.failedJobs ?? "-")}
+          icon={<ShieldCheck size={16} />}
+          tone="red"
+        />
         <AdminStatCard
           label="Cost / margin"
-          value={`$${(((overviewMetrics?.totalCost ?? 0)) / 100).toFixed(2)}`}
-          detail={`Margin estimate: ${overviewMetrics?.margin ?? 100}%`}
+          value={isLoading ? <Skeleton className="h-8 w-24 mt-1" /> : `$${(((overviewMetrics?.totalCost ?? 0)) / 100).toFixed(2)}`}
+          detail={isLoading ? <Skeleton className="h-3.5 w-32 mt-1" /> : `Margin estimate: ${overviewMetrics?.margin ?? 100}%`}
           icon={<BrainCircuit size={16} />}
           tone="amber"
         />
@@ -56,20 +69,24 @@ export function AdminOverview({
               </p>
             </div>
           </div>
-          <DataTable
-            rows={usageMetrics?.byModel ?? []}
-            getRowKey={(row: any) => row.model}
-            minWidth={720}
-            emptyTitle="No token usage"
-            emptyDescription="No AI invocations were recorded in this period."
-            columns={[
-              { key: "model", header: "Model tier / key", cell: (row: any) => <strong>{row.model}</strong> },
-              { key: "input", header: "Input tokens", cell: (row: any) => row._sum?.inputTokens ?? 0 },
-              { key: "output", header: "Output tokens", cell: (row: any) => row._sum?.outputTokens ?? 0 },
-              { key: "cost", header: "Estimated cost", cell: (row: any) => `$${((row._sum?.costMinor ?? 0) / 100).toFixed(4)}` },
-              { key: "count", header: "Invocations", cell: (row: any) => row._count ?? 0 },
-            ]}
-          />
+          {isLoading ? (
+            <TableSkeleton rows={4} columns={5} />
+          ) : (
+            <DataTable
+              rows={usageMetrics?.byModel ?? []}
+              getRowKey={(row: any) => row.model}
+              minWidth={720}
+              emptyTitle="No token usage"
+              emptyDescription="No AI invocations were recorded in this period."
+              columns={[
+                { key: "model", header: "Model tier / key", cell: (row: any) => <strong>{row.model}</strong> },
+                { key: "input", header: "Input tokens", cell: (row: any) => row._sum?.inputTokens ?? 0 },
+                { key: "output", header: "Output tokens", cell: (row: any) => row._sum?.outputTokens ?? 0 },
+                { key: "cost", header: "Estimated cost", cell: (row: any) => `$${((row._sum?.costMinor ?? 0) / 100).toFixed(4)}` },
+                { key: "count", header: "Invocations", cell: (row: any) => row._count ?? 0 },
+              ]}
+            />
+          )}
         </Card>
 
         <Card className="flow-builder">
@@ -84,24 +101,28 @@ export function AdminOverview({
               </p>
             </div>
           </div>
-          <DataTable
-            rows={jobsMetrics?.recentFailed ?? []}
-            getRowKey={(row: any) => row.id}
-            minWidth={780}
-            emptyTitle="No failed jobs"
-            emptyDescription="No failed jobs require diagnostics for this period."
-            columns={[
-              { key: "id", header: "Job ID", cell: (row: any) => <code>{row.id.slice(0, 8)}</code> },
-              { key: "queue", header: "Queue", cell: (row: any) => <strong>{row.queue}</strong> },
-              { key: "error", header: "Failure reason", cell: (row: any) => <span className="text-destructive">{row.error}</span> },
-              { key: "attempts", header: "Attempts", cell: (row: any) => row.attempts },
-              {
-                key: "actions",
-                header: "Actions",
-                cell: (row: any) => <Button variant="secondary" onClick={() => onRetryJob(row.id)}>Retry</Button>,
-              },
-            ]}
-          />
+          {isLoading ? (
+            <TableSkeleton rows={4} columns={5} />
+          ) : (
+            <DataTable
+              rows={jobsMetrics?.recentFailed ?? []}
+              getRowKey={(row: any) => row.id}
+              minWidth={780}
+              emptyTitle="No failed jobs"
+              emptyDescription="No failed jobs require diagnostics for this period."
+              columns={[
+                { key: "id", header: "Job ID", cell: (row: any) => <code>{row.id.slice(0, 8)}</code> },
+                { key: "queue", header: "Queue", cell: (row: any) => <strong>{row.queue}</strong> },
+                { key: "error", header: "Failure reason", cell: (row: any) => <span className="text-destructive">{row.error}</span> },
+                { key: "attempts", header: "Attempts", cell: (row: any) => row.attempts },
+                {
+                  key: "actions",
+                  header: "Actions",
+                  cell: (row: any) => <Button variant="secondary" onClick={() => onRetryJob(row.id)}>Retry</Button>,
+                },
+              ]}
+            />
+          )}
         </Card>
       </div>
     </AdminShellSection>

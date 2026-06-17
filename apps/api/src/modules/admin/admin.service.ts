@@ -1000,7 +1000,7 @@ export class AdminService {
 
     const operations = ["create", "update", "delete"];
 
-    const items = tables.flatMap(({ table, group }) =>
+    const tableItems = tables.flatMap(({ table, group }) =>
       operations.map(op => ({
         eventType: `${table}.${op}`,
         table,
@@ -1009,7 +1009,23 @@ export class AdminService {
       }))
     );
 
-    return { items };
+    // ── Skill completion events ──────────────────────────────────────────────
+    // Dynamically built from all skills in the DB so the list stays in sync
+    // automatically whenever a new skill is created — no code change needed.
+    // Emitted by the worker when skillIsDone=true (skill_done tag or JSON).
+    const skills = await this.prisma.client.skill.findMany({
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+
+    const skillItems = skills.map((skill: { id: string }) => ({
+      eventType: `skill.${skill.id}.completed`,
+      table: "skill",
+      operation: "completed",
+      group: "Skill Completion",
+    }));
+
+    return { items: [...tableItems, ...skillItems] };
   }
 
   async eventMappings(actor: Actor, page: number = 1, limit: number = 10) {

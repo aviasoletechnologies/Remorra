@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { boss } from "../lib/boss";
 import { encrypt, decrypt } from "../lib/crypto";
 import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { modelFor } from "../services/llm";
@@ -159,12 +160,27 @@ export async function handleConversation(payload: Payload) {
     clearInterval(timerId);
     await flush();
 
-    // If the skill response is valid JSON, it means the skill completed its capture
-    // (e.g. Brain Dump Facilitator collected all topics). Save structured data and
-    // replace raw JSON with a friendly confirmation message.
+    // ── Detection 1: <skill_done/> tag ──────────────────────────────────────
+    // Auto-injected into the system prompt by the worker (skills.ts).
+    // Works for ANY skill — plain conversational or JSON-returning.
+    // The tag is stripped from displayText so the user never sees it.
     let displayText = result.text;
+    let skillIsDone = false;
+
+    if (!isGeneralChat && result.text.includes("<skill_done/>")) {
+      skillIsDone = true;
+      displayText = result.text.replace(/<skill_done\/>/g, "").trim();
+      console.info(
+        `[worker:conversation] skill_done tag detected project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
+      );
+    }
+
+    // ── Detection 2: JSON response ───────────────────────────────────────────
+    // Legacy pattern: Brain Dump Facilitator and similar skills that return a
+    // JSON object when they have collected all required topics. Save structured
+    // data and replace the raw JSON with a friendly confirmation message.
     if (!isGeneralChat && conversationId) {
-      const trimmed = result.text.trim();
+      const trimmed = displayText.trim(); // use cleaned text after tag strip
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         let parsed: unknown = null;
         try {
@@ -177,6 +193,7 @@ export async function handleConversation(payload: Payload) {
           }
         }
         if (parsed !== null) {
+          skillIsDone = true; // JSON response also marks skill done
           try {
             await prisma.structuredExtract.create({
               data: { conversationId, schemaVersion: 1, payload: jsonValue(parsed) },
@@ -202,6 +219,7 @@ export async function handleConversation(payload: Payload) {
         modelTier: result.skill.modelTier,
         model: modelFor(result.skill.modelTier),
         outputTokens: result.text.length / 4,
+        skillDone: skillIsDone, // true = skill fully finished; false = just one turn done
       },
     });
     await flush();
@@ -230,6 +248,56 @@ export async function handleConversation(payload: Payload) {
 
     if (flowState?.completeAfterResponse) {
       await completeFlowStep(flowState.flowRunId, flowState.flowStepId, flowState.outputs);
+    }
+
+    // ── Skill completion chaining ────────────────────────────────────────────
+    // When a skill signals it is fully done (via <skill_done/> tag or JSON),
+    // fire a "skill.{skillId}.completed" event. If the admin has mapped this
+    // event type to another skill, automatically enqueue that chained job.
+    if (skillIsDone && !isGeneralChat) {
+      try {
+        const completionEventType = `skill.${result.skill.id}.completed`;
+        const chainedMappings = await prisma.skillEventMapping.findMany({
+          where: { eventType: completionEventType, active: true },
+        });
+
+        for (const mapping of chainedMappings) {
+          const chainedJob = await prisma.jobRecord.create({
+            data: {
+              queue: mapping.targetQueue,
+              payload: {
+                skillId: mapping.skillId,
+                eventType: completionEventType,
+                projectId: projectId || null,
+                userId: userId || null,
+                conversationId: conversationId || null,
+              },
+              projectId: projectId || null,
+              userId: userId || null,
+              runAfter: new Date(),
+            },
+          });
+          await boss.send(
+            mapping.targetQueue,
+            { ...chainedJob, jobRecordId: chainedJob.id },
+            { retryLimit: 4, retryBackoff: true, expireInMinutes: 15 },
+          );
+          console.info(
+            `[worker:conversation] chained job enqueued eventType=${completionEventType} targetSkill=${mapping.skillId} jobId=${chainedJob.id}`,
+          );
+        }
+
+        if (chainedMappings.length > 0) {
+          console.info(
+            `[worker:conversation] skill_completion_event fired eventType=${completionEventType} chainedJobs=${chainedMappings.length} project=${projectId}`,
+          );
+        }
+      } catch (chainErr) {
+        // Non-fatal: skill response is already saved, chaining failure should not break the turn
+        console.warn(
+          `[worker:conversation] skill_completion_chain_failed skillId=${result.skill.id} error=${chainErr instanceof Error ? chainErr.message : String(chainErr)}`,
+        );
+      }
     }
 
     return {

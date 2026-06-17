@@ -2,6 +2,7 @@ import { AlertTriangle, FileText, ShieldAlert } from "lucide-react";
 import { Badge, Button, Card, Textarea } from "../../components/ui";
 import { DataTable, DangerZone, EmptyState, FormActions, FormGrid, TableToolbar } from "../../components/app-ui";
 import { AdminEditorCard, AdminShellSection } from "../../components/admin-ui";
+import { Skeleton } from "../../components/ui/skeleton";
 
 export function AdminTemplates({
   templates,
@@ -22,6 +23,7 @@ export function AdminTemplates({
   onPreview,
   onCreateVersion,
   onActivateVersion,
+  isLoading,
 }: {
   templates: any[];
   selectedTemplate: any;
@@ -41,6 +43,7 @@ export function AdminTemplates({
   onPreview: () => void;
   onCreateVersion: () => void;
   onActivateVersion: (versionId: string) => void;
+  isLoading?: boolean;
 }) {
   const activeVersion = selectedTemplate?.versions?.find((v: any) => v.active);
 
@@ -63,20 +66,32 @@ export function AdminTemplates({
             </div>
           </div>
           <div className="admin-template-list">
-            {templates.map((template) => (
-              <button
-                key={template.id}
-                className={`admin-list-item ${selectedTemplateId === template.id ? "active" : ""}`}
-                onClick={() => onSelectTemplate(template)}
-                type="button"
-              >
-                <strong>{template.name}</strong>
-                <span className="item-meta">
-                  <Badge tone="neutral">{template.type}</Badge>
-                  <small>{template.id}</small>
-                </span>
-              </button>
-            ))}
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="p-4 border border-border/50 rounded-xl flex flex-col gap-2 bg-secondary/10 animate-pulse">
+                  <Skeleton className="h-4 w-3/4" />
+                  <div className="flex gap-2 mt-1">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-3.5 w-8" />
+                  </div>
+                </div>
+              ))
+            ) : (
+              templates.map((template) => (
+                <button
+                  key={template.id}
+                  className={`admin-list-item ${selectedTemplateId === template.id ? "active" : ""}`}
+                  onClick={() => onSelectTemplate(template)}
+                  type="button"
+                >
+                  <strong>{template.name}</strong>
+                  <span className="item-meta">
+                    <Badge tone="neutral">{template.type}</Badge>
+                    <small>{template.id}</small>
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </Card>
 

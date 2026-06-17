@@ -383,165 +383,136 @@ export function AdminPage() {
       </div>
 
       {activeTab === "overview" && (
-        loadingOverview || loadingUsage || loadingJobs ? (
-          <div className="flex flex-col gap-6 mt-6">
-            <MetricGridSkeleton count={4} />
-            <RichTableSkeleton rows={4} columns={5} />
-          </div>
-        ) : (
-          <AdminOverview
-            period={period}
-            setPeriod={setPeriod}
-            overviewMetrics={overviewMetrics}
-            usageMetrics={usageMetrics}
-            jobsMetrics={jobsMetrics}
-            onRetryJob={(id) => retryJob.mutate(id)}
-          />
-        )
+        <AdminOverview
+          period={period}
+          setPeriod={setPeriod}
+          overviewMetrics={overviewMetrics}
+          usageMetrics={usageMetrics}
+          jobsMetrics={jobsMetrics}
+          onRetryJob={(id) => retryJob.mutate(id)}
+          isLoading={loadingOverview || loadingUsage || loadingJobs}
+        />
       )}
 
       {activeTab === "support" && (
-        loadingSupport ? (
-          <div className="mt-6">
-            <RichTableSkeleton rows={8} columns={4} />
-          </div>
-        ) : (
-          <AdminSupport
-            projects={supportProjects}
-            selectedProjectId={selectedSupportProjectId}
-            projectDetails={supportProjectDetails}
-            loading={loadingSupportDetails}
-            onSelectProject={setSelectedSupportProjectId}
-            onCloseProject={() => setSelectedSupportProjectId(null)}
-            page={supportPage}
-            totalPages={supportTotalPages}
-            setPage={setSupportPage}
-          />
-        )
+        <AdminSupport
+          projects={supportProjects}
+          selectedProjectId={selectedSupportProjectId}
+          projectDetails={supportProjectDetails}
+          loading={loadingSupportDetails}
+          onSelectProject={setSelectedSupportProjectId}
+          onCloseProject={() => setSelectedSupportProjectId(null)}
+          page={supportPage}
+          totalPages={supportTotalPages}
+          setPage={setSupportPage}
+          isLoading={loadingSupport}
+        />
       )}
 
       {activeTab === "templates" && (
-        loadingTemplates ? (
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 mt-6">
-            <CardSkeleton rows={5} />
-            <CardSkeleton rows={8} />
-          </div>
-        ) : (
-          <AdminTemplates
-            templates={templates}
-            selectedTemplate={selectedTemplate}
-            selectedTemplateId={selectedTemplateId}
-            isAdmin={isAdmin}
-            templateHtml={templateHtml}
-            templateCss={templateCss}
-            templateSchemaText={templateSchemaText}
-            sampleJsonText={sampleJsonText}
-            previewHtml={previewHtml}
-            validationError={validationError}
-            onSelectTemplate={selectTemplate}
-            onTemplateHtml={setTemplateHtml}
-            onTemplateCss={setTemplateCss}
-            onTemplateSchema={setTemplateSchemaText}
-            onSampleJson={setSampleJsonText}
-            onPreview={previewSelectedTemplate}
-            onCreateVersion={createSelectedTemplateVersion}
-            onActivateVersion={(versionId) => activateTemplateVersion.mutate({ id: selectedTemplate.id, versionId })}
-          />
-        )
+        <AdminTemplates
+          templates={templates}
+          selectedTemplate={selectedTemplate}
+          selectedTemplateId={selectedTemplateId}
+          isAdmin={isAdmin}
+          templateHtml={templateHtml}
+          templateCss={templateCss}
+          templateSchemaText={templateSchemaText}
+          sampleJsonText={sampleJsonText}
+          previewHtml={previewHtml}
+          validationError={validationError}
+          onSelectTemplate={selectTemplate}
+          onTemplateHtml={setTemplateHtml}
+          onTemplateCss={setTemplateCss}
+          onTemplateSchema={setTemplateSchemaText}
+          onSampleJson={setSampleJsonText}
+          onPreview={previewSelectedTemplate}
+          onCreateVersion={createSelectedTemplateVersion}
+          onActivateVersion={(versionId) => activateTemplateVersion.mutate({ id: selectedTemplate.id, versionId })}
+          isLoading={loadingTemplates}
+        />
       )}
 
       {activeTab === "costs" && (
-        loadingCosts ? (
-          <div className="mt-6">
-            <RichTableSkeleton rows={5} columns={4} />
-          </div>
-        ) : (
-          <AdminCosts
-            configs={costConfigs}
-            drafts={costDrafts}
-            isAdmin={isAdmin}
-            setDrafts={setCostDrafts}
-            onSave={(key, data) => updateCostConfig.mutate({ key, data })}
-          />
-        )
+        <AdminCosts
+          configs={costConfigs}
+          drafts={costDrafts}
+          isAdmin={isAdmin}
+          setDrafts={setCostDrafts}
+          onSave={(key, data) => updateCostConfig.mutate({ key, data })}
+          isLoading={loadingCosts}
+        />
       )}
 
       {/* Tab Content 5: System Settings (Sub-nav Layout) */}
       {activeTab === "system" && (
-        loadingSkills || loadingRetention || loadingReports || loadingKnowledge ? (
-          <div className="mt-6">
-            <RichTableSkeleton rows={6} columns={4} />
-          </div>
-        ) : (
-          <AdminSystemLayout active={systemSubTab} onChange={setSystemSubTab}>
-              {systemSubTab === "flows" && <AdminFlows isAdmin={isAdmin} />}
-              {systemSubTab === "skills" && (
-                <AdminSkills
-                  skills={skills}
-                  page={skillPage}
-                  totalPages={totalSkillPages}
-                  isAdmin={isAdmin}
-                  onCreate={() => setIsCreateSkillOpen(true)}
-                  onEdit={(skill) => {
-                    setEditingSkill(skill);
-                    const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
-                    setEditPromptText(currentVer?.systemPrompt ?? "");
-                  }}
-                  onPage={setSkillPage}
-                />
-              )}
+        <AdminSystemLayout active={systemSubTab} onChange={setSystemSubTab}>
+            {systemSubTab === "flows" && <AdminFlows isAdmin={isAdmin} />}
+            {systemSubTab === "skills" && (
+              <AdminSkills
+                skills={skills}
+                page={skillPage}
+                totalPages={totalSkillPages}
+                isAdmin={isAdmin}
+                onCreate={() => setIsCreateSkillOpen(true)}
+                onEdit={(skill) => {
+                  setEditingSkill(skill);
+                  const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
+                  setEditPromptText(currentVer?.systemPrompt ?? "");
+                }}
+                onPage={setSkillPage}
+                isLoading={loadingSkills}
+              />
+            )}
 
 
-              {systemSubTab === "reports" && (
-                <AdminReports
-                  reports={reports}
-                  selectedReportId={selectedReportId}
-                  reportDrafts={reportDrafts}
-                  isAdmin={isAdmin}
-                  onSelectReport={setSelectedReportId}
-                  onDraft={setReportDrafts}
-                  onPublish={(id, templateKey) => createReportVersion.mutate({ id, templateKey })}
-                />
-              )}
+            {systemSubTab === "reports" && (
+              <AdminReports
+                reports={reports}
+                selectedReportId={selectedReportId}
+                reportDrafts={reportDrafts}
+                isAdmin={isAdmin}
+                onSelectReport={setSelectedReportId}
+                onDraft={setReportDrafts}
+                onPublish={(id, templateKey) => createReportVersion.mutate({ id, templateKey })}
+                isLoading={loadingReports}
+              />
+            )}
 
-              {systemSubTab === "knowledge" && (
-                <AdminKnowledge
-                  knowledge={knowledge}
-                  selectedKbId={selectedKbId}
-                  knowledgeDrafts={knowledgeDrafts}
-                  isAdmin={isAdmin}
-                  onSelectKnowledge={setSelectedKbId}
-                  onDraft={setKnowledgeDrafts}
-                  onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
-                />
-              )}
+            {systemSubTab === "knowledge" && (
+              <AdminKnowledge
+                knowledge={knowledge}
+                selectedKbId={selectedKbId}
+                knowledgeDrafts={knowledgeDrafts}
+                isAdmin={isAdmin}
+                onSelectKnowledge={setSelectedKbId}
+                onDraft={setKnowledgeDrafts}
+                onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
+                isLoading={loadingKnowledge}
+              />
+            )}
 
-              {systemSubTab === "retention" && (
-                <AdminRetention
-                  retention={retention}
-                  isAdmin={isAdmin}
-                  onUpdate={(id, retentionDays) => updateRetention.mutate({ id, retentionDays })}
-                />
-              )}
-          </AdminSystemLayout>
-        )
+            {systemSubTab === "retention" && (
+              <AdminRetention
+                retention={retention}
+                isAdmin={isAdmin}
+                onUpdate={(id, retentionDays) => updateRetention.mutate({ id, retentionDays })}
+                isLoading={loadingRetention}
+              />
+            )}
+        </AdminSystemLayout>
       )}
 
       {activeTab === "users" && (
-        loadingUsers ? (
-          <div className="mt-6">
-            <RichTableSkeleton rows={8} columns={4} />
-          </div>
-        ) : (
-          <AdminUsers
-            users={users}
-            page={userPage}
-            totalPages={totalPages}
-            isAdmin={isAdmin}
-            setPage={setUserPage}
-            onUpdateRole={(id, platformRole) => updateRole.mutate({ id, platformRole })}
-          />
-        )
+        <AdminUsers
+          users={users}
+          page={userPage}
+          totalPages={totalPages}
+          isAdmin={isAdmin}
+          setPage={setUserPage}
+          onUpdateRole={(id, platformRole) => updateRole.mutate({ id, platformRole })}
+          isLoading={loadingUsers}
+        />
       )}
       {/* Skill Edit Modal */}
       {editingSkill && (

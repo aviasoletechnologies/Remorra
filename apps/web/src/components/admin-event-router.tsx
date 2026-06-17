@@ -4,7 +4,7 @@ import { Activity, Plus, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./ui/select";
-import { DataTable } from "./app-ui";
+import { DataTable, TableSkeleton } from "./app-ui";
 
 type Skill = {
   id: string;
@@ -120,16 +120,6 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
     return acc;
   }, {} as Record<string, typeof eventTypes>);
 
-  if (isLoading) {
-    return (
-      <Card className="flow-builder p-6 flex justify-center items-center">
-        <div className="text-muted-foreground animate-pulse flex items-center gap-2">
-          <Activity className="animate-spin text-emerald-500" size={18} />
-          <span>Loading event routing definitions...</span>
-        </div>
-      </Card>
-    );
-  }
 
   const handleSave = () => {
     const conditionsObj = conditions.reduce((acc, curr) => {
@@ -160,7 +150,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
           </p>
         </div>
         {canWrite && (
-          <Button onClick={() => setShowAddForm(true)} className="flex items-center gap-2">
+          <Button onClick={() => setShowAddForm(true)} className="flex items-center gap-2" disabled={isLoading}>
             <Plus size={15} /> Add Event Route
           </Button>
         )}
@@ -293,124 +283,130 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
         </div>
       )}
 
-      <DataTable
-        rows={mappings}
-        getRowKey={(row: EventMapping) => row.id}
-        minWidth={720}
-        emptyTitle="No event routing rules"
-        emptyDescription="No event routing rules configured."
-        columns={[
-          {
-            key: "eventType",
-            header: "Event Type",
-            cell: (row: EventMapping) => (
-              <div className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                {row.eventType}
-              </div>
-            ),
-          },
-          {
-            key: "conditions",
-            header: "Conditions",
-            cell: (row: EventMapping) => {
-              const mappingConditions = (row.conditions ?? {}) as Record<string, string>;
-              const conditionEntries = Object.entries(mappingConditions);
-              return conditionEntries.length === 0 ? (
-                <span className="text-muted-foreground text-xs">—</span>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {conditionEntries.map(([k, v]) => (
-                    <Badge key={k} tone="neutral" className="text-xs font-mono py-0.5 px-1.5">
-                      {k}: {v}
-                    </Badge>
-                  ))}
+      {isLoading ? (
+        <TableSkeleton rows={5} columns={4} />
+      ) : (
+        <DataTable
+          rows={mappings}
+          getRowKey={(row: EventMapping) => row.id}
+          minWidth={720}
+          emptyTitle="No event routing rules"
+          emptyDescription="No event routing rules configured."
+          columns={[
+            {
+              key: "eventType",
+              header: "Event Type",
+              cell: (row: EventMapping) => (
+                <div className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                  {row.eventType}
                 </div>
-              );
+              ),
             },
-          },
-          {
-            key: "skillId",
-            header: "Target AI Skill",
-            cell: (row: EventMapping) => {
-              return canWrite ? (
-                <Select
-                  value={row.skillId}
-                  onValueChange={(val) => {
-                    if (val) updateMapping.mutate({ id: row.id, skillId: val });
-                  }}
-                >
-                  <SelectTrigger className="max-w-xs" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {skills.map((skill: any) => (
-                      <SelectItem key={skill.id} value={skill.id}>
-                        {skill.name}
-                      </SelectItem>
+            {
+              key: "conditions",
+              header: "Conditions",
+              cell: (row: EventMapping) => {
+                const mappingConditions = (row.conditions ?? {}) as Record<string, string>;
+                const conditionEntries = Object.entries(mappingConditions);
+                return conditionEntries.length === 0 ? (
+                  <span className="text-muted-foreground text-xs">—</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {conditionEntries.map(([k, v]) => (
+                      <Badge key={k} tone="neutral" className="text-xs font-mono py-0.5 px-1.5">
+                        {k}: {v}
+                      </Badge>
                     ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div>
-                  <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
-                  <span className="text-xs text-muted-foreground">{row.skill?.description}</span>
-                </div>
-              );
+                  </div>
+                );
+              },
             },
-          },
-          {
-            key: "status",
-            header: "Status",
-            cell: (row: EventMapping) => (
-              <Badge tone={row.active ? "green" : "neutral"}>
-                {row.active ? "Active" : "Disabled"}
-              </Badge>
-            ),
-          },
-          ...(canWrite
-            ? [
-                {
-                  key: "actions",
-                  header: "Actions",
-                  className: "text-right",
-                  cell: (row: EventMapping) => (
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => updateMapping.mutate({ id: row.id, active: !row.active })}
-                      >
-                        {row.active ? "Disable" : "Enable"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="p-1 px-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/20"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to delete this route?")) {
-                            deleteMapping.mutate(row.id);
-                          }
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
+            {
+              key: "skillId",
+              header: "Target AI Skill",
+              cell: (row: EventMapping) => {
+                return canWrite ? (
+                  <Select
+                    value={row.skillId}
+                    onValueChange={(val) => {
+                      if (val) updateMapping.mutate({ id: row.id, skillId: val });
+                    }}
+                  >
+                    <SelectTrigger className="max-w-xs" size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {skills.map((skill: any) => (
+                        <SelectItem key={skill.id} value={skill.id}>
+                          {skill.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div>
+                    <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
+                    <span className="text-xs text-muted-foreground">{row.skill?.description}</span>
+                  </div>
+                );
+              },
+            },
+            {
+              key: "status",
+              header: "Status",
+              cell: (row: EventMapping) => (
+                <Badge tone={row.active ? "green" : "neutral"}>
+                  {row.active ? "Active" : "Disabled"}
+                </Badge>
+              ),
+            },
+            ...(canWrite
+              ? [
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    className: "text-right",
+                    cell: (row: EventMapping) => (
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => updateMapping.mutate({ id: row.id, active: !row.active })}
+                        >
+                          {row.active ? "Disable" : "Enable"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="p-1 px-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/20"
+                          onClick={() => {
+                            if (confirm("Are you sure you want to delete this route?")) {
+                              deleteMapping.mutate(row.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
 
-      <div className="pagination-controls">
-        <Button variant="secondary" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1}>
-          Previous
-        </Button>
-        <span className="pagination-info">Page {page} of {totalPages}</span>
-        <Button variant="secondary" onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))} disabled={page >= totalPages}>
-          Next
-        </Button>
-      </div>
+      {!isLoading && (
+        <div className="pagination-controls">
+          <Button variant="secondary" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1}>
+            Previous
+          </Button>
+          <span className="pagination-info">Page {page} of {totalPages}</span>
+          <Button variant="secondary" onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))} disabled={page >= totalPages}>
+            Next
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

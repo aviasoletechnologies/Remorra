@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
-import { AppTabs, DisabledOverlay, Page, PageHeader, SectionCard, KanbanSkeleton } from "../components/app-ui";
+import { AppTabs, DisabledOverlay, Page, PageHeader, SectionCard, KanbanSkeleton, TableSkeleton } from "../components/app-ui";
+import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 
 const columns = ["ready", "in_progress", "review", "done"] as const;
@@ -57,9 +58,6 @@ export function VenturePage() {
     onSuccess: refresh,
   });
 
-  if (isLoading) {
-    return <KanbanSkeleton />;
-  }
 
   const tasks = data?.tasks ?? [];
   const stories = data?.stories ?? [];
@@ -72,17 +70,21 @@ export function VenturePage() {
     command.mutate({ path, body }, { onSuccess: clear });
   };
 
+  const pageTitle = isLoading 
+    ? "Delivery workspace" 
+    : (data?.role === "supplier" ? "My assigned tasks" : "Delivery workspace");
+
   return (
     <Page className="relative min-h-[500px]">
       <div className="flex flex-col gap-6 pointer-events-none select-none opacity-75">
         <PageHeader
           eyebrow="Venture"
           tone="blue"
-          title={data?.role === "supplier" ? "My assigned tasks" : "Delivery workspace"}
+          title={pageTitle}
           description="Cycles, delivery evidence, risk, finance, meetings, and learning in one connected view."
           actions={founderOrTeam ? (
             <Button
-              disabled={generate.isPending}
+              disabled={generate.isPending || isLoading}
               onClick={() => generate.mutate({ path: "/build-pack" })}
               className="flex items-center gap-1.5 flex-shrink-0"
             >
@@ -95,6 +97,65 @@ export function VenturePage() {
         {founderOrTeam && (
           <AppTabs value={tab} items={tabItems} onChange={setTab} />
         )}
+
+        {isLoading ? (
+          tab === "board" ? (
+            <div className="flex flex-col gap-6 animate-pulse">
+              {founderOrTeam && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <Card className="p-5 flex flex-col gap-3">
+                    <Skeleton className="h-5 w-24" />
+                    <Skeleton className="h-3 w-48 mb-2" />
+                    <div className="flex gap-2">
+                      <Skeleton className="h-10 flex-grow" />
+                      <Skeleton className="h-10 w-20" />
+                    </div>
+                  </Card>
+                  <Card className="p-5 flex flex-col gap-3">
+                    <Skeleton className="h-5 w-24" />
+                    <Skeleton className="h-3 w-48 mb-2" />
+                    <div className="flex gap-2">
+                      <Skeleton className="h-10 flex-grow" />
+                      <Skeleton className="h-10 w-20" />
+                    </div>
+                  </Card>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-b border-border pb-2">
+                <Skeleton className="h-4 w-32" />
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {columns.map((colStatus) => (
+                  <div className="flex min-h-[460px] flex-col gap-3 rounded-2xl border border-border bg-secondary/35 p-3" key={colStatus}>
+                    <div className="flex justify-between items-center pb-2 border-b border-border">
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-6 rounded-full" />
+                    </div>
+                    <div className="flex flex-col gap-2.5">
+                      <Card className="p-4 flex flex-col gap-3 bg-card">
+                        <div className="flex justify-between items-center">
+                          <Skeleton className="h-4.5 w-12 rounded-full" />
+                          <Skeleton className="size-4" />
+                        </div>
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-5/6" />
+                        <div className="flex justify-between items-center mt-2 pt-2 border-t border-border/40">
+                          <Skeleton className="h-3 w-16" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </Card>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6">
+              <TableSkeleton rows={5} columns={4} />
+            </div>
+          )
+        ) : (
+          <>
 
         {(tab === "board" || !founderOrTeam) && (
           <div className="flex flex-col gap-6">
@@ -392,6 +453,8 @@ export function VenturePage() {
               ),
             }))}
           />
+        )}
+          </>
         )}
       </div>
       <DisabledOverlay message="Admin has disabled Build Pack generation and task management." />
