@@ -19,7 +19,8 @@ const boss = new PgBoss({
   connectionString: databaseUrl,
   max: Number(process.env.PG_BOSS_POOL_MAX ?? 2),
 });
-const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+const isGrok = llmProvider === "groq" || llmProvider === "grok";
 const anthropic = !isGrok
   ? new Anthropic({
       apiKey: required("ANTHROPIC_API_KEY"),
@@ -201,7 +202,8 @@ const orchestrator = new AiOrchestrator(
   new PrismaContextAssembler(prisma),
   { // LlmGateway - delegates to Anthropic with retry
     async invoke(invocation) {
-      const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+      const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+      const isGrok = llmProvider === "groq" || llmProvider === "grok";
       const model = isGrok ? grokModelFor(invocation.skill.modelTier) : modelFor(invocation.skill.modelTier);
       const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
       const rawRetry = invocation.skill.retryPolicy as { limit?: number; backoff?: boolean } | null;
@@ -268,7 +270,8 @@ const orchestrator = new AiOrchestrator(
       };
     },
     async *stream(invocation) {
-      const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
+      const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+      const isGrok = llmProvider === "groq" || llmProvider === "grok";
       if (isGrok) {
         const model = grokModelFor(invocation.skill.modelTier);
         const sections = invocation.sections.map(s => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`).join("\n");
