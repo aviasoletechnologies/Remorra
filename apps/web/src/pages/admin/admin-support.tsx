@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Inbox, Copy, Check, Mail, TrendingUp, Hash } from "lucide-react";
-import { Badge, Button } from "../../components/ui";
-import { DataTable, DetailDialog, LoadingState, TableToolbar } from "../../components/app-ui";
+import { Inbox, Copy, Check, Mail, TrendingUp, Hash, Users } from "lucide-react";
+import { Badge, Button, Card } from "../../components/ui";
+import { DataTable, DetailDialog, LoadingState } from "../../components/app-ui";
 import { AdminAuditTable, AdminJsonPreview, AdminShellSection } from "../../components/admin-ui";
 
 export function AdminSupport({
@@ -38,58 +38,70 @@ export function AdminSupport({
       title="Support workspace"
       description="Redaction-safe project diagnostics for support and platform admins."
     >
-      <TableToolbar title="Projects" description="Select a project to inspect redacted diagnostics." />
-      <DataTable
-        rows={projects}
-        getRowKey={(row: any) => row.id}
-        minWidth={640}
-        onRowClick={(row: any) => onSelectProject(row.id)}
-        emptyTitle="No projects"
-        emptyDescription="No support-visible projects are available."
-        columns={[
-          {
-            key: "name",
-            header: "Name",
-            cell: (row: any) => (
-              <div className="flex items-center gap-2">
-                <strong>{row.name}</strong>
-                {row.isSupportRisk ? <Badge tone="red">At risk</Badge> : null}
-              </div>
-            ),
-          },
-          { key: "owner", header: "Owner", cell: (row: any) => <small className="text-muted-foreground">{row.ownerEmail}</small> },
-          {
-            key: "health",
-            header: "Health",
-            cell: (row: any) =>
-              row.latestViabilityScore !== null ? (
-                <Badge tone={row.latestViabilityScore >= 70 ? "green" : row.latestViabilityScore >= 50 ? "amber" : "red"}>
-                  {row.latestViabilityScore}
-                </Badge>
-              ) : "-",
-          },
-          {
-            key: "action",
-            header: "",
-            className: "text-right",
-            cell: (row: any) => (
-              <Button variant={selectedProjectId === row.id ? "default" : "secondary"} size="sm" onClick={() => onSelectProject(row.id)}>
-                Inspect
-              </Button>
-            ),
-          },
-        ]}
-      />
+      <Card className="flow-builder">
+        <div className="flow-builder__header flex justify-between items-center mb-6">
+          <div>
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <Users className="text-emerald-500" size={20} />
+              Projects
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Select a project to inspect redacted diagnostics.
+            </p>
+          </div>
+        </div>
+        <DataTable
+          rows={projects}
+          getRowKey={(row: any) => row.id}
+          minWidth={640}
+          onRowClick={(row: any) => onSelectProject(row.id)}
+          emptyTitle="No projects"
+          emptyDescription="No support-visible projects are available."
+          columns={[
+            {
+              key: "name",
+              header: "Name",
+              cell: (row: any) => (
+                <div className="flex items-center gap-2">
+                  <strong>{row.name}</strong>
+                  {row.isSupportRisk ? <Badge tone="red">At risk</Badge> : null}
+                </div>
+              ),
+            },
+            { key: "owner", header: "Owner", cell: (row: any) => <small className="text-muted-foreground">{row.ownerEmail}</small> },
+            {
+              key: "health",
+              header: "Health",
+              cell: (row: any) =>
+                row.latestViabilityScore !== null ? (
+                  <Badge tone={row.latestViabilityScore >= 70 ? "green" : row.latestViabilityScore >= 50 ? "amber" : "red"}>
+                    {row.latestViabilityScore}
+                  </Badge>
+                ) : "-",
+            },
+            {
+              key: "action",
+              header: "",
+              className: "text-right",
+              cell: (row: any) => (
+                <Button variant={selectedProjectId === row.id ? "default" : "secondary"} size="sm" onClick={() => onSelectProject(row.id)}>
+                  Inspect
+                </Button>
+              ),
+            },
+          ]}
+        />
 
-      <div className="pagination-controls">
-        <Button variant="secondary" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1}>
-          Previous
-        </Button>
-        <span className="pagination-info">Page {page} of {totalPages}</span>
-        <Button variant="secondary" onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))} disabled={page >= totalPages}>
-          Next
-        </Button>
-      </div>
+        <div className="pagination-controls">
+          <Button variant="secondary" onClick={() => setPage((prev) => Math.max(prev - 1, 1))} disabled={page <= 1}>
+            Previous
+          </Button>
+          <span className="pagination-info">Page {page} of {totalPages}</span>
+          <Button variant="secondary" onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))} disabled={page >= totalPages}>
+            Next
+          </Button>
+        </div>
+      </Card>
 
       <DetailDialog
         open={Boolean(selectedProjectId)}

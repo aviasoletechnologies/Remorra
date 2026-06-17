@@ -1,6 +1,6 @@
-import { ShieldAlert } from "lucide-react";
-import { Badge, Button, Input } from "../../components/ui";
-import { DataTable, DangerZone, TableToolbar } from "../../components/app-ui";
+import { ShieldAlert, DollarSign } from "lucide-react";
+import { Badge, Button, Input, Card } from "../../components/ui";
+import { DataTable, DangerZone } from "../../components/app-ui";
 import { AdminShellSection } from "../../components/admin-ui";
 
 type CostDraft = {
@@ -37,106 +37,118 @@ export function AdminCosts({
         />
       ) : null}
 
-      <TableToolbar title="Pricing configurations" description="Token costs use scaled minor units; flat costs use direct minor units." />
-      <DataTable
-        rows={configs}
-        getRowKey={(row: any) => row.key}
-        minWidth={980}
-        emptyTitle="No cost configs"
-        emptyDescription="Cost configuration records have not been seeded."
-        columns={[
-          { key: "key", header: "Key", cell: (row: any) => <code>{row.key}</code> },
-          {
-            key: "name",
-            header: "Name",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return (
-                <Input
-                  aria-label={`Name for ${row.key}`}
-                  value={draft.name}
-                  onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, name: event.target.value } })}
-                  disabled={!isAdmin}
-                />
-              );
+      <Card className="flow-builder">
+        <div className="flow-builder__header flex justify-between items-center mb-6">
+          <div>
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <DollarSign className="text-emerald-500" size={20} />
+              Pricing Configurations
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Token costs use scaled minor units; flat costs use direct minor units.
+            </p>
+          </div>
+        </div>
+        <DataTable
+          rows={configs}
+          getRowKey={(row: any) => row.key}
+          minWidth={980}
+          emptyTitle="No cost configs"
+          emptyDescription="Cost configuration records have not been seeded."
+          columns={[
+            { key: "key", header: "Key", cell: (row: any) => <code>{row.key}</code> },
+            {
+              key: "name",
+              header: "Name",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return (
+                  <Input
+                    aria-label={`Name for ${row.key}`}
+                    value={draft.name}
+                    onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, name: event.target.value } })}
+                    disabled={!isAdmin}
+                  />
+                );
+              },
             },
-          },
-          { key: "unit", header: "Unit type", cell: (row: any) => <Badge tone="blue">{row.unit}</Badge> },
-          { key: "currency", header: "Currency", cell: (row: any) => row.currency },
-          {
-            key: "input",
-            header: "Input cost",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return row.unit === "per_1m_tokens" ? (
-                <Input
-                  aria-label={`Input cost for ${row.key}`}
-                  type="number"
-                  value={draft.inputCostMinor}
-                  onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, inputCostMinor: Number(event.target.value) } })}
-                  disabled={!isAdmin}
-                />
-              ) : "-";
+            { key: "unit", header: "Unit type", cell: (row: any) => <Badge tone="blue">{row.unit}</Badge> },
+            { key: "currency", header: "Currency", cell: (row: any) => row.currency },
+            {
+              key: "input",
+              header: "Input cost",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return row.unit === "per_1m_tokens" ? (
+                  <Input
+                    aria-label={`Input cost for ${row.key}`}
+                    type="number"
+                    value={draft.inputCostMinor}
+                    onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, inputCostMinor: Number(event.target.value) } })}
+                    disabled={!isAdmin}
+                  />
+                ) : "-";
+              },
             },
-          },
-          {
-            key: "output",
-            header: "Output cost",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return row.unit === "per_1m_tokens" ? (
-                <Input
-                  aria-label={`Output cost for ${row.key}`}
-                  type="number"
-                  value={draft.outputCostMinor}
-                  onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, outputCostMinor: Number(event.target.value) } })}
-                  disabled={!isAdmin}
-                />
-              ) : "-";
+            {
+              key: "output",
+              header: "Output cost",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return row.unit === "per_1m_tokens" ? (
+                  <Input
+                    aria-label={`Output cost for ${row.key}`}
+                    type="number"
+                    value={draft.outputCostMinor}
+                    onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, outputCostMinor: Number(event.target.value) } })}
+                    disabled={!isAdmin}
+                  />
+                ) : "-";
+              },
             },
-          },
-          {
-            key: "flat",
-            header: "Flat cost",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return row.unit !== "per_1m_tokens" ? (
-                <Input
-                  aria-label={`Flat cost for ${row.key}`}
-                  type="number"
-                  value={draft.flatCostMinor}
-                  onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, flatCostMinor: Number(event.target.value) } })}
-                  disabled={!isAdmin}
-                />
-              ) : "-";
+            {
+              key: "flat",
+              header: "Flat cost",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return row.unit !== "per_1m_tokens" ? (
+                  <Input
+                    aria-label={`Flat cost for ${row.key}`}
+                    type="number"
+                    value={draft.flatCostMinor}
+                    onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, flatCostMinor: Number(event.target.value) } })}
+                    disabled={!isAdmin}
+                  />
+                ) : "-";
+              },
             },
-          },
-          {
-            key: "active",
-            header: "Active",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return (
-                <input
-                  aria-label={`Active state for ${row.key}`}
-                  type="checkbox"
-                  checked={draft.active}
-                  onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, active: event.target.checked } })}
-                  disabled={!isAdmin}
-                />
-              );
+            {
+              key: "active",
+              header: "Active",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return (
+                  <input
+                    aria-label={`Active state for ${row.key}`}
+                    type="checkbox"
+                    checked={draft.active}
+                    onChange={(event) => setDrafts({ ...drafts, [row.key]: { ...draft, active: event.target.checked } })}
+                    disabled={!isAdmin}
+                  />
+                );
+              },
             },
-          },
-          {
-            key: "actions",
-            header: "Actions",
-            cell: (row: any) => {
-              const draft = resolveDraft(row, drafts);
-              return isAdmin ? <Button variant="secondary" onClick={() => onSave(row.key, draft)}>Save</Button> : null;
+            {
+              key: "actions",
+              header: "Actions",
+              cell: (row: any) => {
+                const draft = resolveDraft(row, drafts);
+                return isAdmin ? <Button variant="secondary" onClick={() => onSave(row.key, draft)}>Save</Button> : null;
+              },
             },
-          },
-        ]}
-      />
+          ]}
+        />
+      </Card>
     </AdminShellSection>
   );
 }

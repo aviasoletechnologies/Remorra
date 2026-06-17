@@ -1,6 +1,6 @@
 import { BrainCircuit, Database, ShieldCheck, Users } from "lucide-react";
-import { Button } from "../../components/ui";
-import { DataTable, TableToolbar } from "../../components/app-ui";
+import { Button, Card } from "../../components/ui";
+import { DataTable } from "../../components/app-ui";
 import { AdminShellSection, AdminStatCard, AdminStatGrid } from "../../components/admin-ui";
 
 type PeriodPreset = "today" | "week" | "mtd" | "ytd" | "all";
@@ -44,8 +44,18 @@ export function AdminOverview({
       </AdminStatGrid>
 
       <div className="grid gap-5">
-        <div>
-          <TableToolbar title="Token usage breakdown" description="Usage grouped by resolved model or provider key." />
+        <Card className="flow-builder">
+          <div className="flow-builder__header flex justify-between items-center mb-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <BrainCircuit className="text-emerald-500" size={20} />
+                Token Usage Breakdown
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Usage grouped by resolved model or provider key.
+              </p>
+            </div>
+          </div>
           <DataTable
             rows={usageMetrics?.byModel ?? []}
             getRowKey={(row: any) => row.model}
@@ -60,10 +70,20 @@ export function AdminOverview({
               { key: "count", header: "Invocations", cell: (row: any) => row._count ?? 0 },
             ]}
           />
-        </div>
+        </Card>
 
-        <div>
-          <TableToolbar title="Failed jobs queue" description="Recent failures with explicit retry controls." />
+        <Card className="flow-builder">
+          <div className="flow-builder__header flex justify-between items-center mb-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <ShieldCheck className="text-emerald-500" size={20} />
+                Failed Jobs Queue
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Recent failures with explicit retry controls.
+              </p>
+            </div>
+          </div>
           <DataTable
             rows={jobsMetrics?.recentFailed ?? []}
             getRowKey={(row: any) => row.id}
@@ -82,7 +102,7 @@ export function AdminOverview({
               },
             ]}
           />
-        </div>
+        </Card>
       </div>
     </AdminShellSection>
   );

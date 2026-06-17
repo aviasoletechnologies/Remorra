@@ -1,7 +1,7 @@
 import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge, Button, Card, Input, Textarea } from "../../components/ui";
-import { DataTable, FieldGroup, FormActions, FormGrid, TableToolbar } from "../../components/app-ui";
+import { DataTable, FieldGroup, FormActions, FormGrid } from "../../components/app-ui";
 import { AdminMasterDetail, AdminShellSection } from "../../components/admin-ui";
 import { AdminEventRouter } from "../../components/admin-event-router";
 
@@ -209,8 +209,18 @@ export function AdminReports({
   return (
     <AdminMasterDetail
       master={
-        <>
-          <TableToolbar title="Report definitions" description="Select a report definition to inspect or update." />
+        <Card className="admin-master-pane flow-builder">
+          <div className="flow-builder__header flex justify-between items-center mb-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <FileText className="text-emerald-500" size={20} />
+                Report Definitions
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Select a report definition to inspect or update.
+              </p>
+            </div>
+          </div>
           <div className="admin-template-list">
             {reports.map((report) => {
               const active = report.versions.find((item: any) => item.active) ?? report.versions[0];
@@ -226,7 +236,7 @@ export function AdminReports({
               );
             })}
           </div>
-        </>
+        </Card>
       }
       detail={
         activeReport ? (
@@ -288,8 +298,18 @@ export function AdminKnowledge({
   return (
     <AdminMasterDetail
       master={
-        <>
-          <TableToolbar title="Knowledge bases" description="Select a knowledge base to inspect or update." />
+        <Card className="admin-master-pane flow-builder">
+          <div className="flow-builder__header flex justify-between items-center mb-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <BookOpen className="text-emerald-500" size={20} />
+                Knowledge Bases
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Select a knowledge base to inspect or update.
+              </p>
+            </div>
+          </div>
           <div className="admin-template-list">
             {knowledge.map((base) => {
               const active = base.versions.find((item: any) => item.active) ?? base.versions[0];
@@ -305,7 +325,7 @@ export function AdminKnowledge({
               );
             })}
           </div>
-        </>
+        </Card>
       }
       detail={
         activeKb ? (
