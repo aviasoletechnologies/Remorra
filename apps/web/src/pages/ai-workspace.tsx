@@ -1,11 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, Sparkles } from "lucide-react";
+import { MessageSquareText, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, LoadingState, Page, PageHeader } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/ui/alert-dialog";
 
 type WorkspaceActiveSkill = {
   id: string;
@@ -116,6 +127,27 @@ export function AiWorkspacePage() {
       setPendingMessages([]);
       await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
     },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+    },
+  });
+
+  const resetWorkspace = useMutation({
+    mutationFn: async () => {
+      if (!projectId) {
+        throw new Error("No active project selected.");
+      }
+      return api(`/projects/${projectId}/reset-workspace`, { method: "POST" });
+    },
+    onSuccess: async () => {
+      setMessage("");
+      setStreamedReply("");
+      setPendingMessages([]);
+      setLiveLogs([]);
+      setPickedSkill(null);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+    },
   });
 
   if (isLoading) {
@@ -152,9 +184,36 @@ export function AiWorkspacePage() {
         title="One conversation, one skill at a time"
         description="The first clear message activates the best matching skill. If nothing matches yet, the conversation continues normally and the router keeps checking each new message."
         actions={(
-          <Badge tone={activeSkill ? "green" : "neutral"}>
-            {activeSkill ? `${activeSkill.name} v${activeSkill.version}` : "Awaiting intent"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge tone={activeSkill ? "green" : "neutral"}>
+              {activeSkill ? `${activeSkill.name} v${activeSkill.version}` : "Awaiting intent"}
+            </Badge>
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={<Button variant="outline" size="sm" className="border-amber-500/25 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800" />}
+              >
+                <RotateCcw size={14} />
+                Reset workspace
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset this workspace?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This clears the current project conversation, pinned skill, generated workspace data, and related AI job history. The project itself will stay in place.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-amber-600 text-white hover:bg-amber-700"
+                    onClick={() => resetWorkspace.mutate()}
+                  >
+                    {resetWorkspace.isPending ? "Resetting..." : "Reset now"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       />
 
@@ -312,6 +371,11 @@ export function AiWorkspacePage() {
             {send.error ? (
               <p className="form-message mt-2 text-xs text-destructive">
                 {send.error.message}
+              </p>
+            ) : null}
+            {resetWorkspace.error ? (
+              <p className="form-message mt-2 text-xs text-destructive">
+                {resetWorkspace.error.message}
               </p>
             ) : null}
           </div>

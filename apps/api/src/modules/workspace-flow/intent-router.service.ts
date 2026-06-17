@@ -117,10 +117,8 @@ export class IntentRouterService {
   private readonly logger = new Logger(IntentRouterService.name);
 
   constructor(private readonly prisma: PrismaService) {
-    const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
-    if (!isGrok) {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required.");
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
       this.client = new Anthropic({
         apiKey,
         baseURL: process.env.ANTHROPIC_BASE_URL,
@@ -146,44 +144,61 @@ export class IntentRouterService {
 
     const isGrok = !!(process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY);
     let text = "";
+    const userPrompt = [
+      `User message: ${content}`,
+      "Available skills:",
+      ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
+    ].join("\n");
 
     if (isGrok) {
-      const model = grokModelFor("fast");
-      const response = await invokeGrok({
-        model,
-        max_tokens: 256,
-        temperature: 0,
-        system: INTENT_ROUTER_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              `User message: ${content}`,
-              "Available skills:",
-              ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
-            ].join("\n"),
-          },
-        ],
-      });
-      text = response.content[0]?.text ?? "";
-    } else {
-      if (!this.client) throw new Error("Anthropic client is not initialized.");
+      try {
+        const model = grokModelFor("fast");
+        const response = await invokeGrok({
+          model,
+          max_tokens: 256,
+          temperature: 0,
+          system: INTENT_ROUTER_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userPrompt }],
+        });
+        text = response.content[0]?.text ?? "";
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Intent router Grok call failed project=${projectId} user=${userId}; ${message}`,
+        );
+        if (!this.client) {
+          this.logger.warn(
+            `Intent router has no Anthropic fallback project=${projectId} user=${userId}; defaulting to general`,
+          );
+          return {
+            routeType: "general",
+            skillId: null,
+            confidence: 0,
+            reason: "Intent router provider was unavailable.",
+          };
+        }
+      }
+    }
+
+    if (!text) {
+      if (!this.client) {
+        this.logger.warn(
+          `Intent router produced no text and Anthropic is unavailable project=${projectId} user=${userId}`,
+        );
+        return {
+          routeType: "general",
+          skillId: null,
+          confidence: 0,
+          reason: "Intent router provider returned no response.",
+        };
+      }
       const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6";
       const response = await this.client.messages.create({
         model,
         max_tokens: 256,
         temperature: 0,
         system: INTENT_ROUTER_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              `User message: ${content}`,
-              "Available skills:",
-              ...candidates.map((skill) => `- ${skill.skillId} | ${skill.name} | ${skill.description}`),
-            ].join("\n"),
-          },
-        ],
+        messages: [{ role: "user", content: userPrompt }],
       });
       text = response.content
         .filter((part) => part.type === "text")

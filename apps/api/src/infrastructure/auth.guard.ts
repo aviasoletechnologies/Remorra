@@ -133,6 +133,40 @@ export class SupabaseAuthGuard implements CanActivate {
         data: { id: userId, email },
       });
     } catch (error: any) {
+      if (this.isUniqueConflict(error, "id")) {
+        const retryProfileById = await this.prisma.client.profile.findUnique({
+          where: { id: userId },
+        });
+        if (retryProfileById) {
+          if (retryProfileById.email === email) {
+            this.logger.warn(
+              `Profile create raced on id conflict userId=${userId} email=${email}; using existing profile id=${retryProfileById.id}`,
+            );
+            return retryProfileById;
+          }
+
+          try {
+            return await this.prisma.client.profile.update({
+              where: { id: retryProfileById.id },
+              data: { email },
+            });
+          } catch (updateError: any) {
+            if (this.isUniqueConflict(updateError, "email")) {
+              const retryProfileByEmail = await this.prisma.client.profile.findUnique({
+                where: { email },
+              });
+              if (retryProfileByEmail) {
+                this.logger.warn(
+                  `Profile id conflict resolved by email userId=${userId} email=${email}; using existing profile id=${retryProfileByEmail.id}`,
+                );
+                return retryProfileByEmail;
+              }
+            }
+            throw updateError;
+          }
+        }
+      }
+
       if (this.isEmailConflict(error)) {
         const retryProfile = await this.prisma.client.profile.findUnique({
           where: { email },
@@ -149,7 +183,11 @@ export class SupabaseAuthGuard implements CanActivate {
   }
 
   private isEmailConflict(error: any) {
-    return error?.code === "P2002" && String(error?.message ?? "").includes("email");
+    return this.isUniqueConflict(error, "email");
+  }
+
+  private isUniqueConflict(error: any, field: string) {
+    return error?.code === "P2002" && String(error?.message ?? "").includes(field);
   }
 
   private async verifyIdentity(token: string) {
