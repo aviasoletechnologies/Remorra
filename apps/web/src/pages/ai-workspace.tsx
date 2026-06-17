@@ -1,22 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, RotateCcw, Sparkles } from "lucide-react";
+import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
-import { ErrorState, LoadingState, Page, PageHeader } from "../components/app-ui";
+import { ErrorState, LoadingState, Page } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../components/ui/alert-dialog";
 
 type WorkspaceActiveSkill = {
   id: string;
@@ -42,9 +31,9 @@ export function AiWorkspacePage() {
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
-  const [liveLogs, setLiveLogs] = useState<string[]>([]);
-  const [pickedSkill, setPickedSkill] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [isTextareaScrollable, setIsTextareaScrollable] = useState(false);
 
   const { data: conversation, isLoading, error } = useQuery({
     queryKey: ["workspace-flow", projectId],
@@ -66,9 +55,13 @@ export function AiWorkspacePage() {
       const pendingId = globalThis.crypto.randomUUID();
       setPendingMessages((current) => [...current, { id: pendingId, role: "user", content }]);
       setMessage("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+      setIsTextareaScrollable(false);
       setStreamedReply("");
-      setLiveLogs(["Sending message to API...", "Routing event..."]);
-      setPickedSkill(null);
+      useWorkspaceStore.getState().clearLogs();
+      useWorkspaceStore.getState().setStreamState("connecting");
 
       try {
         const result = await api<{ id: string | null }>(`/workspace/projects/${projectId}/messages`, {
@@ -86,30 +79,37 @@ export function AiWorkspacePage() {
               (state) => {
                 if (state === "connecting" || state === "reconnecting" || state === "connected") {
                   setStreamState(state);
+                  useWorkspaceStore.getState().setStreamState(state);
                 }
                 if (state === "done") {
                   stop();
                   setStreamState("idle");
+                  useWorkspaceStore.getState().setStreamState("idle");
                   resolve();
                 }
                 if (state === "failed") {
                   stop();
                   setStreamState("idle");
+                  useWorkspaceStore.getState().setStreamState("idle");
                   reject(new Error("The routed response failed."));
                 }
               },
               (streamError) => {
                 stop();
                 setStreamState("idle");
+                useWorkspaceStore.getState().setStreamState("idle");
                 reject(streamError);
               },
               (event) => {
-                if (event.type === "log" && typeof event.delta === "string") {
-                  const logText = event.delta;
-                  setLiveLogs((current) => [...current, logText]);
-                }
-                if (event.type === "info" && typeof event.delta === "string") {
-                  setPickedSkill(event.delta);
+                if (["log", "info", "completed", "failed"].includes(event.type)) {
+                  useWorkspaceStore.getState().addLog({
+                    sequence: event.sequence,
+                    type: event.type,
+                    delta: event.delta ?? null,
+                    snapshot: event.snapshot ?? null,
+                    metadata: event.metadata,
+                    createdAt: new Date().toISOString(),
+                  });
                 }
               }
             );
@@ -132,23 +132,7 @@ export function AiWorkspacePage() {
     },
   });
 
-  const resetWorkspace = useMutation({
-    mutationFn: async () => {
-      if (!projectId) {
-        throw new Error("No active project selected.");
-      }
-      return api(`/projects/${projectId}/reset-workspace`, { method: "POST" });
-    },
-    onSuccess: async () => {
-      setMessage("");
-      setStreamedReply("");
-      setPendingMessages([]);
-      setLiveLogs([]);
-      setPickedSkill(null);
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
-    },
-  });
+
 
   if (isLoading) {
     return <LoadingState label="Loading your workspace..." />;
@@ -178,206 +162,122 @@ export function AiWorkspacePage() {
     : "Describe your product idea or ask a normal question...";
 
   return (
-    <Page>
-      <PageHeader
-        eyebrow="Intent routed workspace"
-        title="One conversation, one skill at a time"
-        description="The first clear message activates the best matching skill. If nothing matches yet, the conversation continues normally and the router keeps checking each new message."
-        actions={(
-          <div className="flex items-center gap-2">
-            <Badge tone={activeSkill ? "green" : "neutral"}>
-              {activeSkill ? `${activeSkill.name} v${activeSkill.version}` : "Awaiting intent"}
-            </Badge>
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={<Button variant="outline" size="sm" className="border-amber-500/25 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800" />}
-              >
-                <RotateCcw size={14} />
-                Reset workspace
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Reset this workspace?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This clears the current project conversation, pinned skill, generated workspace data, and related AI job history. The project itself will stay in place.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-amber-600 text-white hover:bg-amber-700"
-                    onClick={() => resetWorkspace.mutate()}
-                  >
-                    {resetWorkspace.isPending ? "Resetting..." : "Reset now"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        )}
-      />
-
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <Card className="flex flex-col overflow-hidden p-0 xl:sticky xl:top-20">
-          <div className="flex min-h-[58px] items-center justify-between border-b border-border bg-secondary/65 px-5">
-            <span className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">Skill router</span>
-            <Badge tone={activeSkill ? "green" : "neutral"}>{activeSkill ? "Pinned" : "Idle"}</Badge>
-          </div>
-          <div className="flex flex-col gap-4 p-5">
-            {activeSkill ? (
-              <>
-                <div className="rounded-2xl border border-primary/15 bg-accent-soft/20 p-4 shadow-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Active skill</p>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <strong className="text-sm text-foreground">{activeSkill.name}</strong>
-                    <Badge tone="neutral">v{activeSkill.version}</Badge>
+    <Page className="h-[calc(100vh-64px)] !p-4 md:!p-6 flex flex-col overflow-hidden">
+      <div className="w-full flex-1 flex flex-col min-h-0">
+        <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
+          <div className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 pb-32 min-h-0" aria-live="polite">
+            <div className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4">
+              {visibleMessages.length === 0 ? (
+                <div className="my-auto flex max-w-[520px] mx-auto gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
+                  <Sparkles size={24} className="text-primary flex-shrink-0" />
+                  <div className="flex flex-col gap-1 text-left">
+                    <strong className="font-bold text-foreground">Start with what you want to build.</strong>
+                    <p className="text-muted-foreground leading-relaxed">
+                      The router will read your first message, compare it against the active skill descriptions, and either activate the best match or continue the conversation normally.
+                    </p>
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{activeSkill.description}</p>
                 </div>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Future messages will skip intent routing and go straight to this skill until the conversation is reset.
+              ) : (
+                visibleMessages.map((item) => {
+                  const isAssistant = item.role === "assistant";
+                  return (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.18 }}
+                      key={item.id}
+                      className={`flex flex-col w-full ${isAssistant ? "items-start" : "items-end"}`}
+                    >
+                      {!isAssistant ? (
+                        <div className="bg-[#d9fdd3] text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tr-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
+                          {item.content}
+                        </div>
+                      ) : (
+                        <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
+                          {item.content}
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })
+              )}
+
+              {streamedReply ? (
+                <div className="flex flex-col items-start w-full">
+                  <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
+                    {streamedReply}
+                  </div>
+                </div>
+              ) : null}
+
+              <div ref={endRef} />
+            </div>
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pb-6 pt-10 w-full flex flex-col items-center">
+            <div className="max-w-4xl w-full">
+              {send.error ? (
+                <p className="form-message mb-3 text-xs text-destructive text-center">
+                  {send.error.message}
                 </p>
-              </>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-card/70 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Sparkles size={16} className="text-primary" />
-                  Skill not selected yet
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  Send a clear product idea or request. If nothing matches yet, Remorra will still reply normally and keep checking future messages for a better skill match.
+              ) : null}
+              {streamState === "reconnecting" && (
+                <p className="mb-2 text-xs text-muted-foreground text-center animate-pulse">
+                  Connection interrupted. Resuming stream...
                 </p>
-              </div>
-            )}
+              )}
+              
+              <div className={`rounded-[24px] border border-zinc-200 bg-white/90 shadow-xs flex px-4 py-2 gap-3 focus-within:bg-white focus-within:ring-2 focus-within:ring-zinc-100 focus-within:border-zinc-300 transition-all ${
+                isTextareaScrollable ? "items-end" : "items-center"
+              }`}>
+                <textarea
+                  ref={textareaRef}
+                  style={{ outline: 'none', boxShadow: 'none', overflowY: isTextareaScrollable ? 'auto' : 'hidden', resize: 'none' }}
+                  className={`flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 focus:border-none focus-visible:ring-0 focus-visible:outline-none text-sm text-zinc-800 placeholder-zinc-400 py-1 max-h-24 leading-relaxed ${
+                    isTextareaScrollable ? "" : "no-scrollbar"
+                  }`}
+                  value={message}
+                  onChange={(event) => {
+                    setMessage(event.target.value);
+                    event.target.style.height = "auto";
+                    const scrollHeight = event.target.scrollHeight;
+                    event.target.style.height = `${scrollHeight}px`;
+                    setIsTextareaScrollable(scrollHeight > 96);
+                  }}
+                  placeholder="Ask anything"
+                  rows={1}
+                  disabled={busy}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (message.trim().length >= 2 && !busy) {
+                        send.mutate();
+                      }
+                    }
+                  }}
+                />
 
-            {liveLogs.length > 0 && (
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 shadow-inner font-mono text-[10px] text-zinc-300">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-2">
-                  <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">SSE Live Log</span>
-                  {streamState !== "idle" && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  )}
-                </div>
-                {pickedSkill && (
-                  <div className="mb-2 text-emerald-400 font-semibold flex items-center gap-1.5">
-                    <span className="text-zinc-500">&gt;</span> Picked: {pickedSkill}
-                  </div>
-                )}
-                <div className="max-h-[140px] overflow-y-auto space-y-1">
-                  {liveLogs.map((log, idx) => (
-                    <div key={idx} className="flex gap-1.5 leading-relaxed">
-                      <span className="text-zinc-500 flex-shrink-0">&gt;</span>
-                      <span>{log}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <Card className="flex flex-col overflow-hidden p-0">
-          <div className="flex min-h-[58px] flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/65 px-5 py-3">
-            <span className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">
-              <MessageSquareText size={17} className="text-primary" />
-              <span>{activeSkill ? activeSkill.name : "Waiting for the first intent"}</span>
-            </span>
-            {activeSkill ? (
-              <Badge tone="green">
-                {activeSkill.id}
-              </Badge>
-            ) : (
-              <Badge tone="neutral">No active skill</Badge>
-            )}
-          </div>
-
-          <div className="flex h-[min(58vh,620px)] min-h-[420px] flex-col gap-4 overflow-y-auto bg-background/65 p-4 sm:p-6" aria-live="polite">
-            {visibleMessages.length === 0 ? (
-              <div className="mx-auto my-auto flex max-w-[520px] gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
-                <Sparkles size={24} className="text-primary flex-shrink-0" />
-                <div className="flex flex-col gap-1">
-                  <strong className="font-bold text-foreground">Start with what you want to build.</strong>
-                  <p className="text-muted-foreground leading-relaxed">
-                    The router will read your first message, compare it against the active skill descriptions, and either activate the best match or continue the conversation normally.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {visibleMessages.map((item) => {
-              const isAssistant = item.role === "assistant";
-              return (
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.18 }}
-                  key={item.id}
-                  className={`flex gap-3 max-w-[85%] ${isAssistant ? "mr-auto" : "ml-auto flex-row-reverse"}`}
-                >
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold flex-shrink-0 shadow-sm ${
-                    isAssistant ? "bg-primary text-primary-foreground" : "bg-foreground text-background"
-                  }`}>
-                    {isAssistant ? "AI" : "ME"}
-                  </div>
-                  <div className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
-                    isAssistant
-                      ? "bg-card border-border rounded-tl-none shadow-sm text-foreground"
-                      : "bg-accent-soft/70 border-primary/15 rounded-tr-none text-foreground"
-                  }`}>
-                    {item.content}
-                  </div>
-                </motion.div>
-              );
-            })}
-
-            {streamedReply ? (
-              <div className="flex gap-3 max-w-[85%] mr-auto">
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold bg-primary text-primary-foreground flex-shrink-0 shadow-sm">
-                  AI
-                </div>
-                <div className="p-3.5 rounded-xl border text-xs leading-relaxed bg-card border-border rounded-tl-none shadow-sm text-foreground">
-                  {streamedReply}
-                </div>
-              </div>
-            ) : null}
-
-            <div ref={endRef} />
-          </div>
-
-          <div className="border-t border-border bg-card p-4">
-            <Textarea
-              className="min-h-[92px] max-h-[150px] resize-y text-sm leading-relaxed"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder={placeholder}
-              disabled={busy}
-            />
-            <div className="mt-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-              <span className="text-[10px] text-muted-foreground leading-tight">
-                {streamState === "reconnecting"
-                  ? "Connection interrupted. Resuming stream..."
-                  : activeSkill
-                  ? "Your message will continue through the pinned skill."
-                  : "The router will select the first matching skill for this conversation."}
-              </span>
-              <Button
-                className="w-full sm:w-auto"
+              <button
+                type="button"
                 disabled={busy || message.trim().length < 2}
                 onClick={() => send.mutate()}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs shrink-0 ${
+                  message.trim().length >= 2 && !busy
+                    ? "bg-zinc-900 hover:bg-zinc-800 text-white"
+                    : "bg-zinc-900 text-white opacity-95 hover:opacity-100"
+                }`}
+                title={busy ? "Thinking..." : "Send message"}
               >
-                {busy ? "Thinking..." : "Send"}
-              </Button>
+                {busy ? (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                ) : message.trim().length >= 2 ? (
+                  <ArrowUp size={15} />
+                ) : (
+                  <AudioLines size={15} />
+                )}
+              </button>
+              </div>
             </div>
-            {send.error ? (
-              <p className="form-message mt-2 text-xs text-destructive">
-                {send.error.message}
-              </p>
-            ) : null}
-            {resetWorkspace.error ? (
-              <p className="form-message mt-2 text-xs text-destructive">
-                {resetWorkspace.error.message}
-              </p>
-            ) : null}
           </div>
         </Card>
       </div>

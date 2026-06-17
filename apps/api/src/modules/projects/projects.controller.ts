@@ -35,10 +35,6 @@ export class ProjectsController {
     return this.projects.getForUser(id, actor.userId);
   }
 
-  @Post(":id/reset-workspace")
-  resetWorkspace(@CurrentActor() actor: Actor, @Param("id") id: string) {
-    return this.projects.resetWorkspaceData(id, actor.userId);
-  }
 
   @Patch(":id/phase")
   advance(

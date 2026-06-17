@@ -65,57 +65,6 @@ export class ProjectsService {
     return { ...project, role };
   }
 
-  async resetWorkspaceData(projectId: string, userId: string) {
-    const role = await this.repository.roleForUser(projectId, userId);
-    if (role !== "founder") {
-      forbidden("Only the project founder can reset the workspace.");
-    }
-    const project = await this.repository.find(projectId);
-    if (!project) notFound("Project", projectId);
-
-    await this.prisma.client.$transaction(async (tx: any) => {
-      await tx.jobRecord.deleteMany({ where: { projectId } });
-      await tx.aiInvocation.deleteMany({ where: { projectId } });
-      await tx.tokenUsage.deleteMany({ where: { projectId } });
-      await tx.generatedDocument.deleteMany({ where: { projectId } });
-      await tx.reportGeneration.deleteMany({ where: { projectId } });
-      await tx.storageObject.deleteMany({ where: { projectId } });
-      await tx.founderPack.deleteMany({ where: { projectId } });
-      await tx.productPack.deleteMany({ where: { projectId } });
-      await tx.refineProposal.deleteMany({ where: { projectId } });
-      await tx.refineSession.deleteMany({ where: { projectId } });
-      await tx.entityLinkCheck.deleteMany({ where: { projectId } });
-      await tx.evolveSession.deleteMany({ where: { projectId } });
-      await tx.dailyMeeting.deleteMany({ where: { projectId } });
-      await tx.retrospective.deleteMany({ where: { projectId } });
-      await tx.financeEntry.deleteMany({ where: { projectId } });
-      await tx.financeCategory.deleteMany({ where: { projectId } });
-      await tx.task.deleteMany({ where: { projectId } });
-      await tx.userStory.deleteMany({ where: { projectId } });
-      await tx.userNeed.deleteMany({ where: { projectId } });
-      await tx.painPoint.deleteMany({ where: { projectId } });
-      await tx.persona.deleteMany({ where: { projectId } });
-      await tx.okr.deleteMany({ where: { projectId } });
-      await tx.ambition.deleteMany({ where: { projectId } });
-      await tx.cycle.deleteMany({ where: { projectId } });
-      await tx.raidItem.deleteMany({ where: { projectId } });
-      await tx.buildPackSnapshot.deleteMany({ where: { projectId } });
-      await tx.viabilitySnapshot.deleteMany({ where: { projectId } });
-      await tx.conversation.deleteMany({ where: { projectId } });
-      await tx.auditEvent.deleteMany({ where: { projectId } });
-      await tx.project.update({
-        where: { id: projectId },
-        data: {
-          summary: null,
-          phase: "discover",
-          version: { increment: 1 },
-        },
-      });
-    });
-
-    return this.getForUser(projectId, userId);
-  }
-
   async advance(
     projectId: string,
     userId: string,

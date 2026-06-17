@@ -707,7 +707,7 @@ async function handleConversation(payload: Payload) {
       queue.push({
         type: "log",
         delta: `Preparing flow step: ${flowState.questionFieldKey ?? "active step"}`,
-        metadata: { stage: "flow" },
+        metadata: { stage: "flow", flowRunId: flowState.flowRunId, stepId: flowState.flowStepId },
       });
       void flush();
     }
@@ -769,7 +769,7 @@ async function handleConversation(payload: Payload) {
     queue.push({
       type: "log",
       delta: `Completed successfully. Saved response for skill: ${result.skill.id} v${result.skill.version}`,
-      metadata: { stage: "completed", skillId: result.skill.id, version: result.skill.version },
+      metadata: { stage: "completed", skillId: result.skill.id, version: result.skill.version, modelTier: result.skill.modelTier, model: modelFor(result.skill.modelTier) },
     });
     void flush();
 

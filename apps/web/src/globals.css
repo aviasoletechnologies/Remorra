@@ -104,7 +104,7 @@ a {
   background: color-mix(in oklch, var(--color-primary) 22%, transparent);
 }
 
-:focus-visible {
+:focus-visible:not(input):not(textarea):not(select) {
   outline: 2px solid color-mix(in oklch, var(--color-ring) 70%, transparent);
   outline-offset: 2px;
 }
@@ -1450,4 +1450,13 @@ select.admin-select option {
 .dark select.admin-select option {
   background-color: var(--color-card, #1e1e24);
   color: var(--color-foreground, #f8fafc);
+}
+
+/* Utility to hide scrollbar */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
 }
