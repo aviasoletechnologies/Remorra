@@ -35,35 +35,21 @@ export async function startQueue() {
     await boss.createQueue(queue);
   }
 
-  const enabled = config.enabledQueues;
+  await boss.work<Payload>("ai.conversation", handleJobs("ai.conversation", handleConversation));
+  await boss.work<Payload>("ai.extract", handleJobs("ai.extract", handleExtract));
+  await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
+  await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
+  await boss.work<Payload>("document.render", handleJobs("document.render", handleDocument));
+  await boss.work<Payload>("gdpr.export", handleJobs("gdpr.export", handleGdprExport));
+  await boss.work<Payload>("gdpr.delete", handleJobs("gdpr.delete", handleGdprDelete));
+  await boss.work<Payload>("retention.cleanup", handleJobs("retention.cleanup", handleRetention));
+  await boss.work<Payload>("storage.expire", handleJobs("storage.expire", handleStorageExpiry));
 
-  if (enabled.includes("ai.conversation")) {
-    await boss.work<Payload>("ai.conversation", handleJobs(handleConversation));
-  }
-  if (enabled.includes("ai.extract")) {
-    await boss.work<Payload>("ai.extract", handleJobs(handleExtract));
-  }
-  if (enabled.includes("ai.summary")) {
-    await boss.work<Payload>("ai.summary", handleJobs(handleSummary));
-  }
-  if (enabled.includes("ai.report")) {
-    await boss.work<Payload>("ai.report", handleJobs(handleReport));
-  }
-  if (enabled.includes("document.render")) {
-    await boss.work<Payload>("document.render", handleJobs(handleDocument));
-  }
-  if (enabled.includes("gdpr.export")) {
-    await boss.work<Payload>("gdpr.export", handleJobs(handleGdprExport));
-  }
-  if (enabled.includes("gdpr.delete")) {
-    await boss.work<Payload>("gdpr.delete", handleJobs(handleGdprDelete));
-  }
+  const enabled = config.enabledQueues;
   if (enabled.includes("retention.cleanup")) {
-    await boss.work<Payload>("retention.cleanup", handleJobs(handleRetention));
     await boss.schedule("retention.cleanup", "0 2 * * *", {});
   }
   if (enabled.includes("storage.expire")) {
-    await boss.work<Payload>("storage.expire", handleJobs(handleStorageExpiry));
     await boss.schedule("storage.expire", "30 2 * * *", {});
   }
 
@@ -76,17 +62,21 @@ export async function startQueue() {
   );
 }
 
-function handleJobs(handler: (payload: Payload) => Promise<unknown>) {
+function handleJobs(queueName: string, handler: (payload: Payload) => Promise<unknown>) {
   return async (jobs: Job<Payload>[]) => {
     const results = [];
     for (const job of jobs) {
-      results.push(await execute(job.data, handler));
+      results.push(await execute(queueName, job.data, handler));
     }
     return results;
   };
 }
 
-async function execute(payload: Payload, handler: (payload: Payload) => Promise<unknown>) {
+async function execute(
+  queueName: string,
+  payload: Payload,
+  handler: (payload: Payload) => Promise<unknown>,
+) {
   const record = await prisma.jobRecord.update({
     where: { id: payload.jobRecordId },
     data: { status: "running", attempts: { increment: 1 } },
@@ -99,6 +89,9 @@ async function execute(payload: Payload, handler: (payload: Payload) => Promise<
     },
   });
   try {
+    if (!config.enabledQueues.includes(queueName)) {
+      throw new Error("Admin has disabled this feature");
+    }
     const result = await handler(payload);
     await prisma.$transaction([
       prisma.jobRecord.update({
