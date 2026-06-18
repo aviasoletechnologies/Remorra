@@ -718,6 +718,8 @@ model SkillVersion {
   modelTier           String
   systemPrompt        String
   contextRequirements Json
+  inputRequirementText String         @default("")
+  inputSourceMap      Json           @default("{}")
   outputSchema        Json?
   constraints         Json
   examples            Json

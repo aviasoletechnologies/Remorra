@@ -112,7 +112,7 @@ export function AdminSkills({
             {
               key: "actions",
               header: "Actions",
-              cell: (row: any) => <Button variant="secondary" onClick={() => onEdit(row)}>Edit prompt</Button>,
+              cell: (row: any) => <Button variant="secondary" onClick={() => onEdit(row)}>Manage versions</Button>,
             },
           ]}
         />

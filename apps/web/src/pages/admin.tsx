@@ -5,6 +5,10 @@ import {
   DollarSign,
   FileText,
   Settings,
+  Eye,
+  Pencil,
+  Trash2,
+  CheckCircle2,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Card } from "../components/ui";
@@ -24,6 +28,30 @@ import {
   AdminSystemLayout,
   type AdminSystemSubTab,
 } from "./admin/admin-system";
+
+function describeSkillInputRequirement(version: any): string {
+  if (typeof version?.inputRequirementText === "string" && version.inputRequirementText.trim()) {
+    return version.inputRequirementText;
+  }
+  const mappedInputs = version?.inputSourceMap?.requiredInputs;
+  if (Array.isArray(mappedInputs) && mappedInputs.length > 0) {
+    return mappedInputs
+      .map((item: any) => item.description || item.key)
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (Array.isArray(version?.contextRequirements) && version.contextRequirements.length > 0) {
+    return `Legacy context: ${version.contextRequirements.join(", ")}`;
+  }
+  return "";
+}
+
+function validateInputRequirementText(value: string): string | null {
+  if (!value.trim()) {
+    return "Input requirement text is required so the system can generate a source map.";
+  }
+  return null;
+}
 
 export function AdminPage() {
   const queryClient = useQueryClient();
@@ -48,11 +76,16 @@ export function AdminPage() {
   const [newSkillName, setNewSkillName] = useState("");
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
+  const [newSkillInputRequirementText, setNewSkillInputRequirementText] = useState("");
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
 
   // Skill Editing States
   const [editingSkill, setEditingSkill] = useState<any | null>(null);
+  const [editingSkillVersionId, setEditingSkillVersionId] = useState<string | null>(null);
   const [editPromptText, setEditPromptText] = useState("");
+  const [editInputRequirementText, setEditInputRequirementText] = useState("");
+  const [skillEditError, setSkillEditError] = useState<string | null>(null);
+  const [showInputSourceMap, setShowInputSourceMap] = useState(false);
 
 
   // Period Selector State
@@ -262,21 +295,83 @@ export function AdminPage() {
   const activate = useMutation({
     mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}/activate`, { method: "POST" }),
-    onSuccess: () => {
+    onSuccess: (version: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      setEditingSkill((current: any) => current?.id === version.skillId
+        ? {
+            ...current,
+            versions: current.versions.map((item: any) => ({ ...item, active: item.id === version.id })),
+          }
+        : current,
+      );
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt }: { skillId: string; systemPrompt: string }) =>
-      api(`/admin/skills/${skillId}/versions`, { method: "POST", body: JSON.stringify({ systemPrompt }) }),
-    onSuccess: () => {
+    mutationFn: ({ skillId, systemPrompt, inputRequirementText }: { skillId: string; systemPrompt: string; inputRequirementText: string }) =>
+      api(`/admin/skills/${skillId}/versions`, {
+        method: "POST",
+        body: JSON.stringify({ systemPrompt, inputRequirementText }),
+      }),
+    onSuccess: (version: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      setEditingSkill((current: any) => current?.id === version.skillId
+        ? {
+            ...current,
+            versions: [version, ...current.versions.filter((item: any) => item.id !== version.id)]
+              .sort((a: any, b: any) => b.version - a.version),
+          }
+        : current,
+      );
+      setEditingSkillVersionId(version.id);
+    },
+    onError: (err: any) => {
+      setSkillEditError(err.message || "Skill input requirements could not be mapped to known data sources.");
+    },
+  });
+  const updateSkillVersion = useMutation({
+    mutationFn: ({ skillId, versionId, systemPrompt, inputRequirementText }: { skillId: string; versionId: string; systemPrompt: string; inputRequirementText: string }) =>
+      api(`/admin/skills/${skillId}/versions/${versionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ systemPrompt, inputRequirementText }),
+      }),
+    onSuccess: (version: any) => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      setEditingSkill((current: any) => current?.id === version.skillId
+        ? {
+            ...current,
+            versions: current.versions.map((item: any) => item.id === version.id ? version : item),
+          }
+        : current,
+      );
+      setSkillEditError(null);
+    },
+    onError: (err: any) => {
+      setSkillEditError(err.message || "Skill version could not be updated.");
+    },
+  });
+  const deleteSkillVersion = useMutation({
+    mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
+      api(`/admin/skills/${skillId}/versions/${versionId}`, { method: "DELETE" }),
+    onSuccess: (_res, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      setEditingSkill((current: any) => {
+        if (current?.id !== variables.skillId) return current;
+        const nextVersions = current.versions.filter((item: any) => item.id !== variables.versionId);
+        setEditingSkillVersionId(nextVersions[0]?.id ?? null);
+        if (nextVersions.length === 0) return null;
+        return { ...current, versions: nextVersions };
+      });
+    },
+    onError: (err: any) => {
+      setSkillEditError(err.message || "Skill version could not be deleted.");
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText: string }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -289,6 +384,7 @@ export function AdminPage() {
       setNewSkillName("");
       setNewSkillDesc("");
       setNewSkillPrompt("");
+      setNewSkillInputRequirementText("");
       setSkillCreateError(null);
       alert("Skill created successfully!");
     },
@@ -458,7 +554,11 @@ export function AdminPage() {
                 onEdit={(skill) => {
                   setEditingSkill(skill);
                   const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
+                  setEditingSkillVersionId(currentVer?.id ?? null);
                   setEditPromptText(currentVer?.systemPrompt ?? "");
+                  setEditInputRequirementText(describeSkillInputRequirement(currentVer));
+                  setSkillEditError(null);
+                  setShowInputSourceMap(false);
                 }}
                 onPage={setSkillPage}
                 isLoading={loadingSkills}
@@ -517,13 +617,16 @@ export function AdminPage() {
       {/* Skill Edit Modal */}
       {editingSkill && (
         <div className="admin-modal-overlay">
-          <Card className="admin-modal-content">
+          <Card className="admin-modal-content admin-skill-version-modal">
             <div className="modal-header">
               <div>
-                <h2>Edit Skill Prompt: {editingSkill.name}</h2>
+                <h2>Manage Skill Versions: {editingSkill.name}</h2>
                 <code>{editingSkill.id}</code>
               </div>
-              <Button variant="ghost" onClick={() => setEditingSkill(null)}>
+              <Button variant="ghost" onClick={() => {
+                setEditingSkill(null);
+                setEditingSkillVersionId(null);
+              }}>
                 Close
               </Button>
             </div>
@@ -531,49 +634,160 @@ export function AdminPage() {
             <div className="modal-body">
               {(() => {
                 const activeVer = editingSkill.versions.find((item: any) => item.active);
-                const newest = editingSkill.versions[0];
+                const currentVer = editingSkill.versions.find((item: any) => item.id === editingSkillVersionId) ?? activeVer ?? editingSkill.versions[0];
+                const inputSourceMap = currentVer?.inputSourceMap ?? { requiredInputs: [] };
+                const mappedCount = Array.isArray(inputSourceMap?.requiredInputs) ? inputSourceMap.requiredInputs.length : 0;
+                const selectVersion = (version: any) => {
+                  setEditingSkillVersionId(version.id);
+                  setEditPromptText(version.systemPrompt ?? "");
+                  setEditInputRequirementText(describeSkillInputRequirement(version));
+                  setSkillEditError(null);
+                  setShowInputSourceMap(false);
+                };
                 return (
                   <>
                     <div className="modal-version-row">
                       <span>
                         Active Version: {activeVer ? <Badge tone="green">v{activeVer.version}</Badge> : <Badge tone="amber">None</Badge>}
                       </span>
-                      {newest && newest.id !== activeVer?.id && (
-                        <Button
-                          variant="secondary"
-                          onClick={() => {
-                            activate.mutate({ skillId: editingSkill.id, versionId: newest.id });
-                            setEditingSkill(null);
-                          }}
-                          disabled={!isAdmin}
-                        >
-                          Activate v{newest.version}
-                        </Button>
-                      )}
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          const error = validateInputRequirementText(editInputRequirementText);
+                          if (error) {
+                            setSkillEditError(error);
+                            return;
+                          }
+                          createSkillVersion.mutate({
+                            skillId: editingSkill.id,
+                            systemPrompt: editPromptText,
+                            inputRequirementText: editInputRequirementText,
+                          });
+                        }}
+                        disabled={!isAdmin || createSkillVersion.isPending || !currentVer}
+                      >
+                        <Pencil size={14} /> Save as New Version
+                      </Button>
                     </div>
 
-                    <div className="editor-section">
-                      <label className="admin-field-label">System Prompt Template</label>
-                      <textarea
-                        className="admin-textarea monospace"
-                        value={editPromptText}
-                        onChange={(e) => setEditPromptText(e.target.value)}
-                        disabled={!isAdmin}
-                      />
-                    </div>
+                    <div className="skill-version-manager">
+                      <aside className="skill-version-list">
+                        {editingSkill.versions.map((version: any) => (
+                          <button
+                            key={version.id}
+                            type="button"
+                            className={`skill-version-item ${currentVer?.id === version.id ? "active" : ""}`}
+                            onClick={() => selectVersion(version)}
+                          >
+                            <span>v{version.version}</span>
+                            <div>
+                              {version.active ? <Badge tone="green">Active</Badge> : <Badge tone="neutral">Draft</Badge>}
+                            </div>
+                          </button>
+                        ))}
+                      </aside>
 
-                    {isAdmin && (
-                      <div className="form-actions">
-                        <Button
-                          onClick={() => {
-                            createSkillVersion.mutate({ skillId: editingSkill.id, systemPrompt: editPromptText });
-                            setEditingSkill(null);
-                          }}
-                        >
-                          Create & Publish New Version
-                        </Button>
-                      </div>
-                    )}
+                      <section className="skill-version-editor">
+                        <div className="modal-version-row">
+                          <div>
+                            <label className="admin-field-label">Selected Version</label>
+                            <strong>v{currentVer?.version ?? "-"}</strong>
+                          </div>
+                          <div className="skill-source-map-actions">
+                            <Button
+                              variant="secondary"
+                              disabled={!isAdmin || !currentVer || currentVer.active || activate.isPending}
+                              onClick={() => {
+                                if (!currentVer) return;
+                                activate.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
+                              }}
+                            >
+                              <CheckCircle2 size={14} /> Activate
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={!isAdmin || !currentVer || currentVer.active || deleteSkillVersion.isPending}
+                              onClick={() => {
+                                if (!currentVer) return;
+                                if (!window.confirm(`Delete v${currentVer.version}? This cannot be undone.`)) return;
+                                deleteSkillVersion.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
+                              }}
+                            >
+                              <Trash2 size={14} /> Delete
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="editor-section">
+                          <label className="admin-field-label">System Prompt Template</label>
+                          <textarea
+                            className="admin-textarea monospace"
+                            value={editPromptText}
+                            onChange={(e) => setEditPromptText(e.target.value)}
+                            disabled={!isAdmin || !currentVer}
+                          />
+                        </div>
+
+                        <div className="editor-section">
+                          <div className="modal-version-row skill-input-header">
+                            <label className="admin-field-label">Input Requirement Text</label>
+                            <div className="skill-source-map-actions">
+                              <Badge tone={mappedCount > 0 ? "green" : "amber"}>
+                                {mappedCount > 0 ? `${mappedCount} mapped input${mappedCount === 1 ? "" : "s"}` : "No mapped inputs"}
+                              </Badge>
+                              <Button variant="secondary" onClick={() => setShowInputSourceMap((value) => !value)}>
+                                <Eye size={14} /> View source map
+                              </Button>
+                            </div>
+                          </div>
+                          <textarea
+                            className="admin-textarea monospace"
+                            value={editInputRequirementText}
+                            onChange={(e) => {
+                              setEditInputRequirementText(e.target.value);
+                              setSkillEditError(null);
+                            }}
+                            placeholder="Example: Need project name and project summary"
+                            disabled={!isAdmin || !currentVer}
+                          />
+                          {skillEditError && (
+                            <p className="form-message" role="alert">{skillEditError}</p>
+                          )}
+                          <p className="form-help">
+                            Save updates the selected version. Save as New Version creates a separate version from the current edits.
+                          </p>
+                          {showInputSourceMap && (
+                            <pre className="admin-json-preview">
+                              {JSON.stringify(inputSourceMap, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+
+                        {isAdmin && (
+                          <div className="form-actions">
+                            <Button
+                              disabled={updateSkillVersion.isPending || !currentVer}
+                              onClick={() => {
+                                if (!currentVer) return;
+                                const error = validateInputRequirementText(editInputRequirementText);
+                                if (error) {
+                                  setSkillEditError(error);
+                                  return;
+                                }
+                                updateSkillVersion.mutate({
+                                  skillId: editingSkill.id,
+                                  versionId: currentVer.id,
+                                  systemPrompt: editPromptText,
+                                  inputRequirementText: editInputRequirementText,
+                                });
+                              }}
+                            >
+                              {updateSkillVersion.isPending ? "Saving..." : "Save Selected Version"}
+                            </Button>
+                          </div>
+                        )}
+                      </section>
+                    </div>
                   </>
                 );
               })()}
@@ -591,6 +805,7 @@ export function AdminPage() {
               <Button variant="ghost" onClick={() => {
                 setIsCreateSkillOpen(false);
                 setSkillCreateError(null);
+                setNewSkillInputRequirementText("");
               }}>
                 Close
               </Button>
@@ -640,8 +855,24 @@ export function AdminPage() {
                 />
               </div>
 
+              <div>
+                <label className="admin-field-label">Input Requirement Text</label>
+                <textarea
+                  placeholder="Example: Need project name and project summary"
+                  className="admin-textarea monospace skill-input-requirement-textarea"
+                  value={newSkillInputRequirementText}
+                  onChange={(e) => {
+                    setNewSkillInputRequirementText(e.target.value);
+                    setSkillCreateError(null);
+                  }}
+                />
+                <p className="form-help">
+                  This is validated and converted into a read-only source map when the skill is created.
+                </p>
+              </div>
+
               {skillCreateError && (
-                <p className="form-message">{skillCreateError}</p>
+                <p className="form-message" role="alert">{skillCreateError}</p>
               )}
 
               <div className="form-actions">
@@ -651,15 +882,22 @@ export function AdminPage() {
                       setSkillCreateError("All fields are required.");
                       return;
                     }
+                    const error = validateInputRequirementText(newSkillInputRequirementText);
+                    if (error) {
+                      setSkillCreateError(error);
+                      return;
+                    }
                     createSkillMutation.mutate({
                       id: newSkillId,
                       name: newSkillName,
                       description: newSkillDesc,
-                      systemPrompt: newSkillPrompt
+                      systemPrompt: newSkillPrompt,
+                      inputRequirementText: newSkillInputRequirementText,
                     });
                   }}
+                  disabled={createSkillMutation.isPending}
                 >
-                  Create Skill
+                  {createSkillMutation.isPending ? "Validating..." : "Create Skill"}
                 </Button>
               </div>
             </div>

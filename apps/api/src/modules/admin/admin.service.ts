@@ -1,8 +1,10 @@
-import { ForbiddenException, Injectable, BadRequestException } from "@nestjs/common";
+import { ForbiddenException, Injectable, BadRequestException, Optional } from "@nestjs/common";
 import Ajv from "ajv";
+import { generateInputSourceMap, validateInputSourceMap } from "@remorra/ai-core";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { InputSourceMapProposalService } from "./input-source-map-proposal.service.js";
 
 // Safe local micro-template engine helpers
 function renderTemplateLocal(template: string, data: any): string {
@@ -42,6 +44,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
+    @Optional() private readonly inputSourceMapProposer?: InputSourceMapProposalService,
   ) {}
 
   requireAdmin(actor: Actor) {
@@ -122,7 +125,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText?: string },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -131,6 +134,13 @@ export class AdminService {
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
+    const inputRequirementText = typeof body.inputRequirementText === "string"
+      ? body.inputRequirementText.trim()
+      : "";
+    const inputSourceMap = await this.resolveInputSourceMap(
+      { inputRequirementText },
+      { inputSourceMap: { requiredInputs: [] } },
+    );
 
     return this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
@@ -157,6 +167,8 @@ export class AdminService {
           modelTier: "model:claude-sonnet-4-6",
           systemPrompt,
           contextRequirements: {},
+          inputRequirementText,
+          inputSourceMap,
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -212,6 +224,14 @@ export class AdminService {
   async activateSkill(actor: Actor, skillId: string, versionId: string) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
+    const targetVersion = await this.prisma.client.skillVersion.findUniqueOrThrow({
+      where: { id: versionId },
+    });
+    const validation = validateInputSourceMap(targetVersion.inputSourceMap);
+    if (!validation.valid) {
+      throw new BadRequestException(`Skill input source map is invalid: ${validation.errors.join("; ")}`);
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.skillVersion.updateMany({
         where: { skillId },
@@ -241,11 +261,14 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
+    const current = await this.prisma.client.skillVersion.findFirstOrThrow({
+      where: { skillId },
+      orderBy: { version: "desc" },
+    });
+    const inputRequirementText = this.resolveInputRequirementText(body, current);
+    const inputSourceMap = await this.resolveInputSourceMap(body, current);
+
     return this.prisma.client.$transaction(async (tx: any) => {
-      const current = await tx.skillVersion.findFirstOrThrow({
-        where: { skillId },
-        orderBy: { version: "desc" },
-      });
       const version = await tx.skillVersion.create({
         data: {
           skillId,
@@ -254,6 +277,8 @@ export class AdminService {
           modelTier: String(body.modelTier ?? current.modelTier),
           systemPrompt: String(body.systemPrompt ?? current.systemPrompt),
           contextRequirements: body.contextRequirements ?? current.contextRequirements,
+          inputRequirementText,
+          inputSourceMap,
           outputSchema: body.outputSchema ?? current.outputSchema,
           constraints: body.constraints ?? current.constraints,
           examples: body.examples ?? current.examples,
@@ -272,6 +297,104 @@ export class AdminService {
       });
       return version;
     });
+  }
+
+  async updateSkillVersion(
+    actor: Actor,
+    skillId: string,
+    versionId: string,
+    body: Record<string, unknown>,
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const current = await this.prisma.client.skillVersion.findUniqueOrThrow({
+      where: { id: versionId },
+    });
+    if (current.skillId !== skillId) {
+      throw new BadRequestException("Skill version does not belong to this skill.");
+    }
+
+    const inputRequirementText = this.resolveInputRequirementText(body, current);
+    const inputSourceMap = await this.resolveInputSourceMap(body, current);
+    const version = await this.prisma.client.skillVersion.update({
+      where: { id: versionId },
+      data: {
+        ...(body.modelTier !== undefined ? { modelTier: String(body.modelTier) } : {}),
+        ...(body.systemPrompt !== undefined ? { systemPrompt: String(body.systemPrompt) } : {}),
+        ...(body.contextRequirements !== undefined ? { contextRequirements: body.contextRequirements } : {}),
+        inputRequirementText,
+        inputSourceMap,
+        ...(body.outputSchema !== undefined ? { outputSchema: body.outputSchema } : {}),
+        ...(body.constraints !== undefined ? { constraints: body.constraints } : {}),
+        ...(body.examples !== undefined ? { examples: body.examples } : {}),
+        ...(body.retryPolicy !== undefined ? { retryPolicy: body.retryPolicy } : {}),
+        ...(body.tokenCeiling !== undefined ? { tokenCeiling: Number(body.tokenCeiling) } : {}),
+      },
+    });
+    await this.auditPlatform(actor, "platform.skill_version.updated", "skill_version", versionId, {
+      skillId,
+      version: version.version,
+    });
+    return version;
+  }
+
+  async deleteSkillVersion(actor: Actor, skillId: string, versionId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const version = await this.prisma.client.skillVersion.findUniqueOrThrow({
+      where: { id: versionId },
+    });
+    if (version.skillId !== skillId) {
+      throw new BadRequestException("Skill version does not belong to this skill.");
+    }
+    if (version.active) {
+      throw new BadRequestException("Activate another version before deleting the active version.");
+    }
+    const count = await this.prisma.client.skillVersion.count({ where: { skillId } });
+    if (count <= 1) {
+      throw new BadRequestException("A skill must keep at least one version.");
+    }
+
+    await this.prisma.client.skillVersion.delete({ where: { id: versionId } });
+    await this.auditPlatform(actor, "platform.skill_version.deleted", "skill_version", versionId, {
+      skillId,
+      version: version.version,
+    });
+    return { success: true };
+  }
+
+  private resolveInputRequirementText(body: Record<string, unknown>, current: any): string {
+    if (typeof body.inputRequirementText === "string") {
+      return body.inputRequirementText.trim();
+    }
+    return typeof current.inputRequirementText === "string" ? current.inputRequirementText : "";
+  }
+
+  private async resolveInputSourceMap(body: Record<string, unknown>, current: any) {
+    if (typeof body.inputRequirementText === "string") {
+      const generated = generateInputSourceMap(body.inputRequirementText.trim());
+      if (generated.valid) {
+        return generated.map;
+      }
+
+      const proposed = await this.inputSourceMapProposer?.propose(body.inputRequirementText.trim());
+      const proposalValidation = validateInputSourceMap(proposed);
+      if (proposalValidation.valid && (proposalValidation.map.requiredInputs?.length ?? 0) > 0) {
+        return proposalValidation.map;
+      }
+
+      const proposalErrors = proposed ? proposalValidation.errors : ["LLM proposal unavailable"];
+      throw new BadRequestException(
+        `Skill input requirements are invalid: ${[...generated.errors, ...proposalErrors].join("; ")}`,
+      );
+    }
+
+    const existing = current.inputSourceMap ?? { requiredInputs: [] };
+    const validation = validateInputSourceMap(existing);
+    if (!validation.valid) {
+      throw new BadRequestException(`Existing skill input source map is invalid: ${validation.errors.join("; ")}`);
+    }
+    return validation.map;
   }
 
 

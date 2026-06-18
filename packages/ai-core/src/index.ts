@@ -10,10 +10,36 @@ export interface SkillDefinition<TOutput = unknown> {
   modelTier: ModelTier;
   systemPrompt: string;
   contextRequirements: readonly string[];
+  inputSourceMap?: InputSourceMap;
   outputSchema?: any;
   constraints: readonly string[];
   tokenCeiling?: number;
   retryPolicy?: unknown;
+}
+
+export interface RuntimeContextScope {
+  projectId: string;
+  conversationId?: string;
+  userId?: string;
+  skillId?: string;
+  skillVersionId?: string;
+}
+
+export interface InputSourceMap {
+  requiredInputs?: readonly InputSourceMapItem[];
+}
+
+export interface InputSourceMapItem {
+  key: string;
+  description?: string;
+  required?: boolean;
+  source: {
+    type: "database";
+    entity: string;
+    field: string;
+    scope?: Record<string, string>;
+    limit?: number;
+  };
 }
 
 export interface AiContextSection {
@@ -57,6 +83,10 @@ export interface ContextAssembler {
   assemble(
     projectId: string,
     requirements: readonly string[],
+    options?: {
+      inputSourceMap?: InputSourceMap | null | undefined;
+      runtime?: RuntimeContextScope;
+    },
   ): Promise<readonly AiContextSection[]>;
 }
 
@@ -89,12 +119,23 @@ export class AiOrchestrator {
       skillId: string;
       skillOverride?: SkillDefinition<T>;
       additionalSections?: readonly AiContextSection[];
+      contextRuntime?: Partial<RuntimeContextScope>;
     },
   ): Promise<AiResult<T> & { skill: SkillDefinition }> {
     const skill = input.skillOverride ?? await this.registry.getActive<T>(input.skillId);
     const assembledSections = await this.context.assemble(
       input.projectId,
       skill.contextRequirements,
+      {
+        inputSourceMap: skill.inputSourceMap,
+        runtime: {
+          projectId: input.projectId,
+          userId: input.userId,
+          skillId: skill.id,
+          skillVersionId: skill.versionId,
+          ...input.contextRuntime,
+        },
+      },
     );
     const sections = [...assembledSections, ...(input.additionalSections ?? [])];
     const invocation: AiInvocation = {
@@ -120,4 +161,14 @@ export class AiOrchestrator {
   }
 }
 
-export { PrismaSkillRegistry, PrismaContextAssembler, PrismaTokenTracker, PrismaAuditLogger, ResponseParser } from "./prisma-implementations.js";
+export {
+  ContextAssemblyMissingDataError,
+  PrismaSkillRegistry,
+  PrismaContextAssembler,
+  PrismaTokenTracker,
+  PrismaAuditLogger,
+  ResponseParser,
+  generateInputSourceMap,
+  listInputSourceRegistry,
+  validateInputSourceMap,
+} from "./prisma-implementations.js";
