@@ -141,6 +141,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   const isLogsOpen = useWorkspaceStore((state) => state.isLogsOpen);
   const setLogsOpen = useWorkspaceStore((state) => state.setLogsOpen);
   const clearLogs = useWorkspaceStore((state) => state.clearLogs);
+  const setLogs = useWorkspaceStore((state) => state.setLogs);
 
   const logsEndRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -156,14 +157,14 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       api<LogEvent[]>(`/jobs/projects/${activeProjectId}/recent-events`)
         .then((fetchedLogs) => {
           if (fetchedLogs && fetchedLogs.length > 0) {
-            useWorkspaceStore.setState({ logs: fetchedLogs });
+            setLogs(fetchedLogs);
           }
         })
         .catch((err) => {
           console.error("Failed to fetch historical logs", err);
         });
     }
-  }, [isLogsOpen, activeProjectId, logs.length, streamState]);
+  }, [isLogsOpen, activeProjectId, logs.length, streamState, setLogs]);
 
   const consent = useMutation({
     mutationFn: () =>
