@@ -182,12 +182,6 @@ model Project {
   userStories        UserStory[]
   tasks              Task[]
   conversations      Conversation[]
-  founderPacks       FounderPack[]
-  productPacks       ProductPack[]
-  refineSessions     RefineSession[]
-  refineProposals    RefineProposal[]
-  linkChecks         EntityLinkCheck[]
-  evolveSessions     EvolveSession[]
   cycles             Cycle[]
   raidItems          RaidItem[]
   financeCategories  FinanceCategory[]
@@ -564,109 +558,6 @@ model StructuredExtract {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
-model FounderPack {
-  id            String   @id @default(uuid()) @db.Uuid
-  projectId     String   @db.Uuid
-  version       Int
-  content       Json
-  confirmedAt   DateTime?
-  createdAt     DateTime @default(now())
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@unique([projectId, version])
-}
-
-model ProductPack {
-  id              String   @id @default(uuid()) @db.Uuid
-  projectId       String   @db.Uuid
-  version         Int
-  content         Json
-  coveragePercent Int
-  linkageValid    Boolean
-  createdAt       DateTime @default(now())
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@unique([projectId, version])
-}
-
-model RefineSession {
-  id             String            @id @default(uuid()) @db.Uuid
-  projectId      String            @db.Uuid
-  conversationId String?           @db.Uuid
-  stage          String
-  status         SessionStatus     @default(active)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  proposals      RefineProposal[]
-
-  @@index([projectId, status])
-}
-
-model RefineProposal {
-  id              String         @id @default(uuid()) @db.Uuid
-  projectId       String         @db.Uuid
-  refineSessionId String         @db.Uuid
-  entityType      String
-  payload         Json
-  status          ProposalStatus @default(pending)
-  createdAt       DateTime       @default(now())
-  decidedAt       DateTime?
-  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  session         RefineSession  @relation(fields: [refineSessionId], references: [id], onDelete: Cascade)
-
-  @@index([refineSessionId, status])
-}
-
-model EntityLinkCheck {
-  id        String   @id @default(uuid()) @db.Uuid
-  projectId String   @db.Uuid
-  kind      String
-  valid     Boolean
-  findings  Json
-  createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId, createdAt])
-}
-
-model EvolveSession {
-  id                     String        @id @default(uuid()) @db.Uuid
-  projectId              String        @db.Uuid
-  conversationId         String?       @db.Uuid
-  mode                   EvolveMode
-  status                 SessionStatus
-  topic                  String
-  launchedFrom           String
-  continuedFromSessionId String?       @db.Uuid
-  baseProjectVersion     Int
-  approvedSummary        String?
-  createdAt              DateTime      @default(now())
-  completedAt            DateTime?
-  project                Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  impacts                ImpactItem[]
-
-  @@index([projectId, status])
-}
-
-model ImpactItem {
-  id              String        @id @default(uuid()) @db.Uuid
-  evolveSessionId String        @db.Uuid
-  entityType      String
-  entityId        String?       @db.Uuid
-  severity        String
-  title           String
-  reasoning       String
-  proposedChange  Json
-  decision        String        @default("pending")
-  status          String        @default("ready")
-  conflictReason  String?
-  resolution      String?
-  resolutionNote  String?
-  resolvedPayload Json?
-  currentSnapshot Json?
-  session         EvolveSession @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
-}
 
 model KnowledgeBase {
   id          String                 @id

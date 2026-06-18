@@ -7,6 +7,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
@@ -515,7 +516,7 @@ export function AdminPage() {
         />
       )}
       {/* Skill Edit Modal */}
-      {editingSkill && (
+      {editingSkill && createPortal(
         <div className="admin-modal-overlay">
           <Card className="admin-modal-content">
             <div className="modal-header">
@@ -579,11 +580,12 @@ export function AdminPage() {
               })()}
             </div>
           </Card>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Skill Create Modal */}
-      {isCreateSkillOpen && (
+      {isCreateSkillOpen && createPortal(
         <div className="admin-modal-overlay">
           <Card className="admin-modal-content">
             <div className="modal-header">
@@ -664,7 +666,8 @@ export function AdminPage() {
               </div>
             </div>
           </Card>
-        </div>
+        </div>,
+        document.body
       )}
     </Page>
   );
