@@ -6,6 +6,7 @@ import { LazyMotion, MotionConfig, domAnimation } from "framer-motion";
 import { App } from "./app";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "./components/ui/sonner";
+import { ConfirmProvider } from "./components/confirm-dialog";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -24,8 +25,10 @@ createRoot(document.getElementById("root")!).render(
         <MotionConfig reducedMotion="user" transition={{ duration: 0.18 }}>
           <LazyMotion features={domAnimation}>
             <TooltipProvider>
-              <App />
-              <Toaster position="bottom-right" richColors />
+              <ConfirmProvider>
+                <App />
+                <Toaster position="bottom-right" richColors />
+              </ConfirmProvider>
             </TooltipProvider>
           </LazyMotion>
         </MotionConfig>

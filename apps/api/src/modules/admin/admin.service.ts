@@ -363,6 +363,19 @@ export class AdminService {
     return { success: true };
   }
 
+  async deleteSkill(actor: Actor, skillId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const skill = await this.prisma.client.skill.findUniqueOrThrow({
+      where: { id: skillId },
+    });
+    await this.prisma.client.skill.delete({ where: { id: skillId } });
+    await this.auditPlatform(actor, "platform.skill.deleted", "skill", skillId, {
+      name: skill.name,
+    });
+    return { success: true };
+  }
+
   private resolveInputRequirementText(body: Record<string, unknown>, current: any): string {
     if (typeof body.inputRequirementText === "string") {
       return body.inputRequirementText.trim();

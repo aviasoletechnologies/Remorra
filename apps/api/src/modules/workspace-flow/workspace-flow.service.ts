@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import { CryptoService } from "../../infrastructure/crypto.service.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
@@ -33,7 +32,6 @@ export class WorkspaceFlowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly crypto: CryptoService,
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
     private readonly intentRouter: IntentRouterService,
@@ -59,7 +57,7 @@ export class WorkspaceFlowService {
         conversationId: conversation.id,
         actorId: userId,
         role: "user",
-        encryptedContent: this.crypto.encrypt(content),
+        content,
         skillId: conversation.activeSkill?.id ?? null,        // save whichever skill was pinned when user sent this
         skillVersionId: conversation.activeSkill?.versionId ?? null,
       },
@@ -207,7 +205,7 @@ export class WorkspaceFlowService {
       messages: (conversation.messages ?? []).map((message: any) => ({
         id: message.id,
         role: message.role,
-        content: this.crypto.decrypt(message.encryptedContent),
+        content: message.content,
         createdAt: message.createdAt,
       })),
     };

@@ -11,3 +11,4 @@ packages/database/generated/
 playwright-report/
 test-results/
 *.tsbuildinfo
+AGENTS.md

@@ -20,6 +20,7 @@ import { AdminSupport } from "./admin/admin-support";
 import { AdminCosts } from "./admin/admin-costs";
 import { AdminUsers } from "./admin/admin-users";
 import { AdminTemplates } from "./admin/admin-templates";
+import { useConfirm } from "../components/confirm-dialog";
 import {
   AdminFlows,
   AdminKnowledge,
@@ -55,6 +56,7 @@ function validateInputRequirementText(value: string): string | null {
 }
 
 export function AdminPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"overview" | "support" | "templates" | "costs" | "system" | "users">("overview");
   const [userPage, setUserPage] = useState(1);
@@ -383,6 +385,18 @@ export function AdminPage() {
       toast.error(err.message || "Failed to delete skill version.");
     },
   });
+  const deleteSkill = useMutation({
+    mutationFn: (skillId: string) =>
+      api(`/admin/skills/${skillId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      toast.success("Skill deleted successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to delete skill.");
+    },
+  });
   const createSkillMutation = useMutation({
     mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText: string }) =>
       api("/admin/skills", {
@@ -602,6 +616,7 @@ export function AdminPage() {
                   setSkillEditError(null);
                   setShowInputSourceMap(false);
                 }}
+                onDelete={(skill) => deleteSkill.mutate(skill.id)}
                 onPage={setSkillPage}
                 isLoading={loadingSkills}
               />
@@ -657,43 +672,50 @@ export function AdminPage() {
         />
       )}
       {/* Skill Edit Modal */}
-      {editingSkill && (
-        <div className="admin-modal-overlay">
-          <Card className="admin-modal-content admin-skill-version-modal">
-            <div className="modal-header">
-              <div>
-                <h2>Manage Skill Versions: {editingSkill.name}</h2>
-                <code>{editingSkill.id}</code>
-              </div>
-              <Button variant="ghost" onClick={() => {
-                setEditingSkill(null);
-                setEditingSkillVersionId(null);
-              }}>
-                Close
-              </Button>
-            </div>
+      {editingSkill && (() => {
+        const activeVer = editingSkill.versions.find((item: any) => item.active);
+        const currentVer = editingSkill.versions.find((item: any) => item.id === editingSkillVersionId) ?? activeVer ?? editingSkill.versions[0];
+        const inputSourceMap = currentVer?.inputSourceMap ?? { requiredInputs: [] };
+        const mappedCount = Array.isArray(inputSourceMap?.requiredInputs) ? inputSourceMap.requiredInputs.length : 0;
+        const selectVersion = (version: any) => {
+          setEditingSkillVersionId(version.id);
+          setEditPromptText(version.systemPrompt ?? "");
+          setEditInputRequirementText(describeSkillInputRequirement(version));
+          setSkillEditError(null);
+          setShowInputSourceMap(false);
+        };
 
-            <div className="modal-body">
-              {(() => {
-                const activeVer = editingSkill.versions.find((item: any) => item.active);
-                const currentVer = editingSkill.versions.find((item: any) => item.id === editingSkillVersionId) ?? activeVer ?? editingSkill.versions[0];
-                const inputSourceMap = currentVer?.inputSourceMap ?? { requiredInputs: [] };
-                const mappedCount = Array.isArray(inputSourceMap?.requiredInputs) ? inputSourceMap.requiredInputs.length : 0;
-                const selectVersion = (version: any) => {
-                  setEditingSkillVersionId(version.id);
-                  setEditPromptText(version.systemPrompt ?? "");
-                  setEditInputRequirementText(describeSkillInputRequirement(version));
-                  setSkillEditError(null);
-                  setShowInputSourceMap(false);
-                };
-                return (
-                  <>
-                    <div className="modal-version-row">
-                      <span>
-                        Active Version: {activeVer ? <Badge tone="green">v{activeVer.version}</Badge> : <Badge tone="amber">None</Badge>}
-                      </span>
+        return (
+          <div className="admin-modal-overlay">
+            <Card className="admin-modal-content admin-skill-version-modal">
+              <div className="modal-header">
+                <div>
+                  <h2>Manage Skill Versions: {editingSkill.name}</h2>
+                  <code>{editingSkill.id}</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && currentVer && (
+                    <>
                       <Button
-                        variant="secondary"
+                        disabled={updateSkillVersion.isPending}
+                        onClick={() => {
+                          const error = validateInputRequirementText(editInputRequirementText);
+                          if (error) {
+                            setSkillEditError(error);
+                            return;
+                          }
+                          updateSkillVersion.mutate({
+                            skillId: editingSkill.id,
+                            versionId: currentVer.id,
+                            systemPrompt: editPromptText,
+                            inputRequirementText: editInputRequirementText,
+                          });
+                        }}
+                      >
+                        {updateSkillVersion.isPending ? "Saving..." : "Save Selected Version"}
+                      </Button>
+                      <Button
+                        variant="outline"
                         onClick={() => {
                           const error = validateInputRequirementText(editInputRequirementText);
                           if (error) {
@@ -706,137 +728,133 @@ export function AdminPage() {
                             inputRequirementText: editInputRequirementText,
                           });
                         }}
-                        disabled={!isAdmin || createSkillVersion.isPending || !currentVer}
+                        disabled={createSkillVersion.isPending}
                       >
-                        <Pencil size={14} /> Save as New Version
+                        {createSkillVersion.isPending ? "Saving..." : "Save as New Version"}
                       </Button>
+                    </>
+                  )}
+                  <Button variant="ghost" onClick={() => {
+                    setEditingSkill(null);
+                    setEditingSkillVersionId(null);
+                  }}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+
+              <div className="modal-body">
+                <div className="skill-version-manager">
+                  <aside className="skill-version-list">
+                    <div className="flex items-center h-8 mb-2">
+                      <span className="text-sm font-medium text-muted-foreground">
+                        Active Version: {activeVer ? <Badge tone="green">v{activeVer.version}</Badge> : <Badge tone="amber">None</Badge>}
+                      </span>
                     </div>
-
-                    <div className="skill-version-manager">
-                      <aside className="skill-version-list">
-                        {editingSkill.versions.map((version: any) => (
-                          <button
-                            key={version.id}
-                            type="button"
-                            className={`skill-version-item ${currentVer?.id === version.id ? "active" : ""}`}
-                            onClick={() => selectVersion(version)}
-                          >
-                            <span>v{version.version}</span>
-                            <div>
-                              {version.active ? <Badge tone="green">Active</Badge> : <Badge tone="neutral">Draft</Badge>}
-                            </div>
-                          </button>
-                        ))}
-                      </aside>
-
-                      <section className="skill-version-editor">
-                        <div className="modal-version-row">
-                          <div>
-                            <label className="admin-field-label">Selected Version</label>
-                            <strong>v{currentVer?.version ?? "-"}</strong>
-                          </div>
-                          <div className="skill-source-map-actions">
-                            <Button
-                              variant="secondary"
-                              disabled={!isAdmin || !currentVer || currentVer.active || activate.isPending}
-                              onClick={() => {
-                                if (!currentVer) return;
-                                activate.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
-                              }}
-                            >
-                              <CheckCircle2 size={14} /> Activate
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              disabled={!isAdmin || !currentVer || currentVer.active || deleteSkillVersion.isPending}
-                              onClick={() => {
-                                if (!currentVer) return;
-                                if (!window.confirm(`Delete v${currentVer.version}? This cannot be undone.`)) return;
-                                deleteSkillVersion.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
-                              }}
-                            >
-                              <Trash2 size={14} /> Delete
-                            </Button>
-                          </div>
+                    {editingSkill.versions.map((version: any) => (
+                      <button
+                        key={version.id}
+                        type="button"
+                        className={`skill-version-item ${currentVer?.id === version.id ? "active" : ""}`}
+                        onClick={() => selectVersion(version)}
+                      >
+                        <span>v{version.version}</span>
+                        <div>
+                          {version.active ? <Badge tone="green">Active</Badge> : <Badge tone="neutral">Draft</Badge>}
                         </div>
+                      </button>
+                    ))}
+                  </aside>
 
-                        <div className="editor-section">
-                          <label className="admin-field-label">System Prompt Template</label>
-                          <textarea
-                            className="admin-textarea monospace"
-                            value={editPromptText}
-                            onChange={(e) => setEditPromptText(e.target.value)}
-                            disabled={!isAdmin || !currentVer}
-                          />
-                        </div>
-
-                        <div className="editor-section">
-                          <div className="modal-version-row skill-input-header">
-                            <label className="admin-field-label">Input Requirement Text</label>
-                            <div className="skill-source-map-actions">
-                              <Badge tone={mappedCount > 0 ? "green" : "amber"}>
-                                {mappedCount > 0 ? `${mappedCount} mapped input${mappedCount === 1 ? "" : "s"}` : "No mapped inputs"}
-                              </Badge>
-                              <Button variant="secondary" onClick={() => setShowInputSourceMap((value) => !value)}>
-                                <Eye size={14} /> View source map
-                              </Button>
-                            </div>
-                          </div>
-                          <textarea
-                            className="admin-textarea monospace"
-                            value={editInputRequirementText}
-                            onChange={(e) => {
-                              setEditInputRequirementText(e.target.value);
-                              setSkillEditError(null);
+                  <section className="skill-version-editor">
+                    <div className="flex justify-between items-center h-8 mb-2">
+                      <label className="text-sm font-medium text-muted-foreground">System Prompt Template</label>
+                      {currentVer && !currentVer.active && isAdmin && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={activate.isPending}
+                            onClick={() => {
+                              activate.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
                             }}
-                            placeholder="Example: Need project name and project summary"
-                            disabled={!isAdmin || !currentVer}
-                          />
-                          {skillEditError && (
-                            <p className="form-message" role="alert">{skillEditError}</p>
-                          )}
-                          <p className="form-help">
-                            Save updates the selected version. Save as New Version creates a separate version from the current edits.
-                          </p>
-                          {showInputSourceMap && (
-                            <pre className="admin-json-preview">
-                              {JSON.stringify(inputSourceMap, null, 2)}
-                            </pre>
-                          )}
+                          >
+                            <CheckCircle2 size={14} /> Activate
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={deleteSkillVersion.isPending}
+                            onClick={async () => {
+                              const confirmed = await confirm({
+                                title: "Delete skill version",
+                                description: `Delete v${currentVer.version}? This cannot be undone.`,
+                                confirmText: "Delete",
+                                variant: "destructive"
+                              });
+                              if (confirmed) {
+                                deleteSkillVersion.mutate({ skillId: editingSkill.id, versionId: currentVer.id });
+                              }
+                            }}
+                          >
+                            <Trash2 size={14} /> Delete
+                          </Button>
                         </div>
-
-                        {isAdmin && (
-                          <div className="form-actions">
-                            <Button
-                              disabled={updateSkillVersion.isPending || !currentVer}
-                              onClick={() => {
-                                if (!currentVer) return;
-                                const error = validateInputRequirementText(editInputRequirementText);
-                                if (error) {
-                                  setSkillEditError(error);
-                                  return;
-                                }
-                                updateSkillVersion.mutate({
-                                  skillId: editingSkill.id,
-                                  versionId: currentVer.id,
-                                  systemPrompt: editPromptText,
-                                  inputRequirementText: editInputRequirementText,
-                                });
-                              }}
-                            >
-                              {updateSkillVersion.isPending ? "Saving..." : "Save Selected Version"}
-                            </Button>
-                          </div>
-                        )}
-                      </section>
+                      )}
                     </div>
-                  </>
-                );
-              })()}
-            </div>
-          </Card>
-        </div>
-      )}
+
+                    <div className="editor-section">
+                      <textarea
+                        className="admin-textarea monospace"
+                        style={{ minHeight: "380px" }}
+                        value={editPromptText}
+                        onChange={(e) => setEditPromptText(e.target.value)}
+                        disabled={!isAdmin || !currentVer}
+                      />
+                    </div>
+
+                    <div className="editor-section">
+                      <div className="modal-version-row skill-input-header">
+                        <label className="text-xs font-semibold text-muted-foreground">Input Requirement Text</label>
+                        <div className="skill-source-map-actions">
+                          <Badge tone={mappedCount > 0 ? "green" : "amber"}>
+                            {mappedCount > 0 ? `${mappedCount} mapped input${mappedCount === 1 ? "" : "s"}` : "No mapped inputs"}
+                          </Badge>
+                          <Button variant="secondary" size="sm" onClick={() => setShowInputSourceMap((value) => !value)}>
+                            <Eye size={14} /> View source map
+                          </Button>
+                        </div>
+                      </div>
+                      <textarea
+                        className="admin-textarea monospace text-xs"
+                        style={{ minHeight: "80px" }}
+                        value={editInputRequirementText}
+                        onChange={(e) => {
+                          setEditInputRequirementText(e.target.value);
+                          setSkillEditError(null);
+                        }}
+                        placeholder="Example: Need project name and project summary"
+                        disabled={!isAdmin || !currentVer}
+                      />
+                      {skillEditError && (
+                        <p className="form-message" role="alert">{skillEditError}</p>
+                      )}
+                      <p className="form-help">
+                        Save Selected Version updates the current system prompt & inputs. Save as New Version creates a separate version from your changes.
+                      </p>
+                      {showInputSourceMap && (
+                        <pre className="admin-json-preview">
+                          {JSON.stringify(inputSourceMap, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* Skill Create Modal */}
       {isCreateSkillOpen && (

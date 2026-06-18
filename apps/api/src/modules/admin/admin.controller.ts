@@ -78,6 +78,14 @@ export class AdminController {
     return this.admin.deleteSkillVersion(actor, skillId, versionId);
   }
 
+  @Delete("skills/:skillId")
+  deleteSkill(
+    @CurrentActor() actor: Actor,
+    @Param("skillId") skillId: string,
+  ) {
+    return this.admin.deleteSkill(actor, skillId);
+  }
+
 
   @Get("event-types")
   getEventTypes(@CurrentActor() actor: Actor) {

@@ -57,10 +57,10 @@ const SOURCE_REGISTRY: Record<string, SourceRegistryEntry> = {
   },
   ConversationMessage: {
     delegate: "conversationMessage",
-    fields: ["id", "conversationId", "role", "encryptedContent", "skillId", "skillVersionId"],
+    fields: ["id", "conversationId", "role", "content", "skillId", "skillVersionId"],
     aliases: {
-      "latest message": "encryptedContent",
-      "user message": "encryptedContent",
+      "latest message": "content",
+      "user message": "content",
       "message role": "role",
     },
     defaultScope: { conversationId: "$runtime.conversationId" },

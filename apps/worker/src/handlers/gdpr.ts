@@ -1,6 +1,5 @@
 import { prisma } from "../lib/prisma";
 import { supabase, bucket } from "../lib/supabase";
-import { encrypt, decrypt } from "../lib/crypto";
 import type { Payload } from "./conversation";
 
 export async function handleGdprExport(payload: Payload) {
@@ -106,18 +105,17 @@ export async function handleGdprExport(payload: Payload) {
       ...conversation,
       messages: conversation.messages.map((message: any) => ({
         ...message,
-        encryptedContent: undefined,
-        content: decrypt(message.encryptedContent),
+        content: message.content,
       })),
     })),
     reports,
     documents,
     jobs,
   };
-  const encrypted = Buffer.from(encrypt(JSON.stringify(archive, null, 2)));
-  const path = `gdpr/${userId}/${exportId}.json.enc`;
-  const { error } = await supabase.storage.from(bucket).upload(path, encrypted, {
-    contentType: "application/octet-stream",
+  const plainData = Buffer.from(JSON.stringify(archive, null, 2));
+  const path = `gdpr/${userId}/${exportId}.json`;
+  const { error } = await supabase.storage.from(bucket).upload(path, plainData, {
+    contentType: "application/json",
     upsert: true,
   });
   if (error) throw error;
@@ -125,8 +123,8 @@ export async function handleGdprExport(payload: Payload) {
     data: {
       bucket,
       path,
-      mimeType: "application/octet-stream",
-      sizeBytes: encrypted.byteLength,
+      mimeType: "application/json",
+      sizeBytes: plainData.byteLength,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
   });
@@ -168,7 +166,7 @@ export async function handleGdprDelete(payload: Payload) {
     await tx.projectMembership.deleteMany({ where: { userId: request.userId } });
     await tx.conversationMessage.updateMany({
       where: { actorId: request.userId },
-      data: { actorId: null, encryptedContent: encrypt("[deleted]") },
+      data: { actorId: null, content: "[deleted]" },
     });
     await tx.profile.update({
       where: { id: request.userId },
