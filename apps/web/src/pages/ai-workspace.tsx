@@ -60,7 +60,6 @@ export function AiWorkspacePage() {
       }
       setIsTextareaScrollable(false);
       setStreamedReply("");
-      useWorkspaceStore.getState().clearLogs();
       useWorkspaceStore.getState().setStreamState("connecting");
 
       try {
