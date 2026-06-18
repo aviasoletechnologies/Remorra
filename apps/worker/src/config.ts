@@ -8,7 +8,9 @@ export const config = {
   databaseUrl: required("DATABASE_URL"),
   pgBossPoolMax: Number(process.env.PG_BOSS_POOL_MAX ?? 2),
   get llmProvider(): string {
-    return process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+    return process.env.LLM_PROVIDER
+      || (process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY ? "groq" : "")
+      || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
   },
   get isGrok(): boolean {
     return this.llmProvider === "groq" || this.llmProvider === "grok";

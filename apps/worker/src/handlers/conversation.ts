@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
-import { modelFor } from "../services/llm";
+import { selectedModelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
 import { applyGenericExtractMappings } from "../services/extract-mapper";
@@ -147,7 +147,7 @@ export async function handleConversation(payload: Payload) {
         skillId: result.skill.id,
         version: result.skill.version,
         modelTier: result.skill.modelTier,
-        model: modelFor(result.skill.modelTier),
+        model: selectedModelFor(result.skill.modelTier),
       },
     });
     void flush();
@@ -204,7 +204,7 @@ export async function handleConversation(payload: Payload) {
       snapshot: displayText,
       metadata: {
         modelTier: result.skill.modelTier,
-        model: modelFor(result.skill.modelTier),
+        model: selectedModelFor(result.skill.modelTier),
         outputTokens: result.text.length / 4,
         skillDone: skillIsDone,
       },

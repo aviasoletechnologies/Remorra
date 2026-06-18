@@ -28,6 +28,10 @@ export function modelFor(tier: string): string {
   );
 }
 
+export function selectedModelFor(tier: string): string {
+  return config.isGrok ? grokModelFor(tier) : modelFor(tier);
+}
+
 // Build multi-turn messages for skills: conversation_history becomes actual
 // user/assistant turns so the LLM sees proper context and follows its system prompt.
 export function buildSkillMessages(

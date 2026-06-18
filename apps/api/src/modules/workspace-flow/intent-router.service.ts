@@ -117,7 +117,7 @@ export class IntentRouterService {
   private readonly logger = new Logger(IntentRouterService.name);
 
   constructor(private readonly prisma: PrismaService) {
-    const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+    const llmProvider = this.resolveLlmProvider();
     const isGrok = llmProvider === "groq" || llmProvider === "grok";
     if (!isGrok) {
       const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -146,7 +146,7 @@ export class IntentRouterService {
       `Routing intent project=${projectId} user=${userId} candidates=${candidates.length} messagePreview=${content.slice(0, 120)}`,
     );
 
-    const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+    const llmProvider = this.resolveLlmProvider();
     const isGrok = llmProvider === "groq" || llmProvider === "grok";
     let text = "";
     const userPrompt = [
@@ -197,18 +197,31 @@ export class IntentRouterService {
           reason: "Intent router provider returned no response.",
         };
       }
-      const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6";
-      const response = await this.client.messages.create({
-        model,
-        max_tokens: 256,
-        temperature: 0,
-        system: INTENT_ROUTER_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt }],
-      });
-      text = response.content
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n");
+      try {
+        const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6";
+        const response = await this.client.messages.create({
+          model,
+          max_tokens: 256,
+          temperature: 0,
+          system: INTENT_ROUTER_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userPrompt }],
+        });
+        text = response.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Intent router Anthropic call failed project=${projectId} user=${userId}; ${message}`,
+        );
+        return {
+          routeType: "general",
+          skillId: null,
+          confidence: 0,
+          reason: "Intent router provider was unavailable.",
+        };
+      }
     }
 
     this.logger.debug(
@@ -248,6 +261,12 @@ export class IntentRouterService {
 
   private isSmallTalk(content: string): boolean {
     return SMALL_TALK_PATTERNS.some((pattern) => pattern.test(content.trim()));
+  }
+
+  private resolveLlmProvider(): string {
+    return process.env.LLM_PROVIDER
+      || (process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY ? "groq" : "")
+      || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
   }
 
   private async loadCandidates(): Promise<IntentCandidate[]> {
