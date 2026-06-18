@@ -175,42 +175,30 @@ export async function handleConversation(payload: Payload) {
     }
 
     // ── Detection 2: JSON response ───────────────────────────────────────────
-    // Legacy pattern: Brain Dump Facilitator and similar skills that return a
-    // JSON object when they have collected all required topics. Save structured
-    // data and replace the raw JSON with a friendly confirmation message.
+    // Skills that return a JSON object signal completion by returning structured
+    // data. Parse it, mark done, and replace raw JSON with a friendly message.
+    let jsonParsed: unknown = null;
     if (!isGeneralChat && conversationId) {
-      const trimmed = displayText.trim(); // use cleaned text after tag strip
+      const trimmed = displayText.trim();
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-        let parsed: unknown = null;
         try {
-          parsed = JSON.parse(trimmed);
+          jsonParsed = JSON.parse(trimmed);
         } catch {
           try {
-            parsed = parseJson(trimmed);
+            jsonParsed = parseJson(trimmed);
           } catch {
             /* not JSON */
           }
         }
-        if (parsed !== null) {
-          skillIsDone = true; // JSON response also marks skill done
-          try {
-            await prisma.structuredExtract.create({
-              data: { conversationId, schemaVersion: 1, payload: jsonValue(parsed) },
-            });
-            console.info(
-              `[worker:conversation] structured extract saved project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
-            );
-          } catch (extractErr) {
-            console.warn(
-              `[worker:conversation] failed to save structured extract project=${projectId} conversation=${conversationId} error=${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
-            );
-          }
+        if (jsonParsed !== null) {
+          skillIsDone = true;
           displayText =
             "I've captured everything I need. Your product idea is saved — you can now generate your Founder Pack or continue refining.";
         }
       }
     }
 
+    // Push SSE completed event to frontend (streaming is done)
     queue.push({
       type: "completed",
       snapshot: displayText,
@@ -218,22 +206,56 @@ export async function handleConversation(payload: Payload) {
         modelTier: result.skill.modelTier,
         model: modelFor(result.skill.modelTier),
         outputTokens: result.text.length / 4,
-        skillDone: skillIsDone, // true = skill fully finished; false = just one turn done
+        skillDone: skillIsDone,
       },
     });
     await flush();
     await flushPromise;
 
+    // ── DB saves — collect all events fired ─────────────────────────────────
+    // Each DB write fires a named event. We collect them all so we can check
+    // the admin's SkillEventMapping config in one query at the end.
+    // Events are only collected when skillIsDone=true (final turn of a skill).
+    const firedEvents: string[] = [];
+
+    // Save StructuredExtract (JSON skills only)
+    if (jsonParsed !== null && conversationId) {
+      try {
+        await prisma.structuredExtract.create({
+          data: { conversationId, schemaVersion: 1, payload: jsonValue(jsonParsed) },
+        });
+        console.info(
+          `[worker:conversation] structured extract saved project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
+        );
+        if (skillIsDone && !isGeneralChat) {
+          firedEvents.push("structured_extract.create"); // ← event from this save
+        }
+      } catch (extractErr) {
+        console.warn(
+          `[worker:conversation] failed to save structured extract project=${projectId} conversation=${conversationId} error=${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+        );
+      }
+    }
+
+    // Save ConversationMessage (assistant turn)
     if (conversationId) {
       await prisma.conversationMessage.create({
         data: {
           conversationId,
           role: "assistant",
           encryptedContent: encrypt(displayText),
-          skillId: isGeneralChat ? null : result.skill.id,                // which skill generated this
-          skillVersionId: isGeneralChat ? null : (result.skill.versionId ?? null), // exact version
+          skillId:        isGeneralChat ? null : result.skill.id,
+          skillVersionId: isGeneralChat ? null : (result.skill.versionId ?? null),
         },
       });
+      if (skillIsDone && !isGeneralChat) {
+        firedEvents.push("conversation_message.create"); // ← event from this save
+      }
+    }
+
+    // Skill completion event (always added if skill is done)
+    if (skillIsDone && !isGeneralChat) {
+      firedEvents.push(`skill.${result.skill.id}.completed`);
     }
 
     if (flowState?.questionFieldKey) {
@@ -251,22 +273,26 @@ export async function handleConversation(payload: Payload) {
       await completeFlowStep(flowState.flowRunId, flowState.flowStepId, flowState.outputs);
     }
 
-    // ── Skill completion: pin next skill OR close the session ───────────────────
-    // When a skill signals it is done (via <skill_done/> tag or JSON), check
-    // SkillEventMapping for 'skill.{id}.completed'. If a next skill is mapped,
-    // PIN it to the Conversation row and wait for the user's next message to
-    // activate it. If no mapping exists, unpin and close the session gracefully.
-    if (skillIsDone && !isGeneralChat && conversationId) {
+    // ── Skill completion: check ALL fired events against admin config ─────────
+    // Query SkillEventMapping for every event that fired this turn.
+    // Admin controls which event triggers the next skill — no hardcoded priority.
+    // First matching mapping (by id ASC = creation order) wins.
+    if (skillIsDone && !isGeneralChat && conversationId && firedEvents.length > 0) {
       try {
-        const completionEventType = `skill.${result.skill.id}.completed`;
+        console.info(
+          `[worker:conversation] checking skill completion firedEvents=[${firedEvents.join(", ")}] conversation=${conversationId}`,
+        );
 
-        const nextMapping = await prisma.skillEventMapping.findFirst({
-          where: { eventType: completionEventType, active: true },
-          orderBy: { id: "asc" },
+        const matchedMappings = await prisma.skillEventMapping.findMany({
+          where: { eventType: { in: firedEvents }, active: true },
+          orderBy: { id: "asc" }, // admin's creation order = priority
         });
 
+        // First match wins — fully admin-driven, no static priority in code
+        const nextMapping = matchedMappings[0] ?? null;
+
         if (nextMapping) {
-          // ── NEXT SKILL EXISTS → pin it, wait for user ───────────────────────────
+          // ── NEXT SKILL FOUND → pin it, wait for user's next message ──────
           const nextVersion = await prisma.skillVersion.findFirst({
             where: { skillId: nextMapping.skillId, active: true },
             orderBy: { version: "desc" },
@@ -276,33 +302,33 @@ export async function handleConversation(payload: Payload) {
             await prisma.conversation.update({
               where: { id: conversationId },
               data: {
-                activeSkillId:        nextMapping.skillId,  // ← pin next skill
+                activeSkillId:        nextMapping.skillId,
                 activeSkillVersionId: nextVersion.id,
                 activeSkillPinnedAt:  new Date(),
               },
             });
 
-            // Inform the frontend which skill is coming next
             queue.push({
               type: "skill_transition",
               snapshot: "",
               metadata: {
                 completedSkillId: result.skill.id,
                 nextSkillId:      nextMapping.skillId,
+                triggeredByEvent: nextMapping.eventType, // which event matched
               },
             });
 
             console.info(
-              `[worker:conversation] next skill pinned completedSkill=${result.skill.id} nextSkill=${nextMapping.skillId} conversation=${conversationId}`,
+              `[worker:conversation] next skill pinned triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId}`,
             );
           }
 
         } else {
-          // ── NO NEXT SKILL → unpin + close session gracefully ───────────────
+          // ── NO MATCH → unpin + close session gracefully ───────────────────
           await prisma.conversation.update({
             where: { id: conversationId },
             data: {
-              activeSkillId:        null,  // ← unpin
+              activeSkillId:        null,
               activeSkillVersionId: null,
               activeSkillPinnedAt:  null,
             },
@@ -312,7 +338,6 @@ export async function handleConversation(payload: Payload) {
             "You've completed all the steps — great work! 🎉 " +
             "Everything has been saved. Feel free to ask me anything else.";
 
-          // Persist the closing message as a real assistant turn
           await prisma.conversationMessage.create({
             data: {
               conversationId,
@@ -323,22 +348,22 @@ export async function handleConversation(payload: Payload) {
             },
           });
 
-          // Push SSE event so frontend renders the closing message immediately
           queue.push({
             type: "session_complete",
             snapshot: closingText,
             metadata: {
               completedSkillId: result.skill.id,
+              firedEvents,
             },
           });
 
           console.info(
-            `[worker:conversation] session complete — no next skill mapped skillId=${result.skill.id} conversation=${conversationId}`,
+            `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] skillId=${result.skill.id}`,
           );
         }
 
       } catch (chainErr) {
-        // Non-fatal — the skill turn is already saved, transition failure should not break the turn
+        // Non-fatal — skill turn is already saved, transition failure should not break it
         console.warn(
           `[worker:conversation] skill_transition_failed skillId=${result.skill.id} error=${
             chainErr instanceof Error ? chainErr.message : String(chainErr)
