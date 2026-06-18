@@ -68,7 +68,7 @@ export class AnthropicService {
   private readonly client: Anthropic | null = null;
 
   constructor(private readonly prisma: PrismaService) {
-    const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+    const llmProvider = this.resolveLlmProvider();
     const isGrok = llmProvider === "groq" || llmProvider === "grok";
     if (!isGrok) {
       const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -91,7 +91,7 @@ export class AnthropicService {
       where: { skillId: input.skillId, active: true },
     });
     
-    const llmProvider = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
+    const llmProvider = this.resolveLlmProvider();
     const isGrok = llmProvider === "groq" || llmProvider === "grok";
     const model = isGrok ? grokModelFor(skill.modelTier) : this.resolveModel(skill.modelTier);
     const requestId = randomUUID();
@@ -206,5 +206,11 @@ export class AnthropicService {
     const model = models[tier];
     if (!model) throw new Error(`Anthropic model tier ${tier} is not configured.`);
     return model;
+  }
+
+  private resolveLlmProvider() {
+    return process.env.LLM_PROVIDER
+      || (process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY ? "groq" : "")
+      || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
   }
 }
