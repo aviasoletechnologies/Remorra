@@ -36,7 +36,7 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText?: string },
   ) {
     return this.admin.createSkill(actor, body);
   }
@@ -57,6 +57,25 @@ export class AdminController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.admin.createSkillVersion(actor, skillId, body);
+  }
+
+  @Patch("skills/:skillId/versions/:versionId")
+  updateSkillVersion(
+    @CurrentActor() actor: Actor,
+    @Param("skillId") skillId: string,
+    @Param("versionId") versionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.admin.updateSkillVersion(actor, skillId, versionId, body);
+  }
+
+  @Delete("skills/:skillId/versions/:versionId")
+  deleteSkillVersion(
+    @CurrentActor() actor: Actor,
+    @Param("skillId") skillId: string,
+    @Param("versionId") versionId: string,
+  ) {
+    return this.admin.deleteSkillVersion(actor, skillId, versionId);
   }
 
 

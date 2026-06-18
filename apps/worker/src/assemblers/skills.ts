@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ContextAssemblyMissingDataError } from "@remorra/ai-core";
 import { prisma } from "../lib/prisma";
 import { config } from "../config";
 import { decrypt } from "../lib/crypto";
@@ -153,13 +154,43 @@ export async function invokeSkill(input: {
       modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
       systemPrompt: withSkillDoneInstruction(skill.systemPrompt), // auto-appends <skill_done/> instruction
       contextRequirements: requirements,
+      inputSourceMap: skill.inputSourceMap as any,
       outputSchema: skill.outputSchema,
       constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
       tokenCeiling: skill.tokenCeiling,
       retryPolicy: skill.retryPolicy,
     },
     additionalSections,
+    contextRuntime: {
+      conversationId: input.conversationId,
+      skillId,
+      skillVersionId: skill.id,
+    },
     onDelta: input.onDelta,
+  }).catch((error) => {
+    if (error instanceof ContextAssemblyMissingDataError) {
+      const missing = error.missingInputs.join(", ");
+      return {
+        value: `I need a little more detail before I can run this skill. Missing or unavailable context: ${missing}. Please provide clearer details or update the skill input requirements so they map to known project data.`,
+        usage: { model: "context-assembler", inputTokens: 0, outputTokens: 0 },
+        skillVersion: skill.version,
+        skill: {
+          id: skill.skillId,
+          versionId: skill.id,
+          name: skill.skillId,
+          version: skill.version,
+          modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
+          systemPrompt: withSkillDoneInstruction(skill.systemPrompt),
+          contextRequirements: requirements,
+          inputSourceMap: skill.inputSourceMap as any,
+          outputSchema: skill.outputSchema,
+          constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
+          tokenCeiling: skill.tokenCeiling,
+          retryPolicy: skill.retryPolicy,
+        },
+      };
+    }
+    throw error;
   });
 
   return { text: result.value, skill: result.skill };
