@@ -165,8 +165,8 @@ export function AiWorkspacePage() {
     <Page className="h-[calc(100vh-64px)] !p-4 md:!p-6 flex flex-col overflow-hidden">
       <div className="w-full flex-1 flex flex-col min-h-0">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
-          <div className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 pb-32 min-h-0" aria-live="polite">
-            <div className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4">
+          <div className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
+            <div className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4 pb-40">
               {visibleMessages.length === 0 ? (
                 <div className="my-auto flex max-w-[520px] mx-auto gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
                   <Sparkles size={24} className="text-primary flex-shrink-0" />
@@ -214,7 +214,7 @@ export function AiWorkspacePage() {
             </div>
           </div>
 
-          <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pb-6 pt-10 w-full flex flex-col items-center">
+          <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-4 pb-6 pt-4 w-full flex flex-col items-center">
             <div className="max-w-4xl w-full">
               {send.error ? (
                 <p className="form-message mb-3 text-xs text-destructive text-center">
