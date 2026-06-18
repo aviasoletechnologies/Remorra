@@ -11,7 +11,6 @@ export async function projectContext(projectId: string) {
       cycles: true,
       raidItems: true,
       financeEntries: true,
-      viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
 }
@@ -80,14 +79,6 @@ export async function assembleContext(projectId: string, requirements: string[])
         );
         break;
       }
-      case "viability_score.current": {
-        const snapshot = await prisma.viabilitySnapshot.findFirst({
-          where: { projectId },
-          orderBy: { createdAt: "desc" },
-        });
-        sections.push(`<viability_score trust="trusted">${JSON.stringify(snapshot)}</viability_score>`);
-        break;
-      }
       case "founder.preferred_name": {
         const owner = await prisma.profile.findFirst({
           where: { ownedProjects: { some: { id: projectId } } },
@@ -122,22 +113,6 @@ export async function assembleContext(projectId: string, requirements: string[])
       case "finance.all": {
         const entries = await prisma.financeEntry.findMany({ where: { projectId } });
         sections.push(`<finance trust="trusted">${JSON.stringify(entries)}</finance>`);
-        break;
-      }
-      case "founder_pack.current": {
-        const pack = await prisma.founderPack.findFirst({
-          where: { projectId },
-          orderBy: { version: "desc" },
-        });
-        sections.push(`<founder_pack trust="trusted">${JSON.stringify(pack)}</founder_pack>`);
-        break;
-      }
-      case "product_pack.current": {
-        const pack = await prisma.productPack.findFirst({
-          where: { projectId },
-          orderBy: { version: "desc" },
-        });
-        sections.push(`<product_pack trust="trusted">${JSON.stringify(pack)}</product_pack>`);
         break;
       }
     }

@@ -38,9 +38,6 @@ export class PrismaProjectRepository implements ProjectRepository {
   async find(id: string): Promise<ProjectRecord | null> {
     const project = await this.prisma.client.project.findUnique({
       where: { id },
-      include: {
-        viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
     });
     if (!project) return null;
     return {
@@ -51,7 +48,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       phase: project.phase,
       role: "founder",
       version: project.version,
-      viabilityScore: project.viabilitySnapshots[0]?.overall ?? null,
+      viabilityScore: null,
       updatedAt: project.updatedAt.toISOString(),
     };
   }

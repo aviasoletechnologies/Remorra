@@ -199,7 +199,6 @@ describe("Admin & Support Ops Console Tests", () => {
         memberships: [
           { role: "admin", user: { id: "user-2", email: "user2@example.com", preferredName: "Alice" } },
         ],
-        viabilitySnapshots: [{ overall: 75, createdAt: new Date() }],
         jobs: [
           {
             id: "job-1",

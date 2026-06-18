@@ -664,8 +664,7 @@ export class AdminService {
       where: {
         OR: [
           { jobs: { some: { status: "failed", updatedAt: { gte: sevenDaysAgo } } } },
-          { raidItems: { some: { severity: "critical", status: { not: "done" } } } },
-          { viabilitySnapshots: { some: { overall: { lt: 50 } } } }
+          { raidItems: { some: { severity: "critical", status: { not: "done" } } } }
         ]
       },
       select: { id: true }
@@ -795,15 +794,13 @@ export class AdminService {
         memberships: { include: { user: true } },
         jobs: { where: { status: "failed" } },
         raidItems: { where: { severity: "critical", status: { not: "done" } } },
-        viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
 
     return projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
       const hasCriticalRisk = p.raidItems.length > 0;
-      const lowViability = p.viabilitySnapshots[0]?.overall < 50;
-      const isRisk = hasFailedJob || hasCriticalRisk || lowViability;
+      const isRisk = hasFailedJob || hasCriticalRisk;
 
       return {
         id: p.id,
@@ -812,7 +809,7 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: p.viabilitySnapshots[0]?.overall ?? null,
+        latestViabilityScore: null,
         isSupportRisk: isRisk,
         updatedAt: p.updatedAt,
       };
@@ -833,7 +830,6 @@ export class AdminService {
           memberships: true,
           jobs: { where: { status: "failed" } },
           raidItems: { where: { severity: "critical", status: { not: "done" } } },
-          viabilitySnapshots: { orderBy: { createdAt: "desc" }, take: 1 },
         },
         orderBy: { updatedAt: "desc" },
         skip,
@@ -845,8 +841,7 @@ export class AdminService {
     const items = projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
       const hasCriticalRisk = p.raidItems.length > 0;
-      const lowViability = p.viabilitySnapshots[0]?.overall < 50;
-      const isRisk = hasFailedJob || hasCriticalRisk || lowViability;
+      const isRisk = hasFailedJob || hasCriticalRisk;
 
       return {
         id: p.id,
@@ -855,7 +850,7 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: p.viabilitySnapshots[0]?.overall ?? null,
+        latestViabilityScore: null,
         isSupportRisk: isRisk,
         createdAt: p.createdAt,
       };
@@ -888,7 +883,6 @@ export class AdminService {
       include: {
         owner: true,
         memberships: { include: { user: true } },
-        viabilitySnapshots: { orderBy: { createdAt: "desc" } },
         jobs: { orderBy: { updatedAt: "desc" }, take: 30 },
       },
     });
@@ -950,10 +944,7 @@ export class AdminService {
         name: m.user.preferredName,
         role: m.role,
       })),
-      viabilityHistory: project.viabilitySnapshots.map((v: any) => ({
-        score: v.overall,
-        createdAt: v.createdAt,
-      })),
+      viabilityHistory: [],
       recentJobs: redactedJobs,
       recentAudits: redactedAudits,
       usageSpikePercent,
@@ -980,17 +971,7 @@ export class AdminService {
       { table: "user_story", group: "Entity" },
       { table: "task", group: "Entity" },
       // Refine
-      { table: "refine_session", group: "Refine" },
-      { table: "refine_proposal", group: "Refine" },
       { table: "structured_extract", group: "Refine" },
-      { table: "entity_link_check", group: "Refine" },
-      // Evolve
-      { table: "evolve_session", group: "Evolve" },
-      { table: "impact_item", group: "Evolve" },
-      // Output / Reports
-      { table: "viability_snapshot", group: "Output" },
-      { table: "founder_pack", group: "Output" },
-      { table: "product_pack", group: "Output" },
       // Cycle management
       { table: "cycle", group: "Cycle" },
       { table: "raid_item", group: "Cycle" },
