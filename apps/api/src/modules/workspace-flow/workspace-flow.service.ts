@@ -1,8 +1,37 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import _pdfParse from "pdf-parse";
+const pdfParse = (_pdfParse as any).default ?? _pdfParse;
+import mammoth from "mammoth";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 import { IntentRouterService } from "./intent-router.service.js";
+
+const MAX_DOCUMENT_CHARS = 20_000;
+
+async function extractDocumentText(file: Express.Multer.File): Promise<string> {
+  const ext = file.originalname.split(".").pop()?.toLowerCase();
+  const mime = file.mimetype;
+
+  if (mime === "text/plain" || ext === "txt") {
+    return file.buffer.toString("utf-8").slice(0, MAX_DOCUMENT_CHARS);
+  }
+
+  if (mime === "application/pdf" || ext === "pdf") {
+    const data = await pdfParse(file.buffer);
+    return data.text.slice(0, MAX_DOCUMENT_CHARS);
+  }
+
+  if (
+    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    ext === "docx"
+  ) {
+    const result = await mammoth.extractRawText({ buffer: file.buffer });
+    return result.value.slice(0, MAX_DOCUMENT_CHARS);
+  }
+
+  throw new BadRequestException(`Unsupported file type: ${mime || ext}. Use PDF, TXT, or DOCX.`);
+}
 
 type WorkspaceActiveSkill = {
   id: string;
@@ -43,23 +72,34 @@ export class WorkspaceFlowService {
     return this.serialize(conversation);
   }
 
-  async message(projectId: string, userId: string, rawContent: string) {
+  async message(projectId: string, userId: string, rawContent: string, file?: Express.Multer.File) {
     await this.access.require(projectId, userId, ["founder", "team"]);
     const content = rawContent.trim();
     if (!content) throw new BadRequestException("Message content is required.");
+
+    // Extract document text if a file was uploaded
+    let documentName: string | undefined;
+    let documentContent: string | undefined;
+    if (file) {
+      documentName = file.originalname;
+      documentContent = await extractDocumentText(file);
+    }
 
     const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);
     this.logger.debug(
       `Incoming workspace message project=${projectId} conversation=${conversation.id} user=${userId} activeSkill=${conversation.activeSkill?.id ?? "none"} contentPreview=${content.slice(0, 120)}`,
     );
-    await this.prisma.client.conversationMessage.create({
+
+    const savedMsg = await this.prisma.client.conversationMessage.create({
       data: {
         conversationId: conversation.id,
         actorId: userId,
         role: "user",
         content,
-        skillId: conversation.activeSkill?.id ?? null,        // save whichever skill was pinned when user sent this
+        skillId: conversation.activeSkill?.id ?? null,
         skillVersionId: conversation.activeSkill?.versionId ?? null,
+        documentName: documentName ?? null,
+        documentContent: documentContent ?? null,
       },
     });
 
@@ -74,6 +114,8 @@ export class WorkspaceFlowService {
         userId,
         skillId: activeSkill.id,
         content,
+        documentName,
+        documentContent,
       });
     }
 
@@ -89,12 +131,13 @@ export class WorkspaceFlowService {
         orderBy: { version: "desc" },
       });
 
+      // Use the message's own createdAt so history filter includes this activation message
       await this.prisma.client.conversation.update({
         where: { id: conversation.id },
         data: {
           activeSkillId:        intent.skillId,
           activeSkillVersionId: version.id,
-          activeSkillPinnedAt:  new Date(),
+          activeSkillPinnedAt:  savedMsg.createdAt,
         },
       });
       this.logger.log(
@@ -108,6 +151,8 @@ export class WorkspaceFlowService {
         skillId:        intent.skillId,
         skillVersionId: version.id,
         content,
+        documentName,
+        documentContent,
       });
       return { id: job.id };
     }
@@ -145,6 +190,8 @@ export class WorkspaceFlowService {
     skillId?: string;
     skillVersionId?: string;
     fallbackMode?: "general_chat";
+    documentName?: string;
+    documentContent?: string;
   }) {
     return this.queue.enqueue({
       queue: QUEUES.aiConversation,
@@ -156,6 +203,8 @@ export class WorkspaceFlowService {
         ...(input.skillVersionId ? { skillVersionId: input.skillVersionId } : {}),
         ...(input.fallbackMode ? { fallbackMode: input.fallbackMode } : {}),
         content: input.content,
+        ...(input.documentName ? { documentName: input.documentName } : {}),
+        ...(input.documentContent ? { documentContent: input.documentContent } : {}),
       },
     });
   }

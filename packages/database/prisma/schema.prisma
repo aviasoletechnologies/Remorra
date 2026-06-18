@@ -538,9 +538,11 @@ model ConversationMessage {
   actorId          String?      @db.Uuid
   role             String
   content          String
-  skillId          String?                                                   // which skill was active when this message was created
+  skillId          String?      // which skill was active when this message was created
   skillVersionId   String?      @db.Uuid                                    // exact skill version used
   createdAt        DateTime     @default(now())
+  documentName     String?
+  documentContent  String?
   conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   actor            Profile?     @relation(fields: [actorId], references: [id])
   skill            Skill?       @relation(fields: [skillId], references: [id], onDelete: SetNull)

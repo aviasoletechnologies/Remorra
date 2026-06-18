@@ -173,7 +173,7 @@ export class ContextAssemblyMissingDataError extends Error {
 }
 
 function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return value.toLowerCase().replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function toInputKey(entity: string, field: string): string {
