@@ -50,18 +50,4 @@ export class ProjectsController {
       body.phase,
     );
   }
-
-  @Get(":id/developer-export")
-  developerExport(@CurrentActor() actor: Actor, @Param("id") id: string) {
-    return this.projects.developerExport(id, actor.userId);
-  }
-
-  @Post(":id/developer-import")
-  developerImport(
-    @CurrentActor() actor: Actor,
-    @Param("id") id: string,
-    @Body() body: unknown,
-  ) {
-    return this.projects.developerImport(id, actor.userId, body);
-  }
 }
