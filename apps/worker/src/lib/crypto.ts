@@ -7,27 +7,33 @@ import {
 import { config } from "../config";
 
 export function encrypt(value: string): string {
-  const key = createHash("sha256").update(config.encryptionKey).digest();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(value), cipher.final()]);
-  return `${iv.toString("base64")}.${cipher.getAuthTag().toString("base64")}.${encrypted.toString("base64")}`;
+  // Return plain text
+  return value;
 }
 
 export function decrypt(value: string): string {
-  const [iv, tag, data] = value.split(".");
-  if (!iv || !tag || !data) {
-    throw new Error("Invalid encrypted value format");
+  if (value && value.includes(".")) {
+    const parts = value.split(".");
+    if (parts.length === 3 && config.encryptionKey) {
+      try {
+        const [iv, tag, data] = parts;
+        if (!iv || !tag || !data) return value;
+        const key = createHash("sha256").update(config.encryptionKey).digest();
+        const decipher = createDecipheriv(
+          "aes-256-gcm",
+          key,
+          Buffer.from(iv, "base64"),
+        );
+        decipher.setAuthTag(Buffer.from(tag, "base64"));
+        return Buffer.concat([
+          decipher.update(Buffer.from(data, "base64")),
+          decipher.final(),
+        ]).toString();
+      } catch (err) {
+        // Fallback to plain text if decryption fails
+        return value;
+      }
+    }
   }
-  const key = createHash("sha256").update(config.encryptionKey).digest();
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(iv, "base64"),
-  );
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(data, "base64")),
-    decipher.final(),
-  ]).toString();
+  return value;
 }

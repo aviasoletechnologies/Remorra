@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   TrendingUp,
   Users,
@@ -7,7 +8,6 @@ import {
   Settings,
 } from "lucide-react";
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
@@ -220,7 +220,7 @@ export function AdminPage() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-templates"] });
-      alert("Successfully created new template version!");
+      toast.success("Successfully created new template version!");
     },
   });
 
@@ -233,9 +233,11 @@ export function AdminPage() {
     onSuccess: (res: any) => {
       setPreviewHtml(res.html);
       setValidationError(null);
+      toast.success("Template rendering preview updated.");
     },
     onError: (err: any) => {
       setValidationError(err.message || "Template rendering preview failed.");
+      toast.error(err.message || "Template rendering preview failed.");
     },
   });
 
@@ -244,7 +246,7 @@ export function AdminPage() {
       api(`/admin/templates/${id}/versions/${versionId}/activate`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-templates"] });
-      alert("Template version activated transactionally!");
+      toast.success("Template version activated transactionally!");
     },
   });
 
@@ -256,7 +258,7 @@ export function AdminPage() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-cost-configs"] });
-      alert("Cost configuration updated successfully!");
+      toast.success("Cost configuration updated successfully!");
     },
   });
 
@@ -266,6 +268,10 @@ export function AdminPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      toast.success("Skill version activated!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to activate skill version.");
     },
   });
   const createSkillVersion = useMutation({
@@ -274,6 +280,10 @@ export function AdminPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
+      toast.success("Successfully created new skill version!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to create skill version.");
     },
   });
   const createSkillMutation = useMutation({
@@ -291,38 +301,67 @@ export function AdminPage() {
       setNewSkillDesc("");
       setNewSkillPrompt("");
       setSkillCreateError(null);
-      alert("Skill created successfully!");
+      toast.success("Skill created successfully!");
     },
     onError: (err: any) => {
       setSkillCreateError(err.message || "Failed to create skill.");
+      toast.error(err.message || "Failed to create skill.");
     }
   });
   const createKnowledgeVersion = useMutation({
     mutationFn: ({ id, markdown }: { id: string; markdown: string }) =>
       api(`/admin/knowledge-bases/${id}/versions`, { method: "POST", body: JSON.stringify({ markdown, activate: true }) }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
+      toast.success("Knowledge base version updated!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to update knowledge base.");
+    },
   });
   const createReportVersion = useMutation({
     mutationFn: ({ id, templateKey }: { id: string; templateKey: string }) =>
       api(`/admin/reports/${id}/versions`, { method: "POST", body: JSON.stringify({ templateKey, activate: true }) }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-reports"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
+      toast.success("Report version updated!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to update report version.");
+    },
   });
   const retryJob = useMutation({
     mutationFn: (id: string) => api(`/admin/jobs/${id}/retry`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-jobs"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-jobs-metrics"] });
+      toast.success("Job retry scheduled!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to retry job.");
     },
   });
   const updateRetention = useMutation({
     mutationFn: ({ id, retentionDays }: { id: string; retentionDays: number }) =>
       api(`/admin/retention/${id}`, { method: "PATCH", body: JSON.stringify({ retentionDays }) }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-retention"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-retention"] });
+      toast.success("Retention policy updated!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to update retention policy.");
+    },
   });
   const updateRole = useMutation({
     mutationFn: ({ id, platformRole }: { id: string; platformRole: string }) =>
       api(`/admin/users/${id}/platform-role`, { method: "PATCH", body: JSON.stringify({ platformRole }) }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("User role updated successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to update user role.");
+    },
   });
 
   const previewSelectedTemplate = () => {
@@ -516,7 +555,7 @@ export function AdminPage() {
         />
       )}
       {/* Skill Edit Modal */}
-      {editingSkill && createPortal(
+      {editingSkill && (
         <div className="admin-modal-overlay">
           <Card className="admin-modal-content">
             <div className="modal-header">
@@ -580,12 +619,11 @@ export function AdminPage() {
               })()}
             </div>
           </Card>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* Skill Create Modal */}
-      {isCreateSkillOpen && createPortal(
+      {isCreateSkillOpen && (
         <div className="admin-modal-overlay">
           <Card className="admin-modal-content">
             <div className="modal-header">
@@ -666,8 +704,7 @@ export function AdminPage() {
               </div>
             </div>
           </Card>
-        </div>,
-        document.body
+        </div>
       )}
     </Page>
   );

@@ -1179,6 +1179,16 @@ a {
   padding: 20px;
   background: oklch(0.21 0.04 265 / 0.45);
   backdrop-filter: blur(6px);
+  transition: left 0.15s ease-in-out;
+}
+
+@media (min-width: 768px) {
+  .admin-modal-overlay {
+    left: var(--sidebar-width);
+  }
+  .peer[data-state="collapsed"] ~ * .admin-modal-overlay {
+    left: var(--sidebar-width-icon);
+  }
 }
 
 .admin-modal-content {

@@ -2,34 +2,6 @@ import { createPrismaClient } from "../src/index";
 
 const prisma = createPrismaClient();
 
-const skills: readonly [string, string, string, string, number, string, readonly string[]][] = [
-  ["brain-dump-facilitator", "Brain Dump Facilitator", "Captures the founder's raw product idea and clarifies the problem, audience, concept, vision, and context.", "standard", 1800, "Guide a non-technical founder to describe the problem, audience, product concept, vision, and commercial context. Ask one clear question at a time. Do not invent facts.",
-    ["project.metadata", "founder.preferred_name"]],
-  ["entity-extractor", "Entity Extractor", "Extracts structured facts from conversation and returns strict JSON.", "fast", 2400, "Extract only facts supported by the supplied conversation. Return strict JSON matching the requested schema. Use null when evidence is missing.",
-    ["project.metadata"]],
-  ["founder-pack-generator", "Founder Pack Generator", "Drafts the Founder Pack from confirmed Discover evidence and separates facts from assumptions.", "standard", 3000, "Draft a concise Founder Pack from confirmed Discover data. Separate evidence from assumptions.",
-    ["project.metadata", "founder_pack.current"]],
-  ["refine-prompter", "Refine Prompter", "Validates the Founder Pack and expands it into ambitions, OKRs, personas, pain points, and user needs.", "standard", 1800, "Help the founder validate the Founder Pack and define connected ambitions, measurable OKRs, personas, pain points, and user needs. Propose records but never claim they are confirmed.",
-    ["project.metadata", "founder_pack.current", "ambitions.all", "personas.all_with_pain_points_and_user_needs"]],
-  ["linkage-contradiction-checker", "Linkage Contradiction Checker", "Checks linked entities for contradictions and evidence gaps.", "standard", 1800, "Review linked entities for logical contradictions only. Return structured findings with evidence.",
-    ["linkage_map.full"]],
-  ["viability-score-calculator", "Viability Score Calculator", "Scores product readiness across problem, audience, concept, vision, commercial context, linkage, and cohesion.", "standard", 2400, "Score the product across 10 equally weighted components (10% each): problem_articulation, audience_profile, product_concept, vision_statement, commercial_context, ambitions, okrs, personas, user_needs, and cohesion. Return 0-100 scores per component, overall score, rationale, prioritized actions, and a 10-item build-readiness checklist. Score only against supplied evidence.",
-    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "viability_score.current", "founder_pack.current", "product_pack.current"]],
-  ["daily-meeting-summary", "Daily Meeting Summary", "Summarizes daily standup updates, blockers, and active cycle context.", "standard", 1200, "Summarize yesterday, today, blockers, and active cycle context. Highlight decisions and owners without inventing assignments.",
-    ["project.metadata", "tasks.all", "cycles.all"]],
-  ["retrospective-insights", "Retrospective Insights", "Turns retrospective evidence into recurring themes and actionable improvements.", "standard", 1600, "Identify recurring strengths, improvement themes, and actionable experiments from the retrospective and cycle evidence.",
-    ["project.metadata", "cycles.all", "tasks.all", "raid_items.all"]],
-  ["report-generator", "Report Generator", "Creates structured product intelligence reports from immutable snapshots.", "standard", 4000, "Generate a structured product intelligence report from the supplied immutable snapshot. Clearly distinguish observed facts, analysis, risks, and recommended actions. Return JSON.",
-    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "tasks.all", "cycles.all", "raid_items.all", "finance.all", "viability_score.current"]],
-  ["build-checklist-generator", "Build Checklist Generator", "Creates a delivery setup checklist from the Product Pack, stories, risks, and cycle.", "standard", 1800, "Create a build setup checklist grounded in the supplied Product Pack, stories, risks, and cycle.",
-    ["project.metadata", "product_pack.current", "user_stories.all", "tasks.all", "raid_items.all", "cycles.all"]],
-  ["evolve-facilitator", "Evolve Facilitator", "Guides discussion of proposed product changes and tradeoffs without applying them.", "standard", 2200, "Help the founder reason about a proposed product change. Never apply changes. Make assumptions and tradeoffs explicit.",
-    ["project.metadata", "linkage_map.full", "viability_score.current"]],
-  ["impact-screener", "Impact Screener", "Assesses the impact of proposed changes across linked product entities.", "reasoning", 3000, "Assess proposed changes across linked entities. Return red, amber, or green impact items with reasoning and proposed changes.",
-    ["project.metadata", "linkage_map.full", "viability_score.current"]],
-  ["document-drafter", "Document Drafter", "Drafts clean documents from confirmed product records only.", "standard", 3500, "Draft a clear document from confirmed product records. Do not include unsupported claims.",
-    ["project.metadata", "ambitions.all", "personas.all_with_pain_points_and_user_needs", "user_stories.all", "viability_score.current"]],
-] as const;
 
 const reportDefinitions = [
   ["product-health", "Product Health", "Linkage, decision, evidence, and viability health across DRIVE."],
@@ -59,31 +31,6 @@ p, li { font-size: 11px; line-height: 1.55; color: #445149; }
 footer { position: fixed; bottom: 0; font-size: 9px; color: #68736b; }`;
 
 async function main() {
-  for (const [id, name, description, modelTier, tokenCeiling, systemPrompt, contextRequirements] of skills) {
-    await prisma.skill.upsert({
-      where: { id },
-      create: {
-        id,
-        name,
-        description,
-        versions: {
-          create: {
-            version: 1,
-            active: true,
-            modelTier,
-            systemPrompt,
-            contextRequirements: [...contextRequirements],
-            outputSchema: {},
-            constraints: [],
-            examples: [],
-            retryPolicy: { limit: 4, backoff: true },
-            tokenCeiling,
-          },
-        },
-      },
-      update: { name, description },
-    });
-  }
 
 
 
@@ -482,27 +429,6 @@ async function main() {
       create: { id, description, retentionDays },
       update: { description, retentionDays },
     });
-  }
-
-  const mappings = [
-    { eventType: "pain_point.create", skillId: "entity-extractor", targetQueue: "ai.conversation", conditions: {} },
-    { eventType: "viability_snapshot.create", skillId: "viability-score-calculator", targetQueue: "ai.extract", conditions: {} },
-  ];
-  for (const mapping of mappings) {
-    const existingMapping = await prisma.skillEventMapping.findFirst({
-      where: { eventType: mapping.eventType, skillId: mapping.skillId },
-    });
-    if (!existingMapping) {
-      await prisma.skillEventMapping.create({
-        data: {
-          eventType: mapping.eventType,
-          skillId: mapping.skillId,
-          targetQueue: mapping.targetQueue,
-          conditions: mapping.conditions,
-          active: true,
-        },
-      });
-    }
   }
 }
 
