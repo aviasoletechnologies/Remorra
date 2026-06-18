@@ -2,27 +2,18 @@ import { prisma } from "../lib/prisma";
 
 export async function assembleFounderPackData(projectId: string): Promise<any> {
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-  const latestPack = await prisma.founderPack.findFirst({
-    where: { projectId, confirmedAt: { not: null } },
-    orderBy: { version: "desc" },
-  });
-  const content = (latestPack?.content as any) || {};
   return {
     projectName: project.name,
-    summary: content.summary || "No executive summary available.",
-    vision: content.vision || "No vision statement available.",
-    targetAudience: content.targetAudience || "No target audience defined.",
-    keyFeatures: Array.isArray(content.keyFeatures) ? content.keyFeatures : [],
-    revenueModel: content.revenueModel || "No revenue model defined.",
+    summary: "No executive summary available.",
+    vision: "No vision statement available.",
+    targetAudience: "No target audience defined.",
+    keyFeatures: [],
+    revenueModel: "No revenue model defined.",
   };
 }
 
 export async function assembleProductPackData(projectId: string): Promise<any> {
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-  const latestPack = await prisma.productPack.findFirst({
-    where: { projectId },
-    orderBy: { version: "desc" },
-  });
 
   const ambitions = await prisma.ambition.findMany({
     where: { projectId },
@@ -49,8 +40,8 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
 
   return {
     projectName: project.name,
-    coveragePercent: latestPack?.coveragePercent ?? coveragePercent,
-    linkageValid: latestPack?.linkageValid ?? Boolean(completeThread),
+    coveragePercent: coveragePercent,
+    linkageValid: Boolean(completeThread),
     ambitions: ambitions.map((a: any) => ({ id: a.id, title: a.title, detail: a.detail })),
     personas: personas.map((p: any) => ({
       id: p.id,
@@ -65,10 +56,6 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
 export async function assembleInvestorPackData(projectId: string): Promise<any> {
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
   const productPack = await assembleProductPackData(projectId);
-  const viability = await prisma.viabilitySnapshot.findFirst({
-    where: { projectId },
-    orderBy: { createdAt: "desc" },
-  });
   const activeCycle = await prisma.cycle.findFirst({
     where: { projectId, status: "active" },
   });
@@ -86,8 +73,8 @@ export async function assembleInvestorPackData(projectId: string): Promise<any> 
 
   return {
     projectName: project.name,
-    viabilityScore: viability?.overall ?? 0,
-    viabilityRationale: viability?.rationale || "No viability rationale provided.",
+    viabilityScore: 0,
+    viabilityRationale: "No viability rationale provided.",
     productCoveragePercent: productPack.coveragePercent,
     deliveryLinkageValid: productPack.linkageValid,
     activeSprintCompletedTasks: completedTasks,
