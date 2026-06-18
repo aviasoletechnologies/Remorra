@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal } from "lucide-react";
+import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
@@ -28,11 +28,13 @@ export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isTextareaScrollable, setIsTextareaScrollable] = useState(false);
 
   const { data: conversation, isLoading, error } = useQuery({
@@ -55,6 +57,7 @@ export function AiWorkspacePage() {
       const pendingId = globalThis.crypto.randomUUID();
       setPendingMessages((current) => [...current, { id: pendingId, role: "user", content }]);
       setMessage("");
+      setAttachedFile(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -63,9 +66,14 @@ export function AiWorkspacePage() {
       useWorkspaceStore.getState().setStreamState("connecting");
 
       try {
+        const formData = new FormData();
+        formData.append("content", content);
+        if (attachedFile) {
+          formData.append("file", attachedFile);
+        }
         const result = await api<{ id: string | null }>(`/workspace/projects/${projectId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ content }),
+          body: formData,
         });
 
         const jobId = result.id;
@@ -225,10 +233,47 @@ export function AiWorkspacePage() {
                   Connection interrupted. Resuming stream...
                 </p>
               )}
-              
+
+              {attachedFile ? (
+                <div className="flex items-center gap-1.5 mb-2 px-1">
+                  <span className="text-xs text-zinc-500 bg-zinc-100 rounded-full px-2.5 py-0.5 flex items-center gap-1 max-w-[240px] truncate">
+                    <Paperclip size={10} className="shrink-0" />
+                    <span className="truncate">{attachedFile.name}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachedFile(null)}
+                    className="text-zinc-400 hover:text-zinc-600"
+                    title="Remove file"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : null}
+
               <div className={`rounded-[24px] border border-zinc-200 bg-white/90 shadow-xs flex px-4 py-2 gap-3 focus-within:bg-white focus-within:ring-2 focus-within:ring-zinc-100 focus-within:border-zinc-300 transition-all ${
                 isTextareaScrollable ? "items-end" : "items-center"
               }`}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.txt,.docx"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setAttachedFile(file);
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-zinc-400 hover:text-zinc-600 shrink-0 transition-colors"
+                  title="Attach document (PDF, TXT, DOCX)"
+                >
+                  <Paperclip size={15} />
+                </button>
                 <textarea
                   ref={textareaRef}
                   style={{ outline: 'none', boxShadow: 'none', overflowY: isTextareaScrollable ? 'auto' : 'hidden', resize: 'none' }}

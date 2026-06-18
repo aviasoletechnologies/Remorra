@@ -140,6 +140,8 @@ export async function handleConversation(payload: Payload) {
           conversationId: conversationId || undefined,
           content: String(payload.content),
           context: flowState?.context ?? (await projectContext(projectId)),
+          documentName: typeof payload.documentName === "string" && payload.documentName ? payload.documentName : undefined,
+          documentContent: typeof payload.documentContent === "string" && payload.documentContent ? payload.documentContent : undefined,
           onDelta: async (delta, accumulated) => {
             queue.push({ type: "token", delta });
             // Occasional snapshot (approx. every 15-20 tokens)
@@ -157,7 +159,7 @@ export async function handleConversation(payload: Payload) {
         skillId: result.skill.id,
         version: result.skill.version,
         modelTier: result.skill.modelTier,
-        model: selectedModelFor(result.skill.modelTier),
+        model: selectedModelFor(result.skill.modelTier ?? "standard"),
         rawInput: {
           systemPrompt: result.skill.systemPrompt ?? null,
           userMessage: String(payload.content),
@@ -212,6 +214,7 @@ export async function handleConversation(payload: Payload) {
         }
       }
     }
+
 
 
     // ── DB saves — collect all events fired ─────────────────────────────────
@@ -453,7 +456,7 @@ export async function handleConversation(payload: Payload) {
       snapshot: displayText,
       metadata: {
         modelTier: result.skill.modelTier,
-        model: selectedModelFor(result.skill.modelTier),
+        model: selectedModelFor(result.skill.modelTier ?? "standard"),
         outputTokens: result.text.length / 4,
         skillDone: skillIsDone,
         rawInput: {

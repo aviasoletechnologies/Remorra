@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { Throttle } from "@nestjs/throttler";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { WorkspaceFlowService } from "./workspace-flow.service.js";
@@ -14,12 +15,14 @@ export class WorkspaceFlowController {
 
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   @Post("projects/:projectId/messages")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
   message(
     @CurrentActor() actor: Actor,
     @Param("projectId") projectId: string,
-    @Body() body: { content?: string },
+    @Body("content") content: string,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.workspace.message(projectId, actor.userId, body.content ?? "");
+    return this.workspace.message(projectId, actor.userId, content ?? "", file);
   }
 
   @Post("projects/:projectId/actions")

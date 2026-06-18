@@ -84,8 +84,8 @@ export const orchestrator = new AiOrchestrator(
     async invoke(invocation) {
       const isGrok = config.isGrok;
       const model = isGrok
-        ? grokModelFor(invocation.skill.modelTier)
-        : modelFor(invocation.skill.modelTier);
+        ? grokModelFor(invocation.skill.modelTier ?? "standard")
+        : modelFor(invocation.skill.modelTier ?? "standard");
       const messages = buildSkillMessages(invocation.sections);
       console.info(
         `[llm:invoke] skillId=${invocation.skill.id} model=${model} turns=${messages.length} systemPromptLen=${invocation.skill.systemPrompt?.length ?? 0}`,
@@ -197,7 +197,7 @@ export const orchestrator = new AiOrchestrator(
         ),
       );
       if (isGrok) {
-        const model = grokModelFor(invocation.skill.modelTier);
+        const model = grokModelFor(invocation.skill.modelTier ?? "standard");
         yield* streamGrok({
           model,
           max_tokens: invocation.skill.tokenCeiling ?? 4096,
@@ -206,7 +206,7 @@ export const orchestrator = new AiOrchestrator(
         });
       } else {
         if (!anthropic) throw new Error("Anthropic client is not initialized.");
-        const model = modelFor(invocation.skill.modelTier);
+        const model = modelFor(invocation.skill.modelTier ?? "standard");
         const stream = anthropic.messages.stream({
           model,
           max_tokens: invocation.skill.tokenCeiling ?? 4096,

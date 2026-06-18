@@ -63,7 +63,9 @@ export async function invokeSkill(input: {
   projectId: string;
   conversationId?: string;
   content: string;
-  context: unknown;
+  context?: unknown;
+  documentName?: string;
+  documentContent?: string;
   onDelta?: (delta: string, accumulated: string) => Promise<void>;
 }) {
   // Free tier budget check
@@ -77,31 +79,12 @@ export async function invokeSkill(input: {
         orderBy: { version: "desc" },
       });
 
-  if (!process.env.DEFAULT_MODEL_TIER) {
-    throw new Error("Missing required environment variable: DEFAULT_MODEL_TIER");
-  }
-  if (!process.env.DEFAULT_TOKEN_CEILING) {
-    throw new Error("Missing required environment variable: DEFAULT_TOKEN_CEILING");
-  }
-  const modelTier = process.env.DEFAULT_MODEL_TIER as any;
-  const tokenCeiling = Number(process.env.DEFAULT_TOKEN_CEILING);
-  if (Number.isNaN(tokenCeiling)) {
-    throw new Error("Invalid DEFAULT_TOKEN_CEILING environment variable; must be a number");
-  }
-
-  const additionalSections: any[] = [];
-
   // Legacy context fallback if requirements are empty
   const requirements = Array.isArray(skill.contextRequirements)
     ? (skill.contextRequirements as string[])
     : [];
-  if (requirements.length === 0) {
-    additionalSections.push({
-      tag: "application_context",
-      trust: "application",
-      content: JSON.stringify(input.context),
-    });
-  }
+
+  const additionalSections: any[] = [];
 
   // KB injection for evolve/document skills
   const kbSections = await injectKnowledgeBases(input.content, skillId);
@@ -113,10 +96,11 @@ export async function invokeSkill(input: {
     });
   }
 
-  // Conversation history — gives conversational skills (e.g. Brain Dump) full context.
-  // Only include messages from AFTER the skill was pinned so pre-skill general-chat
-  // responses don't bleed into the skill context and corrupt the LLM's style.
+  // Determine context requirements for this turn and build history
+  let contextReqsForThisTurn = requirements;
+
   if (input.conversationId) {
+    // Conversational skill — detect turn 1 vs turn 2+
     const conversation = await prisma.conversation.findUnique({
       where: { id: input.conversationId },
       select: { activeSkillPinnedAt: true },
@@ -129,12 +113,15 @@ export async function invokeSkill(input: {
       },
       orderBy: { createdAt: "asc" },
     });
-    if (pastMessages.length > 0) {
+
+    if (pastMessages.length === 0) {
+      // Turn 1: assembler runs with full requirements
+      contextReqsForThisTurn = requirements;
+    } else {
+      // Turn 2+: assembler skips, inject history instead
+      contextReqsForThisTurn = [];
       const historyText = pastMessages
-        .map(
-          (m: any) =>
-            `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`,
-        )
+        .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
       additionalSections.push({
         tag: "conversation_history",
@@ -142,14 +129,47 @@ export async function invokeSkill(input: {
         content: historyText,
       });
     }
+  } else {
+    // Flow helper (no conversationId) — keep legacy fallback if requirements empty
+    if (requirements.length === 0) {
+      additionalSections.push({
+        tag: "application_context",
+        trust: "application",
+        content: JSON.stringify(input.context),
+      });
+    }
   }
 
-  // User message
+  // Document injection (current message only, any turn)
+  if (input.documentName && input.documentContent) {
+    additionalSections.push({
+      tag: "document",
+      trust: "user",
+      content: `File: ${input.documentName}\n\n${input.documentContent}`,
+    });
+  }
+
+  // User message (always last)
   additionalSections.push({
     tag: "user_message",
     trust: "user",
     content: input.content,
   });
+
+  // Fetch project + founder for system prompt suffix (conversational skills only)
+  let systemPromptSuffix = "";
+  if (input.conversationId) {
+    const project = await prisma.project.findUnique({
+      where: { id: input.projectId },
+      select: { name: true, phase: true, owner: { select: { preferredName: true } } },
+    });
+    if (project) {
+      systemPromptSuffix = `\n---\nProject: ${project.name} | Phase: ${project.phase}`;
+      if (project.owner?.preferredName) {
+        systemPromptSuffix += `\nFounder: ${project.owner.preferredName}`;
+      }
+    }
+  }
 
   // Call the centralized orchestrator
   const result = await orchestrator.invoke<string>({
@@ -162,13 +182,13 @@ export async function invokeSkill(input: {
       versionId: skill.id,
       name: skill.skillId,
       version: skill.version,
-      modelTier,
-      systemPrompt: withSkillDoneInstruction(skill.systemPrompt), // auto-appends <skill_done/> instruction
-      contextRequirements: requirements,
+      modelTier: (skill.modelTier ?? "standard") as "fast" | "standard" | "reasoning",
+      systemPrompt: withSkillDoneInstruction(skill.systemPrompt) + systemPromptSuffix,
+      contextRequirements: contextReqsForThisTurn,
       inputSourceMap: skill.inputSourceMap as any,
       outputSchema: skill.outputSchema,
       constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
-      tokenCeiling,
+      tokenCeiling: skill.tokenCeiling,
       retryPolicy: skill.retryPolicy,
     },
     additionalSections,
@@ -190,13 +210,13 @@ export async function invokeSkill(input: {
           versionId: skill.id,
           name: skill.skillId,
           version: skill.version,
-          modelTier,
-          systemPrompt: withSkillDoneInstruction(skill.systemPrompt),
-          contextRequirements: requirements,
+          modelTier: (skill.modelTier ?? "standard") as "fast" | "standard" | "reasoning",
+          systemPrompt: withSkillDoneInstruction(skill.systemPrompt) + systemPromptSuffix,
+          contextRequirements: contextReqsForThisTurn,
           inputSourceMap: skill.inputSourceMap as any,
           outputSchema: skill.outputSchema,
           constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
-          tokenCeiling,
+          tokenCeiling: skill.tokenCeiling,
           retryPolicy: skill.retryPolicy,
         },
       };
