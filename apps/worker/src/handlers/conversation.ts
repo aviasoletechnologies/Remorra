@@ -213,24 +213,6 @@ export async function handleConversation(payload: Payload) {
       }
     }
 
-    // Push SSE completed event to frontend (streaming is done)
-    queue.push({
-      type: "completed",
-      snapshot: displayText,
-      metadata: {
-        modelTier: result.skill.modelTier,
-        model: selectedModelFor(result.skill.modelTier),
-        outputTokens: result.text.length / 4,
-        skillDone: skillIsDone,
-        rawInput: {
-          systemPrompt: result.skill.systemPrompt ?? null,
-          userMessage: String(payload.content),
-        },
-        rawOutput: result.text,
-      },
-    });
-    await flush();
-    await flushPromise;
 
     // ── DB saves — collect all events fired ─────────────────────────────────
     // Each DB write fires a named event. We collect them all so we can check
@@ -464,6 +446,25 @@ export async function handleConversation(payload: Payload) {
         void flush();
       }
     }
+
+    // Push SSE completed event to frontend (streaming is done)
+    queue.push({
+      type: "completed",
+      snapshot: displayText,
+      metadata: {
+        modelTier: result.skill.modelTier,
+        model: selectedModelFor(result.skill.modelTier),
+        outputTokens: result.text.length / 4,
+        skillDone: skillIsDone,
+        rawInput: {
+          systemPrompt: result.skill.systemPrompt ?? null,
+          userMessage: String(payload.content),
+        },
+        rawOutput: result.text,
+      },
+    });
+    await flush();
+    await flushPromise;
 
     return {
       response: result.text,
