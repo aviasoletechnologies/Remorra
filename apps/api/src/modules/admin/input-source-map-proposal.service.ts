@@ -9,13 +9,12 @@ function resolveLlmProvider(): string {
 }
 
 function grokModelFor() {
-  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
-  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
-  return process.env.GROK_MODEL_FAST
+  const model = process.env.GROK_MODEL_FAST
     || process.env.GROQ_MODEL_FAST
     || process.env.GROK_MODEL_STANDARD
-    || process.env.GROQ_MODEL_STANDARD
-    || (isGroq ? "llama-3.3-70b-versatile" : "grok-2-1212");
+    || process.env.GROQ_MODEL_STANDARD;
+  if (!model) throw new Error("Grok/Groq model environment variable is required");
+  return model;
 }
 
 async function invokeGrok(input: {

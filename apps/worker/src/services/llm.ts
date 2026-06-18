@@ -19,13 +19,14 @@ export const anthropic = !config.isGrok && config.anthropicApiKey
   : null;
 
 export function modelFor(tier: string): string {
-  return required(
-    tier === "fast"
-      ? "ANTHROPIC_MODEL_FAST"
-      : tier === "reasoning"
-        ? "ANTHROPIC_MODEL_REASONING"
-        : "ANTHROPIC_MODEL_STANDARD",
-  );
+  const envKey = tier.toUpperCase().replace(/[:.-]/g, "_");
+  if (process.env[envKey]) return process.env[envKey]!;
+
+  if (tier === "fast") return required("ANTHROPIC_MODEL_FAST");
+  if (tier === "reasoning") return required("ANTHROPIC_MODEL_REASONING");
+  if (tier === "standard") return required("ANTHROPIC_MODEL_STANDARD");
+
+  throw new Error(`Anthropic model environment variable for tier "${tier}" is required and not configured.`);
 }
 
 export function selectedModelFor(tier: string): string {

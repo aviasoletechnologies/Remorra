@@ -52,13 +52,23 @@ const SMALL_TALK_PATTERNS = [
 ];
 
 function grokModelFor(tier: string) {
-  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
-  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
-  const defaultModel = isGroq ? "llama-3.3-70b-versatile" : "grok-2-1212";
+  const envKey = tier.toUpperCase().replace(/[:.-]/g, "_");
+  if (process.env[envKey]) return process.env[envKey]!;
 
-  if (tier === "fast") return process.env.GROK_MODEL_FAST || process.env.GROQ_MODEL_FAST || defaultModel;
-  if (tier === "reasoning") return process.env.GROK_MODEL_REASONING || process.env.GROQ_MODEL_REASONING || defaultModel;
-  return process.env.GROK_MODEL_STANDARD || process.env.GROQ_MODEL_STANDARD || defaultModel;
+  if (tier === "fast") {
+    const model = process.env.GROK_MODEL_FAST || process.env.GROQ_MODEL_FAST;
+    if (!model) throw new Error("GROK_MODEL_FAST or GROQ_MODEL_FAST environment variable is required");
+    return model;
+  }
+  if (tier === "reasoning") {
+    const model = process.env.GROK_MODEL_REASONING || process.env.GROQ_MODEL_REASONING;
+    if (!model) throw new Error("GROK_MODEL_REASONING or GROQ_MODEL_REASONING environment variable is required");
+    return model;
+  }
+
+  const model = process.env.GROK_MODEL_STANDARD || process.env.GROQ_MODEL_STANDARD;
+  if (!model) throw new Error("GROK_MODEL_STANDARD or GROQ_MODEL_STANDARD environment variable is required");
+  return model;
 }
 
 async function invokeGrok(input: {
@@ -75,7 +85,7 @@ async function invokeGrok(input: {
 
   const payload = {
     model: input.model,
-    max_tokens: input.max_tokens,
+    max_tokens: input.max_tokens ? Math.min(input.max_tokens, 32768) : undefined,
     temperature: input.temperature ?? 0,
     messages: [
       ...(input.system ? [{ role: "system", content: input.system }] : []),
@@ -198,7 +208,8 @@ export class IntentRouterService {
         };
       }
       try {
-        const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD ?? "claude-sonnet-4-6";
+        const model = process.env.ANTHROPIC_MODEL_FAST ?? process.env.ANTHROPIC_MODEL_STANDARD;
+        if (!model) throw new Error("ANTHROPIC_MODEL_FAST or ANTHROPIC_MODEL_STANDARD environment variable is required");
         const response = await this.client.messages.create({
           model,
           max_tokens: 256,

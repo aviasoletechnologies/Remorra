@@ -167,7 +167,7 @@ export class AdminService {
           skillId: id,
           version: 1,
           active: true,
-          modelTier: "model:claude-sonnet-4-6",
+          modelTier: process.env.DEFAULT_MODEL_TIER || "standard",
           systemPrompt,
           contextRequirements: {},
           inputRequirementText,
