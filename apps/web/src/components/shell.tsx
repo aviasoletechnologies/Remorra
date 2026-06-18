@@ -35,7 +35,7 @@ import { useWorkspaceStore, type LogEvent } from "../lib/store";
 import { supabase } from "../lib/supabase";
 import { cn } from "../lib/utils";
 import { motionTransition } from "../lib/motion";
-import { Avatar, Badge, Button } from "./ui";
+import { Avatar, Badge, Button, Card } from "./ui";
 import { buttonVariants } from "./ui/button";
 import { EmptyState } from "./app-ui";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
@@ -196,17 +196,23 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
 
   if (actor && (!actor.privacyPolicyVersion || !actor.termsVersion)) {
     return (
-      <main className="configuration-page">
-        <div className="brand-mark">R</div>
-        <Badge tone="green">Privacy choices</Badge>
-        <h1 className="text-2xl font-bold tracking-tight">Confirm how Remorra handles your data</h1>
-        <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-          Remorra stores product conversations, generated documents, and usage evidence to provide the DRIVE workflow.
-          You can export or schedule deletion from Privacy & data.
-        </p>
-        <Button disabled={consent.isPending} onClick={() => consent.mutate()}>
-          {consent.isPending ? "Recording..." : "Accept terms and continue"}
-        </Button>
+      <main className="configuration-page w-full bg-background relative overflow-hidden">
+        {/* Soft background radial glows */}
+        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-accent/5 rounded-full blur-[120px] pointer-events-none" />
+        
+        <Card className="max-w-lg w-full p-8 flex flex-col items-center text-center gap-6 shadow-[var(--shadow-card-hover)] border border-border/80 bg-card/85 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-300">
+          <div className="brand-mark">R</div>
+          <Badge tone="green" className="px-3 py-1 text-[10px] tracking-wider font-bold uppercase">Privacy choices</Badge>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Confirm how Remorra handles your data</h1>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Remorra stores product conversations, generated documents, and usage evidence to provide the DRIVE workflow.
+            You can export or schedule deletion from Privacy & data.
+          </p>
+          <Button className="w-full mt-2" disabled={consent.isPending} onClick={() => consent.mutate()}>
+            {consent.isPending ? "Recording..." : "Accept terms and continue"}
+          </Button>
+        </Card>
       </main>
     );
   }

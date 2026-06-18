@@ -130,7 +130,10 @@ export class AdminService {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
 
-    const { id, name, description, systemPrompt } = body;
+    const id = body.id?.trim();
+    const name = body.name?.trim();
+    const description = body.description?.trim();
+    const { systemPrompt } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
