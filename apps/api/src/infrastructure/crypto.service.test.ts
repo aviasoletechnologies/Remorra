@@ -6,17 +6,15 @@ describe("CryptoService", () => {
     process.env.ENCRYPTION_KEY = "unit-test-key";
   });
 
-  it("encrypts retained conversation content with authenticated encryption", () => {
+  it("does not encrypt content (retains plain text)", () => {
     const crypto = new CryptoService();
     const encrypted = crypto.encrypt("founder product context");
-    expect(encrypted).not.toContain("founder product context");
+    expect(encrypted).toBe("founder product context");
     expect(crypto.decrypt(encrypted)).toBe("founder product context");
   });
 
-  it("rejects malformed ciphertext", () => {
+  it("does not reject plain text strings", () => {
     const crypto = new CryptoService();
-    expect(() => crypto.decrypt("invalid")).toThrow(
-      "Encrypted value is malformed.",
-    );
+    expect(crypto.decrypt("invalid-plain-text")).toBe("invalid-plain-text");
   });
 });

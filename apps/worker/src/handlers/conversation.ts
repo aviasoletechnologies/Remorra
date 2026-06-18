@@ -4,6 +4,7 @@ import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
+import { applyGenericExtractMappings } from "../services/extract-mapper";
 
 export type Payload = Record<string, unknown> & { jobRecordId: string };
 
@@ -227,6 +228,39 @@ export async function handleConversation(payload: Payload) {
         console.info(
           `[worker:conversation] structured extract saved project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
         );
+        queue.push({
+          type: "log",
+          delta: `[DB] Saved structured JSON extract matching the skill schema.`,
+          metadata: { stage: "db_save", payload: jsonParsed },
+        });
+        void flush();
+
+        // Run the generic table mapper
+        try {
+          queue.push({
+            type: "log",
+            delta: `[Mapper] Parsing JSON structures to update Project, Persona, Ambition, etc...`,
+            metadata: { stage: "mapper_start" },
+          });
+          void flush();
+
+          await applyGenericExtractMappings(projectId, jsonParsed);
+
+          queue.push({
+            type: "log",
+            delta: `[Mapper] Successfully synced and updated database entities.`,
+            metadata: { stage: "mapper_success" },
+          });
+          void flush();
+        } catch (mapErr) {
+          console.warn(`[worker:conversation] generic mapper error:`, mapErr);
+          queue.push({
+            type: "log",
+            delta: `[Mapper] Warning: Mapping JSON to tables failed: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
+          });
+          void flush();
+        }
+
         if (skillIsDone && !isGeneralChat) {
           firedEvents.push("structured_extract.create"); // ← event from this save
         }
@@ -234,6 +268,11 @@ export async function handleConversation(payload: Payload) {
         console.warn(
           `[worker:conversation] failed to save structured extract project=${projectId} conversation=${conversationId} error=${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
         );
+        queue.push({
+          type: "log",
+          delta: `[DB] Warning: Failed to save structured extract: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+        });
+        void flush();
       }
     }
 
@@ -283,6 +322,13 @@ export async function handleConversation(payload: Payload) {
           `[worker:conversation] checking skill completion firedEvents=[${firedEvents.join(", ")}] conversation=${conversationId}`,
         );
 
+        queue.push({
+          type: "log",
+          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings...`,
+          metadata: { stage: "event", firedEvents },
+        });
+        void flush();
+
         const matchedMappings = await prisma.skillEventMapping.findMany({
           where: { eventType: { in: firedEvents }, active: true },
           orderBy: { id: "asc" }, // admin's creation order = priority
@@ -317,6 +363,18 @@ export async function handleConversation(payload: Payload) {
                 triggeredByEvent: nextMapping.eventType, // which event matched
               },
             });
+
+            queue.push({
+              type: "log",
+              delta: `[Transition] Event "${nextMapping.eventType}" matched! Pinned next skill: "${nextMapping.skillId}".`,
+              metadata: {
+                stage: "transition",
+                completedSkillId: result.skill.id,
+                nextSkillId:      nextMapping.skillId,
+                triggeredByEvent: nextMapping.eventType,
+              },
+            });
+            void flush();
 
             console.info(
               `[worker:conversation] next skill pinned triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId}`,
@@ -357,6 +415,17 @@ export async function handleConversation(payload: Payload) {
             },
           });
 
+          queue.push({
+            type: "log",
+            delta: `[Session] No matching event mappings. Closed session gracefully.`,
+            metadata: {
+              stage: "session_close",
+              completedSkillId: result.skill.id,
+              firedEvents,
+            },
+          });
+          void flush();
+
           console.info(
             `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] skillId=${result.skill.id}`,
           );
@@ -369,6 +438,11 @@ export async function handleConversation(payload: Payload) {
             chainErr instanceof Error ? chainErr.message : String(chainErr)
           }`,
         );
+        queue.push({
+          type: "log",
+          delta: `[Transition] Error: Failed skill transition: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`,
+        });
+        void flush();
       }
     }
 
@@ -650,3 +724,6 @@ function hasFlowValue(value: unknown) {
     (!Array.isArray(value) || value.length > 0)
   );
 }
+
+// applyGenericExtractMappings has been refactored and is now imported from ../services/extract-mapper
+
