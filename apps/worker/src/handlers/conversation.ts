@@ -5,6 +5,16 @@ import { projectContext } from "../assemblers/context";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
 import { applyGenericExtractMappings } from "../services/extract-mapper";
 
+function cleanJsonString(str: string): string {
+  let cleaned = str.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/i, "");
+    cleaned = cleaned.replace(/\n?```$/, "");
+    cleaned = cleaned.trim();
+  }
+  return cleaned;
+}
+
 export type Payload = Record<string, unknown> & { jobRecordId: string };
 
 export async function handleConversation(payload: Payload) {
@@ -184,13 +194,13 @@ export async function handleConversation(payload: Payload) {
     // data. Parse it, mark done, and replace raw JSON with a friendly message.
     let jsonParsed: unknown = null;
     if (!isGeneralChat && conversationId) {
-      const trimmed = displayText.trim();
-      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      const cleaned = cleanJsonString(displayText);
+      if (cleaned.startsWith("{") || cleaned.startsWith("[")) {
         try {
-          jsonParsed = JSON.parse(trimmed);
+          jsonParsed = JSON.parse(cleaned);
         } catch {
           try {
-            jsonParsed = parseJson(trimmed);
+            jsonParsed = parseJson(cleaned);
           } catch {
             /* not JSON */
           }
