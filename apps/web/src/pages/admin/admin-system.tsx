@@ -57,6 +57,7 @@ export function AdminSkills({
   isAdmin,
   onCreate,
   onEdit,
+  onDelete,
   onPage,
   isLoading,
 }: {
@@ -66,6 +67,7 @@ export function AdminSkills({
   isAdmin: boolean;
   onCreate: () => void;
   onEdit: (skill: any) => void;
+  onDelete: (skill: any) => void;
   onPage: (updater: (page: number) => number) => void;
   isLoading?: boolean;
 }) {
@@ -112,7 +114,23 @@ export function AdminSkills({
             {
               key: "actions",
               header: "Actions",
-              cell: (row: any) => <Button variant="secondary" onClick={() => onEdit(row)}>Manage versions</Button>,
+              cell: (row: any) => (
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => onEdit(row)}>Manage versions</Button>
+                  {isAdmin && (
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        if (window.confirm(`Delete skill "${row.name}" (${row.id})? This will delete all its versions and event mappings.`)) {
+                          onDelete(row);
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                </div>
+              ),
             },
           ]}
         />
