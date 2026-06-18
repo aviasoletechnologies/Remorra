@@ -424,7 +424,6 @@ describe("Admin & Support Ops Console Tests", () => {
           skillId: "test-skill",
           version: 1,
           active: true,
-          modelTier: "model:claude-sonnet-4-6",
           systemPrompt: "Test Prompt",
           contextRequirements: {},
           inputRequirementText: "",
@@ -432,7 +431,6 @@ describe("Admin & Support Ops Console Tests", () => {
           constraints: [],
           examples: [],
           retryPolicy: {},
-          tokenCeiling: 100000,
         },
       });
       expect(prismaMock.client.platformAuditEvent.create).toHaveBeenCalledWith({
@@ -509,7 +507,6 @@ describe("Admin & Support Ops Console Tests", () => {
         id: "version-1-id",
         skillId: "test-skill",
         version: 1,
-        modelTier: "standard",
         systemPrompt: "Old Prompt",
         contextRequirements: [],
         inputRequirementText: "",
@@ -518,7 +515,6 @@ describe("Admin & Support Ops Console Tests", () => {
         constraints: [],
         examples: [],
         retryPolicy: {},
-        tokenCeiling: 1000,
       });
       prismaMock.client.skillVersion.create.mockResolvedValue({
         id: "version-2-id",
@@ -562,7 +558,6 @@ describe("Admin & Support Ops Console Tests", () => {
         id: "version-1-id",
         skillId: "test-skill",
         version: 1,
-        modelTier: "standard",
         systemPrompt: "Old Prompt",
         contextRequirements: [],
         inputRequirementText: "",
@@ -571,7 +566,6 @@ describe("Admin & Support Ops Console Tests", () => {
         constraints: [],
         examples: [],
         retryPolicy: {},
-        tokenCeiling: 1000,
       });
 
       await expect(
@@ -592,7 +586,6 @@ describe("Admin & Support Ops Console Tests", () => {
         id: "version-1-id",
         skillId: "test-skill",
         version: 1,
-        modelTier: "standard",
         systemPrompt: "Old Prompt",
         contextRequirements: [],
         inputRequirementText: "",
@@ -601,7 +594,6 @@ describe("Admin & Support Ops Console Tests", () => {
         constraints: [],
         examples: [],
         retryPolicy: {},
-        tokenCeiling: 1000,
       });
       sourceMapProposerMock.propose.mockResolvedValue({
         requiredInputs: [
@@ -654,7 +646,6 @@ describe("Admin & Support Ops Console Tests", () => {
         id: "version-1-id",
         skillId: "test-skill",
         version: 1,
-        modelTier: "standard",
         systemPrompt: "Old Prompt",
         contextRequirements: [],
         inputRequirementText: "",
@@ -663,7 +654,6 @@ describe("Admin & Support Ops Console Tests", () => {
         constraints: [],
         examples: [],
         retryPolicy: {},
-        tokenCeiling: 1000,
       });
       sourceMapProposerMock.propose.mockResolvedValue({
         requiredInputs: [
@@ -729,7 +719,6 @@ describe("Admin & Support Ops Console Tests", () => {
         id: "version-2-id",
         skillId: "test-skill",
         version: 2,
-        modelTier: "standard",
         systemPrompt: "Old Prompt",
         contextRequirements: [],
         inputRequirementText: "",
@@ -738,7 +727,6 @@ describe("Admin & Support Ops Console Tests", () => {
         constraints: [],
         examples: [],
         retryPolicy: {},
-        tokenCeiling: 1000,
       });
       prismaMock.client.skillVersion.update.mockResolvedValue({
         id: "version-2-id",

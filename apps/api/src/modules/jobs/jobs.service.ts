@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 
@@ -47,6 +47,30 @@ export class JobsService {
         jobId: id,
         sequence: { gt: after },
       },
+      orderBy: { sequence: "asc" },
+      take: limit,
+    });
+  }
+
+  async getRecentJobEventsForProject(projectId: string, userId: string, limit = 150) {
+    const hasAccess = await this.prisma.client.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
+      },
+    });
+    if (!hasAccess) {
+      throw new ForbiddenException("You do not have access to this project.");
+    }
+
+    const recentJob = await this.prisma.client.jobRecord.findFirst({
+      where: { projectId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!recentJob) return [];
+
+    return this.prisma.client.jobStreamEvent.findMany({
+      where: { jobId: recentJob.id },
       orderBy: { sequence: "asc" },
       take: limit,
     });

@@ -151,6 +151,20 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
     }
   }, [logs.length, isLogsOpen]);
 
+  useEffect(() => {
+    if (isLogsOpen && logs.length === 0 && streamState === "idle" && activeProjectId) {
+      api<LogEvent[]>(`/jobs/projects/${activeProjectId}/recent-events`)
+        .then((fetchedLogs) => {
+          if (fetchedLogs && fetchedLogs.length > 0) {
+            useWorkspaceStore.setState({ logs: fetchedLogs });
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to fetch historical logs", err);
+        });
+    }
+  }, [isLogsOpen, activeProjectId, logs.length, streamState]);
+
   const consent = useMutation({
     mutationFn: () =>
       api("/auth/consent", {
@@ -603,6 +617,49 @@ function LogItem({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"system" | "user" | "response">("system");
+  const [tabCopied, setTabCopied] = useState(false);
+
+  const hasRawAiData = !!(log.metadata?.rawInput || log.metadata?.rawOutput);
+
+  // Determine which tabs are available
+  const availableTabs = useMemo(() => {
+    const list: { id: "system" | "user" | "response"; label: string; content: string }[] = [];
+    if (log.metadata?.rawInput?.systemPrompt) {
+      list.push({ id: "system", label: "System Prompt", content: log.metadata.rawInput.systemPrompt });
+    }
+    if (log.metadata?.rawInput?.userMessage) {
+      list.push({ id: "user", label: "User Message", content: log.metadata.rawInput.userMessage });
+    }
+    if (log.metadata?.rawOutput) {
+      list.push({ id: "response", label: "AI Response", content: log.metadata.rawOutput });
+    }
+    return list;
+  }, [log.metadata]);
+
+  // Sync activeTab if current active is not available
+  useEffect(() => {
+    if (hasRawAiData && availableTabs.length > 0) {
+      const activeExists = availableTabs.some((t) => t.id === activeTab);
+      const firstTab = availableTabs[0];
+      if (firstTab && !activeExists) {
+        setActiveTab(firstTab.id);
+      }
+    }
+  }, [availableTabs, activeTab, hasRawAiData]);
+
+  const activeContent = useMemo(() => {
+    const tab = availableTabs.find((t) => t.id === activeTab);
+    return tab ? tab.content : "";
+  }, [availableTabs, activeTab]);
+
+  const copyActiveTab = () => {
+    if (activeContent) {
+      void navigator.clipboard.writeText(activeContent);
+      setTabCopied(true);
+      setTimeout(() => setTabCopied(false), 2000);
+    }
+  };
 
   const copyMetadata = () => {
     if (log.metadata) {
@@ -610,6 +667,21 @@ function LogItem({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const renderHighlightedText = (text: string) => {
+    if (!text) return "";
+    const parts = text.split(/(<[^>]+>)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith("<") && part.endsWith(">")) {
+        return (
+          <span key={index} className="text-violet-400 font-bold">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
   };
 
   const getIcon = () => {
@@ -659,7 +731,7 @@ function LogItem({
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
-          {time && <span className="text-[10px] text-zinc-505 font-mono">{time}</span>}
+          {time && <span className="text-[10px] text-zinc-500 font-mono">{time}</span>}
           {getBadge()}
           {log.metadata && (
             <button
@@ -677,17 +749,86 @@ function LogItem({
         </p>
 
         {expanded && log.metadata && (
-          <div className="relative mt-2 rounded-lg bg-zinc-900 border border-zinc-800 p-3 max-h-48 overflow-y-auto no-scrollbar">
-            <button
-              onClick={copyMetadata}
-              className="absolute top-2 right-2 p-1.5 bg-zinc-950/60 rounded-md border border-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors"
-              title="Copy JSON payload"
-            >
-              {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-            </button>
-            <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono leading-normal">
-              {JSON.stringify(log.metadata, null, 2)}
-            </pre>
+          <div className="relative mt-2 rounded-lg bg-zinc-900 border border-zinc-800 p-3 flex flex-col gap-2">
+            {hasRawAiData ? (
+              <>
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 flex-wrap gap-2">
+                  <div className="flex gap-1 flex-wrap">
+                    {availableTabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={cn(
+                          "px-2 py-0.5 text-[10px] font-sans font-medium rounded transition-all cursor-pointer border",
+                          activeTab === tab.id
+                            ? "bg-zinc-800 text-zinc-100 border-zinc-700/80 shadow-sm"
+                            : "text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-800/40"
+                        )}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      onClick={copyActiveTab}
+                      className="p-1 bg-zinc-950/60 rounded border border-zinc-800 hover:bg-zinc-855 text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors flex items-center gap-1 text-[9px] font-sans px-2 h-6"
+                      title={`Copy active ${activeTab} content`}
+                    >
+                      {tabCopied ? (
+                        <>
+                          <Check className="size-2.5 text-emerald-400" />
+                          <span className="text-emerald-400">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-2.5" />
+                          <span>Copy active</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={copyMetadata}
+                      className="p-1 bg-zinc-950/60 rounded border border-zinc-800 hover:bg-zinc-855 text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors flex items-center gap-1 text-[9px] font-sans px-2 h-6"
+                      title="Copy full JSON payload"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="size-2.5 text-emerald-400" />
+                          <span className="text-emerald-400">Full JSON Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-2.5" />
+                          <span>Full JSON</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="relative">
+                  <pre className="text-[10px] text-zinc-300 font-mono leading-relaxed whitespace-pre-wrap select-text break-all p-3 bg-zinc-950/80 rounded-md border border-zinc-800/80 max-h-80 overflow-y-auto no-scrollbar">
+                    {renderHighlightedText(activeContent)}
+                  </pre>
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={copyMetadata}
+                  className="absolute top-2 right-2 p-1.5 bg-zinc-950/60 rounded-md border border-zinc-800/80 hover:bg-zinc-855 text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors"
+                  title="Copy JSON payload"
+                >
+                  {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+                </button>
+                <div className="max-h-48 overflow-y-auto no-scrollbar">
+                  <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono leading-normal">
+                    {JSON.stringify(log.metadata, null, 2)}
+                  </pre>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

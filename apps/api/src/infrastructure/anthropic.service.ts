@@ -101,9 +101,21 @@ export class AnthropicService {
       where: { skillId: input.skillId, active: true },
     });
     
+    if (!process.env.DEFAULT_MODEL_TIER) {
+      throw new Error("Missing required environment variable: DEFAULT_MODEL_TIER");
+    }
+    if (!process.env.DEFAULT_TOKEN_CEILING) {
+      throw new Error("Missing required environment variable: DEFAULT_TOKEN_CEILING");
+    }
+    const modelTier = process.env.DEFAULT_MODEL_TIER as any;
+    const tokenCeiling = Number(process.env.DEFAULT_TOKEN_CEILING);
+    if (Number.isNaN(tokenCeiling)) {
+      throw new Error("Invalid DEFAULT_TOKEN_CEILING environment variable; must be a number");
+    }
+
     const llmProvider = this.resolveLlmProvider();
     const isGrok = llmProvider === "groq" || llmProvider === "grok";
-    const model = isGrok ? grokModelFor(skill.modelTier) : this.resolveModel(skill.modelTier);
+    const model = isGrok ? grokModelFor(modelTier) : this.resolveModel(modelTier);
     const requestId = randomUUID();
     const invocation = await this.prisma.client.aiInvocation.create({
       data: {
@@ -121,7 +133,7 @@ export class AnthropicService {
       if (isGrok) {
         response = await invokeGrok({
           model,
-          max_tokens: skill.tokenCeiling,
+          max_tokens: tokenCeiling,
           system: skill.systemPrompt,
           messages: [
             ...(input.context
@@ -142,7 +154,7 @@ export class AnthropicService {
         if (!this.client) throw new Error("Anthropic client is not initialized.");
         response = await this.client.messages.create({
           model,
-          max_tokens: skill.tokenCeiling,
+          max_tokens: tokenCeiling,
           system: skill.systemPrompt,
           messages: [
             ...(input.context

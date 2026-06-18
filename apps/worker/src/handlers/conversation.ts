@@ -148,6 +148,11 @@ export async function handleConversation(payload: Payload) {
         version: result.skill.version,
         modelTier: result.skill.modelTier,
         model: selectedModelFor(result.skill.modelTier),
+        rawInput: {
+          systemPrompt: result.skill.systemPrompt ?? null,
+          userMessage: String(payload.content),
+        },
+        rawOutput: result.text,
       },
     });
     void flush();
@@ -207,6 +212,11 @@ export async function handleConversation(payload: Payload) {
         model: selectedModelFor(result.skill.modelTier),
         outputTokens: result.text.length / 4,
         skillDone: skillIsDone,
+        rawInput: {
+          systemPrompt: result.skill.systemPrompt ?? null,
+          userMessage: String(payload.content),
+        },
+        rawOutput: result.text,
       },
     });
     await flush();

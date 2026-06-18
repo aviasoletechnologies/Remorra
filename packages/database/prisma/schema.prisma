@@ -606,7 +606,6 @@ model SkillVersion {
   skillId             String
   version             Int
   active              Boolean        @default(false)
-  modelTier           String
   systemPrompt        String
   contextRequirements Json
   inputRequirementText String         @default("")
@@ -615,7 +614,6 @@ model SkillVersion {
   constraints         Json
   examples            Json
   retryPolicy         Json
-  tokenCeiling        Int
   createdAt           DateTime       @default(now())
   skill               Skill          @relation(fields: [skillId], references: [id])
   tokenUsage          TokenUsage[]

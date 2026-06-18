@@ -167,7 +167,6 @@ export class AdminService {
           skillId: id,
           version: 1,
           active: true,
-          modelTier: process.env.DEFAULT_MODEL_TIER || "standard",
           systemPrompt,
           contextRequirements: {},
           inputRequirementText,
@@ -175,7 +174,6 @@ export class AdminService {
           constraints: [],
           examples: [],
           retryPolicy: {},
-          tokenCeiling: 100000,
         },
       });
 
@@ -277,7 +275,6 @@ export class AdminService {
           skillId,
           version: current.version + 1,
           active: false,
-          modelTier: String(body.modelTier ?? current.modelTier),
           systemPrompt: String(body.systemPrompt ?? current.systemPrompt),
           contextRequirements: body.contextRequirements ?? current.contextRequirements,
           inputRequirementText,
@@ -286,7 +283,6 @@ export class AdminService {
           constraints: body.constraints ?? current.constraints,
           examples: body.examples ?? current.examples,
           retryPolicy: body.retryPolicy ?? current.retryPolicy,
-          tokenCeiling: Number(body.tokenCeiling ?? current.tokenCeiling),
         },
       });
       await tx.platformAuditEvent.create({
@@ -322,7 +318,6 @@ export class AdminService {
     const version = await this.prisma.client.skillVersion.update({
       where: { id: versionId },
       data: {
-        ...(body.modelTier !== undefined ? { modelTier: String(body.modelTier) } : {}),
         ...(body.systemPrompt !== undefined ? { systemPrompt: String(body.systemPrompt) } : {}),
         ...(body.contextRequirements !== undefined ? { contextRequirements: body.contextRequirements } : {}),
         inputRequirementText,
@@ -331,7 +326,6 @@ export class AdminService {
         ...(body.constraints !== undefined ? { constraints: body.constraints } : {}),
         ...(body.examples !== undefined ? { examples: body.examples } : {}),
         ...(body.retryPolicy !== undefined ? { retryPolicy: body.retryPolicy } : {}),
-        ...(body.tokenCeiling !== undefined ? { tokenCeiling: Number(body.tokenCeiling) } : {}),
       },
     });
     await this.auditPlatform(actor, "platform.skill_version.updated", "skill_version", versionId, {

@@ -97,6 +97,14 @@ export class JobsController {
     });
   }
 
+  @Get("jobs/projects/:projectId/recent-events")
+  getRecentProjectEvents(
+    @CurrentActor() actor: Actor,
+    @Param("projectId") projectId: string,
+  ) {
+    return this.jobs.getRecentJobEventsForProject(projectId, actor.userId);
+  }
+
   @Sse("events/stream")
   events(@CurrentActor() actor: Actor) {
     return interval(2000).pipe(

@@ -77,6 +77,18 @@ export async function invokeSkill(input: {
         orderBy: { version: "desc" },
       });
 
+  if (!process.env.DEFAULT_MODEL_TIER) {
+    throw new Error("Missing required environment variable: DEFAULT_MODEL_TIER");
+  }
+  if (!process.env.DEFAULT_TOKEN_CEILING) {
+    throw new Error("Missing required environment variable: DEFAULT_TOKEN_CEILING");
+  }
+  const modelTier = process.env.DEFAULT_MODEL_TIER as any;
+  const tokenCeiling = Number(process.env.DEFAULT_TOKEN_CEILING);
+  if (Number.isNaN(tokenCeiling)) {
+    throw new Error("Invalid DEFAULT_TOKEN_CEILING environment variable; must be a number");
+  }
+
   const additionalSections: any[] = [];
 
   // Legacy context fallback if requirements are empty
@@ -150,13 +162,13 @@ export async function invokeSkill(input: {
       versionId: skill.id,
       name: skill.skillId,
       version: skill.version,
-      modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
+      modelTier,
       systemPrompt: withSkillDoneInstruction(skill.systemPrompt), // auto-appends <skill_done/> instruction
       contextRequirements: requirements,
       inputSourceMap: skill.inputSourceMap as any,
       outputSchema: skill.outputSchema,
       constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
-      tokenCeiling: skill.tokenCeiling,
+      tokenCeiling,
       retryPolicy: skill.retryPolicy,
     },
     additionalSections,
@@ -178,13 +190,13 @@ export async function invokeSkill(input: {
           versionId: skill.id,
           name: skill.skillId,
           version: skill.version,
-          modelTier: skill.modelTier as "fast" | "standard" | "reasoning",
+          modelTier,
           systemPrompt: withSkillDoneInstruction(skill.systemPrompt),
           contextRequirements: requirements,
           inputSourceMap: skill.inputSourceMap as any,
           outputSchema: skill.outputSchema,
           constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
-          tokenCeiling: skill.tokenCeiling,
+          tokenCeiling,
           retryPolicy: skill.retryPolicy,
         },
       };
@@ -273,6 +285,7 @@ export async function invokeGeneralConversation(input: {
       versionId: "general-chat",
       version: 1,
       modelTier: "standard" as const,
+      systemPrompt: system,
     },
   };
 }
