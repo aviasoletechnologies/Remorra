@@ -2,12 +2,8 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { HealthController } from "./health.controller.js";
 import { ProjectsModule } from "./modules/projects/projects.module.js";
-import { DiscoverModule } from "./modules/discover/discover.module.js";
-import { EvolveModule } from "./modules/evolve/evolve.module.js";
-import { ViabilityModule } from "./modules/viability/viability.module.js";
 import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
-import { RefineModule } from "./modules/refine/refine.module.js";
 import { VentureModule } from "./modules/venture/venture.module.js";
 import { ReportsModule } from "./modules/reports/reports.module.js";
 import { JobsModule } from "./modules/jobs/jobs.module.js";
@@ -23,11 +19,7 @@ import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.mod
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     InfrastructureModule,
     ProjectsModule,
-    DiscoverModule,
-    EvolveModule,
-    ViabilityModule,
     AuthModule,
-    RefineModule,
     VentureModule,
     ReportsModule,
     JobsModule,

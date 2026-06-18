@@ -195,7 +195,6 @@ model Project {
   dailyMeetings      DailyMeeting[]
   retrospectives     Retrospective[]
   buildPacks         BuildPackSnapshot[]
-  viabilitySnapshots ViabilitySnapshot[]
   auditEvents        AuditEvent[]
   reports            ReportGeneration[]
   documents          GeneratedDocument[]
@@ -854,19 +853,6 @@ model QuestionLedger {
   stepRun     FlowStepRun? @relation(fields: [stepRunId], references: [id], onDelete: SetNull)
 
   @@index([flowRunId, status])
-}
-
-model ViabilitySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  projectId      String   @db.Uuid
-  skillVersionId String?  @db.Uuid
-  overall        Int
-  components     Json
-  rationale      String
-  actions        Json
-  sourceVersion  Int
-  createdAt      DateTime @default(now())
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ReportDefinition {
