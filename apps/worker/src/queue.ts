@@ -5,7 +5,6 @@ import { jsonValue } from "./lib/utils";
 import { config } from "./config";
 import {
   handleConversation,
-  handleExtract,
   handleSummary,
   handleReport,
   handleDocument,
@@ -18,7 +17,6 @@ import {
 
 export const queues = [
   "ai.conversation",
-  "ai.extract",
   "ai.report",
   "ai.summary",
   "document.render",
@@ -36,7 +34,6 @@ export async function startQueue() {
   }
 
   await boss.work<Payload>("ai.conversation", handleJobs("ai.conversation", handleConversation));
-  // await boss.work<Payload>("ai.extract", handleJobs("ai.extract", handleExtract));
   // await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
   // await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
   // await boss.work<Payload>("document.render", handleJobs("document.render", handleDocument));

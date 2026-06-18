@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./ui/select";
 import { DataTable, TableSkeleton } from "./app-ui";
+import { useConfirm } from "./confirm-dialog";
 
 type Skill = {
   id: string;
@@ -23,6 +24,7 @@ type EventMapping = {
 };
 
 export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
@@ -379,8 +381,14 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                           size="sm"
                           variant="secondary"
                           className="p-1 px-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/20"
-                          onClick={() => {
-                            if (confirm("Are you sure you want to delete this route?")) {
+                          onClick={async () => {
+                            const confirmed = await confirm({
+                              title: "Delete Event Route",
+                              description: "Are you sure you want to delete this route?",
+                              confirmText: "Delete",
+                              variant: "destructive"
+                            });
+                            if (confirmed) {
                               deleteMapping.mutate(row.id);
                             }
                           }}

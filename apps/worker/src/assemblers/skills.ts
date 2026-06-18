@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { ContextAssemblyMissingDataError } from "@remorra/ai-core";
 import { prisma } from "../lib/prisma";
 import { config } from "../config";
-import { decrypt } from "../lib/crypto";
 import { withRetry } from "../lib/retry";
 import { orchestrator, anthropic, modelFor } from "../services/llm";
 import { grokModelFor, invokeGrokStream } from "../services/providers/grok";
@@ -122,7 +121,7 @@ export async function invokeSkill(input: {
       const historyText = pastMessages
         .map(
           (m: any) =>
-            `${m.role === "assistant" ? "Assistant" : "User"}: ${decrypt(m.encryptedContent)}`,
+            `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`,
         )
         .join("\n");
       additionalSections.push({
@@ -218,7 +217,7 @@ export async function invokeGeneralConversation(input: {
 
   const recentMessages = conversation.messages.slice(-6).map((message: any) => ({
     role: (message.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-    content: decrypt(message.encryptedContent),
+    content: message.content,
   }));
 
   const system = [GENERAL_CHAT_SYSTEM_PROMPT, "Project context:", JSON.stringify(project)].join(

@@ -517,7 +517,7 @@ model Conversation {
   activeSkillId  String?
   activeSkillVersionId String?         @db.Uuid
   activeSkillPinnedAt DateTime?
-  encryptedTitle String?
+  title          String?
   retentionUntil DateTime?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
@@ -537,7 +537,7 @@ model ConversationMessage {
   conversationId   String       @db.Uuid
   actorId          String?      @db.Uuid
   role             String
-  encryptedContent String
+  content          String
   skillId          String?                                                   // which skill was active when this message was created
   skillVersionId   String?      @db.Uuid                                    // exact skill version used
   createdAt        DateTime     @default(now())

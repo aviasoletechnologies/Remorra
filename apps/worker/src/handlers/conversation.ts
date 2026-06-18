@@ -1,5 +1,4 @@
 import { prisma } from "../lib/prisma";
-import { encrypt, decrypt } from "../lib/crypto";
 import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { modelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
@@ -282,7 +281,7 @@ export async function handleConversation(payload: Payload) {
         data: {
           conversationId,
           role: "assistant",
-          encryptedContent: encrypt(displayText),
+          content: displayText,
           skillId:        isGeneralChat ? null : result.skill.id,
           skillVersionId: isGeneralChat ? null : (result.skill.versionId ?? null),
         },
@@ -400,7 +399,7 @@ export async function handleConversation(payload: Payload) {
             data: {
               conversationId,
               role: "assistant",
-              encryptedContent: encrypt(closingText),
+              content: closingText,
               skillId:        null,
               skillVersionId: null,
             },

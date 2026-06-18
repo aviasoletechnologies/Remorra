@@ -1,10 +1,11 @@
-import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus } from "lucide-react";
+import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus, Eye, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge, Button, Card, Input, Textarea } from "../../components/ui";
 import { DataTable, FieldGroup, FormActions, FormGrid, TableSkeleton } from "../../components/app-ui";
 import { AdminMasterDetail, AdminShellSection } from "../../components/admin-ui";
 import { Skeleton } from "../../components/ui/skeleton";
 import { AdminEventRouter } from "../../components/admin-event-router";
+import { useConfirm } from "../../components/confirm-dialog";
 
 export type AdminSystemSubTab = "skills" | "flows" | "reports" | "knowledge" | "retention";
 
@@ -71,6 +72,7 @@ export function AdminSkills({
   onPage: (updater: (page: number) => number) => void;
   isLoading?: boolean;
 }) {
+  const confirm = useConfirm();
   return (
     <Card className="flow-builder">
       <div className="flow-builder__header flex justify-between items-center mb-6">
@@ -116,17 +118,32 @@ export function AdminSkills({
               header: "Actions",
               cell: (row: any) => (
                 <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => onEdit(row)}>Manage versions</Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    title="Manage versions"
+                    onClick={() => onEdit(row)}
+                  >
+                    <Eye size={16} />
+                  </Button>
                   {isAdmin && (
                     <Button
                       variant="destructive"
-                      onClick={() => {
-                        if (window.confirm(`Delete skill "${row.name}" (${row.id})? This will delete all its versions and event mappings.`)) {
+                      size="icon"
+                      title="Delete skill"
+                      onClick={async () => {
+                        const confirmed = await confirm({
+                          title: "Delete skill",
+                          description: `Delete skill "${row.name}" (${row.id})? This will delete all its versions and event mappings.`,
+                          confirmText: "Delete",
+                          variant: "destructive"
+                        });
+                        if (confirmed) {
                           onDelete(row);
                         }
                       }}
                     >
-                      Delete
+                      <Trash2 size={16} />
                     </Button>
                   )}
                 </div>
