@@ -78,49 +78,63 @@ export function AiWorkspacePage() {
 
         const jobId = result.id;
         if (jobId) {
-          await new Promise<void>((resolve, reject) => {
-            let stop = () => {};
-            stop = streamTextJob(
-              jobId,
-              setStreamedReply,
-              (state) => {
-                if (state === "connecting" || state === "reconnecting" || state === "connected") {
-                  setStreamState(state);
-                  useWorkspaceStore.getState().setStreamState(state);
-                }
-                if (state === "done") {
+          // Follow the job chain — auto-started skills get a new jobId per transition
+          const followJobChain = async (currentJobId: string): Promise<void> => {
+            let nextJobId: string | null = null;
+            await new Promise<void>((resolve, reject) => {
+              let stop = () => {};
+              stop = streamTextJob(
+                currentJobId,
+                setStreamedReply,
+                (state) => {
+                  if (state === "connecting" || state === "reconnecting" || state === "connected") {
+                    setStreamState(state);
+                    useWorkspaceStore.getState().setStreamState(state);
+                  }
+                  if (state === "done") {
+                    stop();
+                    if (!nextJobId) {
+                      setStreamState("idle");
+                      useWorkspaceStore.getState().setStreamState("idle");
+                    }
+                    resolve();
+                  }
+                  if (state === "failed") {
+                    stop();
+                    setStreamState("idle");
+                    useWorkspaceStore.getState().setStreamState("idle");
+                    reject(new Error("The routed response failed."));
+                  }
+                },
+                (streamError) => {
                   stop();
                   setStreamState("idle");
                   useWorkspaceStore.getState().setStreamState("idle");
-                  resolve();
+                  reject(streamError);
+                },
+                (event) => {
+                  if (event.type === "skill_transition" && event.metadata?.nextJobId) {
+                    nextJobId = event.metadata.nextJobId as string;
+                  }
+                  if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
+                    useWorkspaceStore.getState().addLog({
+                      sequence: event.sequence,
+                      type: event.type,
+                      delta: event.delta ?? null,
+                      snapshot: event.snapshot ?? null,
+                      metadata: event.metadata,
+                      createdAt: new Date().toISOString(),
+                    });
+                  }
                 }
-                if (state === "failed") {
-                  stop();
-                  setStreamState("idle");
-                  useWorkspaceStore.getState().setStreamState("idle");
-                  reject(new Error("The routed response failed."));
-                }
-              },
-              (streamError) => {
-                stop();
-                setStreamState("idle");
-                useWorkspaceStore.getState().setStreamState("idle");
-                reject(streamError);
-              },
-              (event) => {
-                if (["log", "info", "completed", "failed"].includes(event.type)) {
-                  useWorkspaceStore.getState().addLog({
-                    sequence: event.sequence,
-                    type: event.type,
-                    delta: event.delta ?? null,
-                    snapshot: event.snapshot ?? null,
-                    metadata: event.metadata,
-                    createdAt: new Date().toISOString(),
-                  });
-                }
-              }
-            );
-          });
+              );
+            });
+            if (nextJobId) {
+              setStreamedReply("");
+              await followJobChain(nextJobId);
+            }
+          };
+          await followJobChain(jobId);
         }
 
         return { ...result, pendingId };

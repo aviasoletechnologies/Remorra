@@ -67,6 +67,7 @@ export async function invokeSkill(input: {
   documentName?: string;
   documentContent?: string;
   onDelta?: (delta: string, accumulated: string) => Promise<void>;
+  onLlmInput?: (system: string, messages: readonly { role: string; content: string }[]) => void;
 }) {
   // Free tier budget check
   await checkTokenBudget(input.userId);
@@ -198,6 +199,7 @@ export async function invokeSkill(input: {
       skillVersionId: skill.id,
     },
     onDelta: input.onDelta,
+    onLlmInput: input.onLlmInput,
   }).catch((error) => {
     if (error instanceof ContextAssemblyMissingDataError) {
       const missing = error.missingInputs.join(", ");
