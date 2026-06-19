@@ -5,7 +5,6 @@ import { ForbiddenException, BadRequestException } from "@nestjs/common";
 describe("Admin & Support Ops Console Tests", () => {
   let prismaMock: any;
   let queueMock: any;
-  let sourceMapProposerMock: any;
   let adminService: AdminService;
 
   beforeEach(() => {
@@ -91,11 +90,7 @@ describe("Admin & Support Ops Console Tests", () => {
       enqueue: vi.fn(),
     };
 
-    sourceMapProposerMock = {
-      propose: vi.fn(),
-    };
-
-    adminService = new AdminService(prismaMock as any, queueMock as any, sourceMapProposerMock as any);
+    adminService = new AdminService(prismaMock as any, queueMock as any);
   });
 
   describe("Admin/Support Role Restrictions", () => {
@@ -426,8 +421,6 @@ describe("Admin & Support Ops Console Tests", () => {
           active: true,
           systemPrompt: "Test Prompt",
           contextRequirements: {},
-          inputRequirementText: "",
-          inputSourceMap: { requiredInputs: [] },
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -462,55 +455,13 @@ describe("Admin & Support Ops Console Tests", () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it("creates the initial active skill version with input requirement mapping", async () => {
-      prismaMock.client.skill.findUnique.mockResolvedValue(null);
-      prismaMock.client.skill.create.mockResolvedValue({
-        id: "test-skill",
-        name: "Test Skill",
-        description: "Test Desc",
-      });
-      prismaMock.client.skillVersion.create.mockResolvedValue({
-        id: "version-1-id",
-        skillId: "test-skill",
-        version: 1,
-        active: true,
-      });
-
-      await adminService.createSkill(
-        { userId: "admin-1", platformRole: "admin" } as any,
-        {
-          id: "test-skill",
-          name: "Test Skill",
-          description: "Test Desc",
-          systemPrompt: "Test Prompt",
-          inputRequirementText: "Need project name",
-        },
-      );
-
-      expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          inputRequirementText: "Need project name",
-          inputSourceMap: {
-            requiredInputs: [
-              expect.objectContaining({
-                key: "projectName",
-                source: expect.objectContaining({ entity: "Project", field: "name" }),
-              }),
-            ],
-          },
-        }),
-      });
-    });
-
-    it("creates a skill version with generated input source map from requirement text", async () => {
+    it("creates a new skill version", async () => {
       prismaMock.client.skillVersion.findFirstOrThrow.mockResolvedValue({
         id: "version-1-id",
         skillId: "test-skill",
         version: 1,
         systemPrompt: "Old Prompt",
         contextRequirements: [],
-        inputRequirementText: "",
-        inputSourceMap: { requiredInputs: [] },
         outputSchema: null,
         constraints: [],
         examples: [],
@@ -528,7 +479,6 @@ describe("Admin & Support Ops Console Tests", () => {
         "test-skill",
         {
           systemPrompt: "New Prompt",
-          inputRequirementText: "Need project name and project summary",
         },
       );
 
@@ -536,193 +486,18 @@ describe("Admin & Support Ops Console Tests", () => {
         data: expect.objectContaining({
           skillId: "test-skill",
           version: 2,
-          inputRequirementText: "Need project name and project summary",
-          inputSourceMap: {
-            requiredInputs: [
-              expect.objectContaining({
-                key: "projectName",
-                source: expect.objectContaining({ entity: "Project", field: "name" }),
-              }),
-              expect.objectContaining({
-                key: "projectSummary",
-                source: expect.objectContaining({ entity: "Project", field: "summary" }),
-              }),
-            ],
-          },
-        }),
-      });
-    });
-
-    it("rejects skill version creation when requirement text cannot map to known sources", async () => {
-      prismaMock.client.skillVersion.findFirstOrThrow.mockResolvedValue({
-        id: "version-1-id",
-        skillId: "test-skill",
-        version: 1,
-        systemPrompt: "Old Prompt",
-        contextRequirements: [],
-        inputRequirementText: "",
-        inputSourceMap: { requiredInputs: [] },
-        outputSchema: null,
-        constraints: [],
-        examples: [],
-        retryPolicy: {},
-      });
-
-      await expect(
-        adminService.createSkillVersion(
-          { userId: "admin-1", platformRole: "admin" } as any,
-          "test-skill",
-          {
-            systemPrompt: "New Prompt",
-            inputRequirementText: "Need the magic founder signal",
-          },
-        ),
-      ).rejects.toThrow(BadRequestException);
-      expect(prismaMock.client.skillVersion.create).not.toHaveBeenCalled();
-    });
-
-    it("uses an LLM-proposed map when deterministic mapping fails but validation succeeds", async () => {
-      prismaMock.client.skillVersion.findFirstOrThrow.mockResolvedValue({
-        id: "version-1-id",
-        skillId: "test-skill",
-        version: 1,
-        systemPrompt: "Old Prompt",
-        contextRequirements: [],
-        inputRequirementText: "",
-        inputSourceMap: { requiredInputs: [] },
-        outputSchema: null,
-        constraints: [],
-        examples: [],
-        retryPolicy: {},
-      });
-      sourceMapProposerMock.propose.mockResolvedValue({
-        requiredInputs: [
-          {
-            key: "projectName",
-            description: "Project name",
-            required: true,
-            source: {
-              type: "database",
-              entity: "Project",
-              field: "name",
-              scope: { id: "$runtime.projectId" },
-            },
-          },
-        ],
-      });
-      prismaMock.client.skillVersion.create.mockResolvedValue({
-        id: "version-2-id",
-        skillId: "test-skill",
-        version: 2,
-        active: false,
-      });
-
-      await adminService.createSkillVersion(
-        { userId: "admin-1", platformRole: "admin" } as any,
-        "test-skill",
-        {
           systemPrompt: "New Prompt",
-          inputRequirementText: "Need the launch label",
-        },
-      );
-
-      expect(sourceMapProposerMock.propose).toHaveBeenCalledWith("Need the launch label");
-      expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          inputSourceMap: {
-            requiredInputs: [
-              expect.objectContaining({
-                key: "projectName",
-                source: expect.objectContaining({ entity: "Project", field: "name" }),
-              }),
-            ],
-          },
         }),
       });
     });
 
-    it("rejects an LLM-proposed map when deterministic validation fails", async () => {
-      prismaMock.client.skillVersion.findFirstOrThrow.mockResolvedValue({
-        id: "version-1-id",
-        skillId: "test-skill",
-        version: 1,
-        systemPrompt: "Old Prompt",
-        contextRequirements: [],
-        inputRequirementText: "",
-        inputSourceMap: { requiredInputs: [] },
-        outputSchema: null,
-        constraints: [],
-        examples: [],
-        retryPolicy: {},
-      });
-      sourceMapProposerMock.propose.mockResolvedValue({
-        requiredInputs: [
-          {
-            key: "bad",
-            required: true,
-            source: {
-              type: "database",
-              entity: "NotAllowed",
-              field: "secret",
-              scope: { projectId: "$runtime.projectId" },
-            },
-          },
-        ],
-      });
-
-      await expect(
-        adminService.createSkillVersion(
-          { userId: "admin-1", platformRole: "admin" } as any,
-          "test-skill",
-          {
-            systemPrompt: "New Prompt",
-            inputRequirementText: "Need the launch label",
-          },
-        ),
-      ).rejects.toThrow(BadRequestException);
-      expect(prismaMock.client.skillVersion.create).not.toHaveBeenCalled();
-    });
-
-    it("blocks activation when the version has an invalid input source map", async () => {
-      prismaMock.client.skillVersion.findUniqueOrThrow.mockResolvedValue({
-        id: "version-2-id",
-        skillId: "test-skill",
-        version: 2,
-        inputSourceMap: {
-          requiredInputs: [
-            {
-              key: "bad",
-              required: true,
-              source: {
-                type: "database",
-                entity: "MissingThing",
-                field: "name",
-                scope: { projectId: "$runtime.projectId" },
-              },
-            },
-          ],
-        },
-      });
-
-      await expect(
-        adminService.activateSkill(
-          { userId: "admin-1", platformRole: "admin" } as any,
-          "test-skill",
-          "version-2-id",
-        ),
-      ).rejects.toThrow(BadRequestException);
-      expect(prismaMock.client.skillVersion.updateMany).not.toHaveBeenCalled();
-    });
-
-    it("updates an existing skill version in place with regenerated input source map", async () => {
+    it("updates an existing skill version in place", async () => {
       prismaMock.client.skillVersion.findUniqueOrThrow.mockResolvedValue({
         id: "version-2-id",
         skillId: "test-skill",
         version: 2,
         systemPrompt: "Old Prompt",
         contextRequirements: [],
-        inputRequirementText: "",
-        inputSourceMap: { requiredInputs: [] },
         outputSchema: null,
         constraints: [],
         examples: [],
@@ -740,7 +515,6 @@ describe("Admin & Support Ops Console Tests", () => {
         "version-2-id",
         {
           systemPrompt: "Updated Prompt",
-          inputRequirementText: "Need project name",
         },
       );
 
@@ -748,15 +522,6 @@ describe("Admin & Support Ops Console Tests", () => {
         where: { id: "version-2-id" },
         data: expect.objectContaining({
           systemPrompt: "Updated Prompt",
-          inputRequirementText: "Need project name",
-          inputSourceMap: {
-            requiredInputs: [
-              expect.objectContaining({
-                key: "projectName",
-                source: expect.objectContaining({ entity: "Project", field: "name" }),
-              }),
-            ],
-          },
         }),
       });
     });

@@ -36,7 +36,7 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText?: string },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string },
   ) {
     return this.admin.createSkill(actor, body);
   }

@@ -610,8 +610,6 @@ model SkillVersion {
   active              Boolean        @default(false)
   systemPrompt        String
   contextRequirements Json
-  inputRequirementText String         @default("")
-  inputSourceMap      Json           @default("{}")
   outputSchema        Json?
   constraints         Json
   examples            Json

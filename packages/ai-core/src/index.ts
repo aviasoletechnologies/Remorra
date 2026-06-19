@@ -10,7 +10,6 @@ export interface SkillDefinition<TOutput = unknown> {
   modelTier: ModelTier;
   systemPrompt: string;
   contextRequirements: readonly string[];
-  inputSourceMap?: InputSourceMap;
   outputSchema?: any;
   constraints: readonly string[];
   tokenCeiling?: number;
@@ -24,33 +23,6 @@ export interface RuntimeContextScope {
   skillId?: string;
   skillVersionId?: string;
 }
-
-export interface InputSourceMap {
-  requiredInputs?: readonly InputSourceMapItem[];
-}
-
-export type InputSourceMapItem =
-  | {
-      key: string;
-      description?: string;
-      required?: boolean;
-      source: {
-        type: "database";
-        entity: string;
-        field: string;
-        scope?: Record<string, string>;
-        limit?: number;
-      };
-    }
-  | {
-      key: string;
-      description?: string;
-      required?: boolean;
-      source: {
-        type: "url";
-        value: string;
-      };
-    };
 
 export interface AiContextSection {
   tag: string;
@@ -90,17 +62,6 @@ export interface SkillRegistry {
   getActive<T = unknown>(skillId: string): Promise<SkillDefinition<T>>;
 }
 
-export interface ContextAssembler {
-  assemble(
-    projectId: string,
-    requirements: readonly string[],
-    options?: {
-      inputSourceMap?: InputSourceMap | null | undefined;
-      runtime?: RuntimeContextScope;
-    },
-  ): Promise<readonly AiContextSection[]>;
-}
-
 export interface TokenTracker {
   record(invocation: AiInvocation, usage: AiUsage): Promise<void>;
 }
@@ -119,7 +80,6 @@ export interface AuditLogger {
 export class AiOrchestrator {
   constructor(
     private readonly registry: SkillRegistry,
-    private readonly context: ContextAssembler,
     private readonly gateway: LlmGateway,
     private readonly tokens: TokenTracker,
     private readonly audit: AuditLogger,
@@ -135,21 +95,7 @@ export class AiOrchestrator {
     },
   ): Promise<AiResult<T> & { skill: SkillDefinition }> {
     const skill = input.skillOverride ?? await this.registry.getActive<T>(input.skillId);
-    const assembledSections = await this.context.assemble(
-      input.projectId,
-      skill.contextRequirements,
-      {
-        inputSourceMap: skill.inputSourceMap,
-        runtime: {
-          projectId: input.projectId,
-          userId: input.userId,
-          skillId: skill.id,
-          skillVersionId: skill.versionId,
-          ...input.contextRuntime,
-        },
-      },
-    );
-    const sections = [...assembledSections, ...(input.additionalSections ?? [])];
+    const sections = input.additionalSections ?? [];
     const invocation: AiInvocation = {
       requestId: input.requestId,
       userId: input.userId,
@@ -175,13 +121,8 @@ export class AiOrchestrator {
 }
 
 export {
-  ContextAssemblyMissingDataError,
   PrismaSkillRegistry,
-  PrismaContextAssembler,
   PrismaTokenTracker,
   PrismaAuditLogger,
   ResponseParser,
-  generateInputSourceMap,
-  listInputSourceRegistry,
-  validateInputSourceMap,
 } from "./prisma-implementations.js";
