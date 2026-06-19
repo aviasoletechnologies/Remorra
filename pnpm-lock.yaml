@@ -41,9 +41,6 @@ importers:
       '@nestjs/throttler':
         specifier: ^6.5.0
         version: 6.5.0(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.26)(reflect-metadata@0.2.2)
-      '@remorra/ai-core':
-        specifier: workspace:*
-        version: link:../../packages/ai-core
       '@remorra/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -205,9 +202,6 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 0.104.1
         version: 0.104.1(zod@4.4.3)
-      '@remorra/ai-core':
-        specifier: workspace:*
-        version: link:../../packages/ai-core
       '@remorra/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -230,19 +224,6 @@ importers:
       tsx:
         specifier: 4.22.4
         version: 4.22.4
-      vitest:
-        specifier: 4.1.8
-        version: 4.1.8(@types/node@24.10.1)(jsdom@29.0.0(@noble/hashes@1.8.0))(vite@8.0.16(@types/node@24.10.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
-
-  packages/ai-core:
-    dependencies:
-      '@remorra/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      zod:
-        specifier: 4.4.3
-        version: 4.4.3
-    devDependencies:
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@24.10.1)(jsdom@29.0.0(@noble/hashes@1.8.0))(vite@8.0.16(@types/node@24.10.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))

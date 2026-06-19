@@ -4,7 +4,7 @@ import {
   PrismaSkillRegistry,
   PrismaTokenTracker,
   PrismaAuditLogger,
-} from "@remorra/ai-core";
+} from "./ai-core";
 import { config, required } from "../config";
 import { prisma } from "../lib/prisma";
 import { withRetry } from "../lib/retry";
