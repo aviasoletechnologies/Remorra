@@ -387,18 +387,79 @@ export class AdminService {
     current: any,
   ): Promise<{ map: any; warnings: string[]; unmatchedTokens: string[] }> {
     if (typeof body.inputRequirementText === "string") {
-      const generated = generateInputSourceMap(body.inputRequirementText.trim());
+      // Strip @SkillName mentions — skill outputs are handled via skillOutputIds, not text parsing
+      const cleanText = body.inputRequirementText.trim().replace(/@[^\n,@]+/g, " ").replace(/\s+/g, " ").trim();
+      const generated = generateInputSourceMap(cleanText);
+
+      // Resolve skillId for skill_output entries
+      const unresolvedSkillNames: string[] = [];
+      if (generated.map.requiredInputs) {
+        const resolvedInputs = [...generated.map.requiredInputs] as any[];
+        for (let i = 0; i < resolvedInputs.length; i++) {
+          const item = resolvedInputs[i];
+          if (item.source?.type === "skill_output" && !item.source.skillId) {
+            const skillName: string = item.source.skillName ?? "";
+            const match = await this.prisma.client.skill.findFirst({
+              where: { name: { contains: skillName, mode: "insensitive" } },
+              select: { id: true, name: true },
+            });
+            if (match) {
+              resolvedInputs[i] = { ...item, source: { ...item.source, skillId: match.id, skillName: match.name } };
+            } else {
+              unresolvedSkillNames.push(skillName);
+              resolvedInputs.splice(i, 1);
+              i--;
+            }
+          }
+        }
+        (generated.map as any).requiredInputs = resolvedInputs;
+      }
+
+      const unmatchedTokens = [
+        ...(generated.unmatchedTokens ?? []),
+        ...unresolvedSkillNames.map((n) => `skill:${n}`),
+      ];
+      const warnings = unresolvedSkillNames.length > 0
+        ? [`Could not find skill(s): ${unresolvedSkillNames.join(", ")}. Check skill name spelling.`]
+        : (generated.warnings ?? []);
+
+      // Merge picker-selected skill output entries { skillId, jsonPath? }[]
+      type SkillOutputEntry = { skillId: string; jsonPath?: string };
+      const skillOutputIds: SkillOutputEntry[] = Array.isArray(body.skillOutputIds)
+        ? (body.skillOutputIds as SkillOutputEntry[])
+        : [];
+      const skillOutputIdSet = new Set(skillOutputIds.map((e) => e.skillId));
+      if (skillOutputIds.length > 0) {
+        const pickerEntries: any[] = [];
+        for (const entry of skillOutputIds) {
+          const skill = await this.prisma.client.skill.findUnique({ where: { id: entry.skillId }, select: { id: true, name: true } });
+          if (skill) {
+            const label = entry.jsonPath ? `${skill.name}.${entry.jsonPath}` : `${skill.name} output`;
+            pickerEntries.push({ key: `skillOutput_${skill.id}`, description: label, required: true, source: { type: "skill_output", skillId: skill.id, skillName: skill.name, jsonPath: entry.jsonPath } });
+          }
+        }
+        const filtered = (generated.map.requiredInputs ?? []).filter(
+          (item: any) => item.source?.type !== "skill_output",
+        );
+        (generated.map as any).requiredInputs = [...filtered, ...pickerEntries];
+      } else {
+        (generated.map as any).requiredInputs = (generated.map.requiredInputs ?? []).filter(
+          (item: any) => item.source?.type !== "skill_output",
+        );
+      }
+      void skillOutputIdSet;
+
       if (generated.valid) {
-        return { map: generated.map, warnings: generated.warnings ?? [], unmatchedTokens: generated.unmatchedTokens ?? [] };
+        return { map: generated.map, warnings, unmatchedTokens };
       }
 
       const proposed = await this.inputSourceMapProposer?.propose(body.inputRequirementText.trim());
       const proposalValidation = validateInputSourceMap(proposed);
       if (proposalValidation.valid && (proposalValidation.map.requiredInputs?.length ?? 0) > 0) {
-        return { map: proposalValidation.map, warnings: [], unmatchedTokens: generated.unmatchedTokens ?? [] };
+        return { map: proposalValidation.map, warnings, unmatchedTokens };
       }
 
-      return { map: { requiredInputs: [] }, warnings: [`No inputs could be mapped. Check for typos.`], unmatchedTokens: generated.unmatchedTokens ?? [] };
+      return { map: { requiredInputs: [] }, warnings: [`No inputs could be mapped. Check for typos.`], unmatchedTokens };
     }
 
     const existing = current.inputSourceMap ?? { requiredInputs: [] };
@@ -406,7 +467,23 @@ export class AdminService {
     if (!validation.valid) {
       throw new BadRequestException(`Existing skill input source map is invalid: ${validation.errors.join("; ")}`);
     }
-    return { map: validation.map, warnings: [], unmatchedTokens: [] };
+    // Apply picker skillOutputIds even when inputRequirementText unchanged
+    type SkillOutputEntry2 = { skillId: string; jsonPath?: string };
+    const skillOutputIds2: SkillOutputEntry2[] = Array.isArray(body.skillOutputIds)
+      ? (body.skillOutputIds as SkillOutputEntry2[])
+      : [];
+    const base = [...(validation.map.requiredInputs ?? [])].filter(
+      (item: any) => item.source?.type !== "skill_output",
+    );
+    const pickerEntries: any[] = [];
+    for (const entry of skillOutputIds2) {
+      const skill = await this.prisma.client.skill.findUnique({ where: { id: entry.skillId }, select: { id: true, name: true } });
+      if (skill) {
+        const label = entry.jsonPath ? `${skill.name}.${entry.jsonPath}` : `${skill.name} output`;
+        pickerEntries.push({ key: `skillOutput_${skill.id}`, description: label, required: true, source: { type: "skill_output", skillId: skill.id, skillName: skill.name, jsonPath: entry.jsonPath } });
+      }
+    }
+    return { map: { requiredInputs: [...base, ...pickerEntries] }, warnings: [], unmatchedTokens: [] };
   }
 
 

@@ -50,6 +50,17 @@ export type InputSourceMapItem =
         type: "url";
         value: string;
       };
+    }
+  | {
+      key: string;
+      description?: string;
+      required?: boolean;
+      source: {
+        type: "skill_output";
+        skillId: string;
+        skillName: string;
+        jsonPath?: string | undefined;
+      };
     };
 
 export interface AiContextSection {
