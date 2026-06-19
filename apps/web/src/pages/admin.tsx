@@ -11,7 +11,7 @@ import {
   Trash2,
   CheckCircle2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
@@ -32,20 +32,26 @@ import {
 } from "./admin/admin-system";
 
 function describeSkillInputRequirement(version: any): string {
+  const skillOutputMentions = (version?.inputSourceMap?.requiredInputs ?? [])
+    .filter((item: any) => item.source?.type === "skill_output")
+    .map((item: any) => `@${item.source.skillName ?? item.description ?? item.key}`);
+
+  let baseText = "";
   if (typeof version?.inputRequirementText === "string" && version.inputRequirementText.trim()) {
-    return version.inputRequirementText;
-  }
-  const mappedInputs = version?.inputSourceMap?.requiredInputs;
-  if (Array.isArray(mappedInputs) && mappedInputs.length > 0) {
-    return mappedInputs
+    baseText = version.inputRequirementText;
+  } else {
+    const dbInputs = (version?.inputSourceMap?.requiredInputs ?? [])
+      .filter((item: any) => item.source?.type !== "skill_output")
       .map((item: any) => item.description || item.key)
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean);
+    if (dbInputs.length > 0) baseText = dbInputs.join(", ");
+    else if (Array.isArray(version?.contextRequirements) && version.contextRequirements.length > 0) {
+      baseText = `Legacy context: ${version.contextRequirements.join(", ")}`;
+    }
   }
-  if (Array.isArray(version?.contextRequirements) && version.contextRequirements.length > 0) {
-    return `Legacy context: ${version.contextRequirements.join(", ")}`;
-  }
-  return "";
+
+  const parts = [baseText, ...skillOutputMentions].filter(Boolean);
+  return parts.join(", ");
 }
 
 function validateInputRequirementText(_value: string): string | null {
@@ -84,6 +90,11 @@ export function AdminPage() {
   const [editingSkillVersionId, setEditingSkillVersionId] = useState<string | null>(null);
   const [editPromptText, setEditPromptText] = useState("");
   const [editInputRequirementText, setEditInputRequirementText] = useState("");
+  const [editSkillOutputIds, setEditSkillOutputIds] = useState<{ skillId: string; jsonPath?: string }[]>([]);
+  const [skillMentionQuery, setSkillMentionQuery] = useState<string | null>(null); // skill search after @
+  const [fieldPickerSkill, setFieldPickerSkill] = useState<any | null>(null);      // skill for dot-field picker
+  const [fieldPickerQuery, setFieldPickerQuery] = useState<string>("");             // text after the dot
+  const mentionStartRef = useRef<number>(-1);
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
   const [skillEditUnmatched, setSkillEditUnmatched] = useState<string[]>([]);
   const [showInputSourceMap, setShowInputSourceMap] = useState(false);
@@ -315,10 +326,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputRequirementText }: { skillId: string; systemPrompt: string; inputRequirementText: string }) =>
+    mutationFn: ({ skillId, systemPrompt, inputRequirementText, skillOutputIds }: { skillId: string; systemPrompt: string; inputRequirementText: string; skillOutputIds: { skillId: string; jsonPath?: string }[] }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputRequirementText }),
+        body: JSON.stringify({ systemPrompt, inputRequirementText, skillOutputIds }),
       }),
     onSuccess: (version: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -347,10 +358,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputRequirementText }: { skillId: string; versionId: string; systemPrompt: string; inputRequirementText: string }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputRequirementText, skillOutputIds }: { skillId: string; versionId: string; systemPrompt: string; inputRequirementText: string; skillOutputIds: { skillId: string; jsonPath?: string }[] }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputRequirementText }),
+        body: JSON.stringify({ systemPrompt, inputRequirementText, skillOutputIds }),
       }),
     onSuccess: (version: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -628,6 +639,11 @@ export function AdminPage() {
                   setEditingSkillVersionId(currentVer?.id ?? null);
                   setEditPromptText(currentVer?.systemPrompt ?? "");
                   setEditInputRequirementText(describeSkillInputRequirement(currentVer));
+                  setEditSkillOutputIds(
+                    (currentVer?.inputSourceMap?.requiredInputs ?? [])
+                      .filter((item: any) => item.source?.type === "skill_output")
+                      .map((item: any) => ({ skillId: item.source.skillId as string, jsonPath: item.source.jsonPath as string | undefined }))
+                  );
                   setSkillEditError(null);
                   setShowInputSourceMap(false);
                 }}
@@ -696,6 +712,11 @@ export function AdminPage() {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
           setEditInputRequirementText(describeSkillInputRequirement(version));
+          setEditSkillOutputIds(
+            (version?.inputSourceMap?.requiredInputs ?? [])
+              .filter((item: any) => item.source?.type === "skill_output")
+              .map((item: any) => ({ skillId: item.source.skillId as string, jsonPath: item.source.jsonPath as string | undefined }))
+          );
           setSkillEditError(null);
           setShowInputSourceMap(false);
         };
@@ -712,7 +733,7 @@ export function AdminPage() {
                   {isAdmin && currentVer && (
                     <>
                       <Button
-                        disabled={updateSkillVersion.isPending}
+                        disabled={updateSkillVersion.isPending || (currentVer?.active && (allSkills as any[]).some((s: any) => s.id !== editingSkill.id && (s.versions ?? []).some((v: any) => (v.inputSourceMap?.requiredInputs ?? []).some((item: any) => item.source?.type === "skill_output" && item.source?.skillId === editingSkill.id))))}
                         onClick={() => {
                           const error = validateInputRequirementText(editInputRequirementText);
                           if (error) {
@@ -724,6 +745,7 @@ export function AdminPage() {
                             versionId: currentVer.id,
                             systemPrompt: editPromptText,
                             inputRequirementText: editInputRequirementText,
+                            skillOutputIds: editSkillOutputIds,
                           });
                         }}
                       >
@@ -741,6 +763,7 @@ export function AdminPage() {
                             skillId: editingSkill.id,
                             systemPrompt: editPromptText,
                             inputRequirementText: editInputRequirementText,
+                            skillOutputIds: editSkillOutputIds,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -840,18 +863,169 @@ export function AdminPage() {
                           </Button>
                         </div>
                       </div>
-                      <textarea
-                        className="admin-textarea monospace text-xs"
-                        style={{ minHeight: "80px" }}
-                        value={editInputRequirementText}
-                        onChange={(e) => {
-                          setEditInputRequirementText(e.target.value);
-                          setSkillEditError(null);
-                          setSkillEditUnmatched([]);
-                        }}
-                        placeholder="Example: Need project name and persona description (optional)"
-                        disabled={!isAdmin || !currentVer}
-                      />
+                      {/* Dependency warning */}
+                      {(() => {
+                        const dependentSkills = (allSkills as any[]).filter((s: any) =>
+                          s.id !== editingSkill.id &&
+                          (s.versions ?? []).some((v: any) =>
+                            (v.inputSourceMap?.requiredInputs ?? []).some((item: any) =>
+                              item.source?.type === "skill_output" && item.source?.skillId === editingSkill.id
+                            )
+                          )
+                        );
+                        if (dependentSkills.length === 0) return null;
+                        return (
+                          <div className="mb-2 rounded-md border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-xs text-amber-300">
+                            ⚠ Used as input by: {dependentSkills.map((s: any) => s.name).join(", ")}. Updating the active version may break those skills. Use "Save as New Version" instead.
+                          </div>
+                        );
+                      })()}
+                      <div className="relative">
+                        <textarea
+                          className="admin-textarea monospace text-xs w-full"
+                          style={{ minHeight: "80px" }}
+                          value={editInputRequirementText}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditInputRequirementText(val);
+                            setSkillEditError(null);
+                            setSkillEditUnmatched([]);
+                            // Sync skill output entries from @mentions in text
+                            const mentionMatches = [...val.matchAll(/@([^\n,@]+)/g)];
+                            const mentionedEntries = mentionMatches.flatMap((m) => {
+                              const full = (m[1] ?? "").trim();
+                              const dotIdx = full.indexOf(".");
+                              const name = dotIdx !== -1 ? full.slice(0, dotIdx) : full;
+                              const jsonPath = dotIdx !== -1 ? full.slice(dotIdx + 1) : undefined;
+                              const sk = (allSkills as any[]).find((s: any) => s.name.toLowerCase() === name.toLowerCase());
+                              return sk ? [jsonPath ? { skillId: sk.id as string, jsonPath } : { skillId: sk.id as string }] : [];
+                            });
+                            setEditSkillOutputIds(mentionedEntries);
+                            // Detect active mention at cursor
+                            const cursor = e.target.selectionStart ?? val.length;
+                            const before = val.slice(0, cursor);
+                            const atIdx = before.lastIndexOf("@");
+                            if (atIdx !== -1) {
+                              const afterAt = before.slice(atIdx + 1);
+                              if (!afterAt.includes("\n") && !afterAt.includes(",")) {
+                                mentionStartRef.current = atIdx;
+                                const dotIdx2 = afterAt.indexOf(".");
+                                if (dotIdx2 !== -1) {
+                                  // @SkillName. → detect field query
+                                  const namePart = afterAt.slice(0, dotIdx2);
+                                  const fieldQuery = afterAt.slice(dotIdx2 + 1);
+                                  const matched = (allSkills as any[]).find((s: any) => s.name.toLowerCase() === namePart.toLowerCase());
+                                  if (matched) {
+                                    setFieldPickerSkill(matched);
+                                    setFieldPickerQuery(fieldQuery);
+                                    setSkillMentionQuery(null);
+                                    return;
+                                  }
+                                }
+                                setSkillMentionQuery(afterAt);
+                                setFieldPickerSkill(null);
+                                return;
+                              }
+                            }
+                            setSkillMentionQuery(null);
+                            setFieldPickerSkill(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") { setSkillMentionQuery(null); setFieldPickerSkill(null); }
+                          }}
+                          onBlur={() => setTimeout(() => { setSkillMentionQuery(null); setFieldPickerSkill(null); }, 180)}
+                          placeholder="project name, persona description… or type @ to link a skill output"
+                          disabled={!isAdmin || !currentVer}
+                        />
+                        {/* Skill search dropdown — above textarea */}
+                        {skillMentionQuery !== null && fieldPickerSkill === null && (
+                          <div className="absolute z-50 left-0 right-0 bottom-full mb-1 rounded-md border border-border bg-popover shadow-lg overflow-y-auto max-h-52">
+                            {(() => {
+                              const filtered = (allSkills as any[]).filter((s: any) =>
+                                s.id !== editingSkill.id &&
+                                s.name.toLowerCase().includes(skillMentionQuery.toLowerCase())
+                              );
+                              if (filtered.length === 0) return <p className="text-xs text-muted-foreground px-3 py-2">No matching skills</p>;
+                              return filtered.map((s: any) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className="w-full text-left text-xs px-3 py-2 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    const start = mentionStartRef.current;
+                                    const query = skillMentionQuery;
+                                    const before = editInputRequirementText.slice(0, start);
+                                    const after = editInputRequirementText.slice(start + 1 + query.length);
+                                    setEditInputRequirementText(`${before}@${s.name}${after}`);
+                                    setEditSkillOutputIds((prev) => [...prev.filter((e) => e.skillId !== s.id), { skillId: s.id }]);
+                                    setSkillMentionQuery(null);
+                                    mentionStartRef.current = start;
+                                  }}
+                                >
+                                  <span className="text-primary font-semibold">@</span>
+                                  <span>{s.name}</span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                        {/* Field picker — appears above textarea when user types dot after @SkillName */}
+                        {fieldPickerSkill !== null && (
+                          <div className="absolute z-50 left-0 right-0 bottom-full mb-1 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+                            <div className="px-3 py-1.5 border-b border-border flex items-center gap-1.5">
+                              <span className="text-primary font-semibold text-xs">@{fieldPickerSkill.name}</span>
+                              <span className="text-muted-foreground text-xs">— select a field</span>
+                            </div>
+                            <div className="overflow-y-auto max-h-44">
+                              <button
+                                type="button"
+                                className="w-full text-left text-xs px-3 py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  // Remove dot and anything after it — use full output
+                                  const start = mentionStartRef.current;
+                                  const before = editInputRequirementText.slice(0, start);
+                                  const rest = editInputRequirementText.slice(start + 1);
+                                  const dotInRest = rest.indexOf(".");
+                                  const after = dotInRest !== -1 ? rest.slice(dotInRest + 1 + fieldPickerQuery.length) : rest.slice(fieldPickerSkill.name.length);
+                                  setEditInputRequirementText(`${before}@${fieldPickerSkill.name}${after}`);
+                                  setEditSkillOutputIds((prev) => [...prev.filter((e) => e.skillId !== fieldPickerSkill.id), { skillId: fieldPickerSkill.id }]);
+                                  setFieldPickerSkill(null);
+                                }}
+                              >
+                                Full output
+                              </button>
+                              {(() => {
+                                const activeVer = (fieldPickerSkill.versions ?? []).find((v: any) => v.active) ?? fieldPickerSkill.versions?.[0];
+                                const fields: string[] = activeVer?.outputSchema?.properties ? Object.keys(activeVer.outputSchema.properties) : [];
+                                return fields
+                                  .filter((f) => f.toLowerCase().includes(fieldPickerQuery.toLowerCase()))
+                                  .map((field) => (
+                                    <button
+                                      key={field}
+                                      type="button"
+                                      className="w-full text-left text-xs px-3 py-2 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-1"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        const start = mentionStartRef.current;
+                                        const before = editInputRequirementText.slice(0, start);
+                                        const rest = editInputRequirementText.slice(start + 1);
+                                        const dotInRest = rest.indexOf(".");
+                                        const after = dotInRest !== -1 ? rest.slice(dotInRest + 1 + fieldPickerQuery.length) : "";
+                                        setEditInputRequirementText(`${before}@${fieldPickerSkill.name}.${field}${after}`);
+                                        setEditSkillOutputIds((prev) => [...prev.filter((e) => e.skillId !== fieldPickerSkill.id), { skillId: fieldPickerSkill.id, jsonPath: field }]);
+                                        setFieldPickerSkill(null);
+                                      }}
+                                    >
+                                      <span className="text-muted-foreground">.</span><span className="text-primary">{field}</span>
+                                    </button>
+                                  ));
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       {/* Matched inputs (green) + unmatched tokens (yellow) */}
                       {(currentVer?.inputSourceMap?.requiredInputs?.length > 0 || skillEditUnmatched.length > 0) && (
                         <div className="flex flex-wrap gap-1 mt-1">
@@ -870,7 +1044,9 @@ export function AdminPage() {
                       {skillEditError && (
                         <p className="form-message" role="alert">{skillEditError}</p>
                       )}
-                      <p className="form-help">
+
+
+                      <p className="form-help mt-2">
                         Save Selected Version updates the current system prompt & inputs. Save as New Version creates a separate version from your changes.
                       </p>
                       {showInputSourceMap && (

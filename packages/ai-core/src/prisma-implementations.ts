@@ -206,6 +206,13 @@ export function validateInputSourceMap(map: unknown): SourceValidationResult {
       errors.push("input key is required");
       continue;
     }
+    if (item.source?.type === "skill_output") {
+      // skillId may be empty string before admin.service resolves it — skip validation here
+      if (!item.source.skillName?.trim()) {
+        errors.push(`${item.key}: skill_output source requires a non-empty skillName`);
+      }
+      continue;
+    }
     if (item.source?.type === "url") {
       if (!item.source.value?.trim()) {
         errors.push(`${item.key}: url source requires a non-empty value`);
@@ -213,7 +220,7 @@ export function validateInputSourceMap(map: unknown): SourceValidationResult {
       continue;
     }
     if (item.source?.type !== "database") {
-      errors.push(`${item.key}: source.type must be "database" or "url"`);
+      errors.push(`${item.key}: source.type must be "database", "url", or "skill_output"`);
       continue;
     }
     const registryEntry = SOURCE_REGISTRY[(item.source as any).entity];
@@ -253,13 +260,38 @@ export function generateInputSourceMap(inputRequirementText: string): SourceVali
     if (optMatch[0]) strippedText = strippedText.replace(optMatch[0], optMatch[1]?.trim() ?? "");
   }
 
+  // Detect skill output references — multiple natural phrasings:
+  //   "use X output", "get output from X skill", "output from X", "need X output", "X skill output"
+  const skillOutputPatterns = [
+    /\buse\s+(.+?)\s+output\b/gi,
+    /\bget\s+(?:the\s+)?output\s+from\s+(.+?)(?:\s+skill)?\b/gi,
+    /\boutput\s+from\s+(.+?)(?:\s+skill)?\b/gi,
+    /\bneed\s+(.+?)\s+output\b/gi,
+    /\b(.+?)\s+skill\s+output\b/gi,
+  ];
+  const skillOutputEntries: InputSourceMapItem[] = [];
+  let skillOutputStripped = strippedText;
+  let soIdx = 0;
+  for (const pat of skillOutputPatterns) {
+    let soM: RegExpExecArray | null;
+    while ((soM = pat.exec(strippedText)) !== null) {
+      const skillName = soM[1]?.trim().replace(/\bskill\b/gi, "").trim() ?? "";
+      if (!skillName) continue;
+      // Deduplicate by skillName
+      if (skillOutputEntries.some((e) => (e.source as any).skillName?.toLowerCase() === skillName.toLowerCase())) continue;
+      const key = `skillOutput${soIdx++ > 0 ? soIdx : ""}`;
+      skillOutputEntries.push({ key, description: `${skillName} output`, required: true, source: { type: "skill_output", skillId: "", skillName } });
+      if (soM[0]) skillOutputStripped = skillOutputStripped.replace(soM[0], "");
+    }
+  }
+
   // Detect URLs in text before normalizing — they become url source entries
   const urlPattern = /https?:\/\/\S+/g;
   const urlEntries: InputSourceMapItem[] = [];
-  let urlStripped = strippedText;
+  let urlStripped = skillOutputStripped;
   let urlM: RegExpExecArray | null;
   let urlIdx = 0;
-  while ((urlM = urlPattern.exec(strippedText)) !== null) {
+  while ((urlM = urlPattern.exec(skillOutputStripped)) !== null) {
     const url = urlM[0];
     const key = `urlDocument${urlIdx++ > 0 ? urlIdx : ""}`;
     urlEntries.push({ key, description: url, required: true, source: { type: "url", value: url } });
@@ -271,7 +303,7 @@ export function generateInputSourceMap(inputRequirementText: string): SourceVali
     return { valid: true, errors: [], warnings: [], unmatchedTokens: [], map: EMPTY_INPUT_SOURCE_MAP };
   }
 
-  const requiredInputs: InputSourceMapItem[] = [...urlEntries];
+  const requiredInputs: InputSourceMapItem[] = [...skillOutputEntries, ...urlEntries];
   // Track which character ranges in `text` are covered by a matched alias
   const coveredRanges: Array<{ start: number; end: number }> = [];
 
@@ -642,6 +674,42 @@ export class PrismaContextAssembler implements ContextAssembler {
     const currentRuntime = { projectId, ...runtime };
 
     for (const item of validation.map.requiredInputs ?? []) {
+      // skill_output source type — fetch last assistant message from that skill in this conversation
+      if (item.source.type === "skill_output") {
+        const skillId = item.source.skillId;
+        const conversationId = currentRuntime.conversationId;
+        if (!skillId || !conversationId) {
+          if (item.required !== false) {
+            missingInputs.push(item.key);
+            missingDetails.push({ key: item.key, description: item.description ?? item.source.skillName });
+          }
+          continue;
+        }
+        const msg = await this.prisma.conversationMessage.findFirst({
+          where: { conversationId, skillId, role: "assistant" },
+          orderBy: { createdAt: "desc" },
+          select: { content: true },
+        });
+        if (msg?.content) {
+          let value: string = msg.content;
+          const jsonPath = item.source.jsonPath;
+          if (jsonPath) {
+            try {
+              const parsed = JSON.parse(value);
+              const extracted = jsonPath.split(".").reduce((obj: any, key) => obj?.[key], parsed);
+              if (extracted !== undefined) {
+                value = typeof extracted === "string" ? extracted : JSON.stringify(extracted, null, 2);
+              }
+            } catch { /* non-JSON output — use full content */ }
+          }
+          resolvedInputs[item.key] = value;
+        } else if (item.required !== false) {
+          missingInputs.push(item.key);
+          missingDetails.push({ key: item.key, description: `${item.source.skillName} has not run yet in this conversation` });
+        }
+        continue;
+      }
+
       // url source type — fetch at runtime
       if (item.source.type === "url") {
         try {
