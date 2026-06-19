@@ -29,18 +29,28 @@ export interface InputSourceMap {
   requiredInputs?: readonly InputSourceMapItem[];
 }
 
-export interface InputSourceMapItem {
-  key: string;
-  description?: string;
-  required?: boolean;
-  source: {
-    type: "database";
-    entity: string;
-    field: string;
-    scope?: Record<string, string>;
-    limit?: number;
-  };
-}
+export type InputSourceMapItem =
+  | {
+      key: string;
+      description?: string;
+      required?: boolean;
+      source: {
+        type: "database";
+        entity: string;
+        field: string;
+        scope?: Record<string, string>;
+        limit?: number;
+      };
+    }
+  | {
+      key: string;
+      description?: string;
+      required?: boolean;
+      source: {
+        type: "url";
+        value: string;
+      };
+    };
 
 export interface AiContextSection {
   tag: string;

@@ -140,12 +140,12 @@ export class AdminService {
     const inputRequirementText = typeof body.inputRequirementText === "string"
       ? body.inputRequirementText.trim()
       : "";
-    const inputSourceMap = await this.resolveInputSourceMap(
+    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(
       { inputRequirementText },
       { inputSourceMap: { requiredInputs: [] } },
     );
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
       const existing = await tx.skill.findUnique({ where: { id } });
       if (existing) {
@@ -189,6 +189,7 @@ export class AdminService {
 
       return { ...skill, versions: [version] };
     });
+    return { ...result, warnings, unmatchedTokens };
   }
 
   async skill(actor: Actor, id: string) {
@@ -267,10 +268,10 @@ export class AdminService {
       orderBy: { version: "desc" },
     });
     const inputRequirementText = this.resolveInputRequirementText(body, current);
-    const inputSourceMap = await this.resolveInputSourceMap(body, current);
+    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(body, current);
 
-    return this.prisma.client.$transaction(async (tx: any) => {
-      const version = await tx.skillVersion.create({
+    const version = await this.prisma.client.$transaction(async (tx: any) => {
+      const v = await tx.skillVersion.create({
         data: {
           skillId,
           version: current.version + 1,
@@ -290,12 +291,13 @@ export class AdminService {
           actorId: actor.userId,
           eventType: "skill.version.created",
           targetType: "skill_version",
-          targetId: version.id,
-          metadata: { skillId, version: version.version },
+          targetId: v.id,
+          metadata: { skillId, version: v.version },
         },
       });
-      return version;
+      return v;
     });
+    return { ...version, warnings, unmatchedTokens };
   }
 
   async updateSkillVersion(
@@ -314,7 +316,7 @@ export class AdminService {
     }
 
     const inputRequirementText = this.resolveInputRequirementText(body, current);
-    const inputSourceMap = await this.resolveInputSourceMap(body, current);
+    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(body, current);
     const version = await this.prisma.client.skillVersion.update({
       where: { id: versionId },
       data: {
@@ -332,7 +334,7 @@ export class AdminService {
       skillId,
       version: version.version,
     });
-    return version;
+    return { ...version, warnings, unmatchedTokens };
   }
 
   async deleteSkillVersion(actor: Actor, skillId: string, versionId: string) {
@@ -380,23 +382,23 @@ export class AdminService {
     return typeof current.inputRequirementText === "string" ? current.inputRequirementText : "";
   }
 
-  private async resolveInputSourceMap(body: Record<string, unknown>, current: any) {
+  private async resolveInputSourceMap(
+    body: Record<string, unknown>,
+    current: any,
+  ): Promise<{ map: any; warnings: string[]; unmatchedTokens: string[] }> {
     if (typeof body.inputRequirementText === "string") {
       const generated = generateInputSourceMap(body.inputRequirementText.trim());
       if (generated.valid) {
-        return generated.map;
+        return { map: generated.map, warnings: generated.warnings ?? [], unmatchedTokens: generated.unmatchedTokens ?? [] };
       }
 
       const proposed = await this.inputSourceMapProposer?.propose(body.inputRequirementText.trim());
       const proposalValidation = validateInputSourceMap(proposed);
       if (proposalValidation.valid && (proposalValidation.map.requiredInputs?.length ?? 0) > 0) {
-        return proposalValidation.map;
+        return { map: proposalValidation.map, warnings: [], unmatchedTokens: generated.unmatchedTokens ?? [] };
       }
 
-      const proposalErrors = proposed ? proposalValidation.errors : ["LLM proposal unavailable"];
-      throw new BadRequestException(
-        `Skill input requirements are invalid: ${[...generated.errors, ...proposalErrors].join("; ")}`,
-      );
+      return { map: { requiredInputs: [] }, warnings: [`No inputs could be mapped. Check for typos.`], unmatchedTokens: generated.unmatchedTokens ?? [] };
     }
 
     const existing = current.inputSourceMap ?? { requiredInputs: [] };
@@ -404,7 +406,7 @@ export class AdminService {
     if (!validation.valid) {
       throw new BadRequestException(`Existing skill input source map is invalid: ${validation.errors.join("; ")}`);
     }
-    return validation.map;
+    return { map: validation.map, warnings: [], unmatchedTokens: [] };
   }
 
 
