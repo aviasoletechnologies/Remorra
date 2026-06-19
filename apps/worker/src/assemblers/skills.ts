@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { ContextAssemblyMissingDataError } from "@remorra/ai-core";
 import { prisma } from "../lib/prisma";
 import { config } from "../config";
 import { withRetry } from "../lib/retry";
@@ -192,7 +191,6 @@ export async function invokeSkill(input: {
       modelTier: (skill.modelTier ?? "standard") as "fast" | "standard" | "reasoning",
       systemPrompt: withSkillDoneInstruction(skill.systemPrompt) + systemPromptSuffix,
       contextRequirements: contextReqsForThisTurn,
-      inputSourceMap: skill.inputSourceMap as any,
       outputSchema: skill.outputSchema,
       constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
       tokenCeiling: skill.tokenCeiling,
@@ -206,54 +204,6 @@ export async function invokeSkill(input: {
     },
     onDelta: input.onDelta,
     onLlmInput: input.onLlmInput,
-  }).catch((error) => {
-    if (error instanceof ContextAssemblyMissingDataError) {
-      const entityLabels: Record<string, string> = {
-        Project: "project profile",
-        Persona: "personas",
-        PainPoint: "pain points",
-        UserNeed: "user needs",
-        UserStory: "user stories",
-        Ambition: "ambitions",
-        Okr: "OKRs",
-        Task: "tasks",
-        FounderPack: "Founder Pack",
-        ProductPack: "Product Pack",
-        Conversation: "conversation",
-        ConversationMessage: "conversation messages",
-      };
-      let message: string;
-      if (error.missingDetails.length > 0) {
-        const bullets = error.missingDetails.map((d) => {
-          const section = d.entity ? (entityLabels[d.entity] ?? d.entity) : d.key;
-          const what = d.description ?? d.key;
-          return `• ${what} — add or complete your ${section} first`;
-        }).join("\n");
-        message = `This skill needs more data to run. Missing:\n${bullets}`;
-      } else {
-        message = `This skill needs more data to run. Missing: ${error.missingInputs.join(", ")}`;
-      }
-      return {
-        value: message,
-        usage: { model: "context-assembler", inputTokens: 0, outputTokens: 0 },
-        skillVersion: skill.version,
-        skill: {
-          id: skill.skillId,
-          versionId: skill.id,
-          name: skill.skillId,
-          version: skill.version,
-          modelTier: (skill.modelTier ?? "standard") as "fast" | "standard" | "reasoning",
-          systemPrompt: withSkillDoneInstruction(skill.systemPrompt) + systemPromptSuffix,
-          contextRequirements: contextReqsForThisTurn,
-          inputSourceMap: skill.inputSourceMap as any,
-          outputSchema: skill.outputSchema,
-          constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
-          tokenCeiling: skill.tokenCeiling,
-          retryPolicy: skill.retryPolicy,
-        },
-      };
-    }
-    throw error;
   });
 
   return { text: result.value, skill: result.skill };

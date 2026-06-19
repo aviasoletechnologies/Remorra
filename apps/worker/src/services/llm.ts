@@ -2,7 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   AiOrchestrator,
   PrismaSkillRegistry,
-  PrismaContextAssembler,
   PrismaTokenTracker,
   PrismaAuditLogger,
 } from "@remorra/ai-core";
@@ -78,7 +77,6 @@ export function buildSkillMessages(
 
 export const orchestrator = new AiOrchestrator(
   new PrismaSkillRegistry(prisma),
-  new PrismaContextAssembler(prisma),
   {
     // LlmGateway - delegates to Anthropic with retry
     async invoke(invocation) {

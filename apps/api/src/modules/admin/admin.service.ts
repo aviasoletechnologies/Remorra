@@ -1,10 +1,8 @@
-import { ForbiddenException, Injectable, BadRequestException, Optional } from "@nestjs/common";
+import { ForbiddenException, Injectable, BadRequestException } from "@nestjs/common";
 import Ajv from "ajv";
-import { generateInputSourceMap, validateInputSourceMap } from "@remorra/ai-core";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { InputSourceMapProposalService } from "./input-source-map-proposal.service.js";
 
 // Safe local micro-template engine helpers
 function renderTemplateLocal(template: string, data: any): string {
@@ -44,7 +42,6 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
-    @Optional() private readonly inputSourceMapProposer?: InputSourceMapProposalService,
   ) {}
 
   requireAdmin(actor: Actor) {
@@ -125,7 +122,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputRequirementText?: string },
+    body: { id: string; name: string; description: string; systemPrompt: string },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -137,13 +134,6 @@ export class AdminService {
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
-    const inputRequirementText = typeof body.inputRequirementText === "string"
-      ? body.inputRequirementText.trim()
-      : "";
-    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(
-      { inputRequirementText },
-      { inputSourceMap: { requiredInputs: [] } },
-    );
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
@@ -169,8 +159,6 @@ export class AdminService {
           active: true,
           systemPrompt,
           contextRequirements: {},
-          inputRequirementText,
-          inputSourceMap,
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -189,7 +177,7 @@ export class AdminService {
 
       return { ...skill, versions: [version] };
     });
-    return { ...result, warnings, unmatchedTokens };
+    return result;
   }
 
   async skill(actor: Actor, id: string) {
@@ -226,14 +214,6 @@ export class AdminService {
   async activateSkill(actor: Actor, skillId: string, versionId: string) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    const targetVersion = await this.prisma.client.skillVersion.findUniqueOrThrow({
-      where: { id: versionId },
-    });
-    const validation = validateInputSourceMap(targetVersion.inputSourceMap);
-    if (!validation.valid) {
-      throw new BadRequestException(`Skill input source map is invalid: ${validation.errors.join("; ")}`);
-    }
-
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.skillVersion.updateMany({
         where: { skillId },
@@ -267,8 +247,6 @@ export class AdminService {
       where: { skillId },
       orderBy: { version: "desc" },
     });
-    const inputRequirementText = this.resolveInputRequirementText(body, current);
-    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(body, current);
 
     const version = await this.prisma.client.$transaction(async (tx: any) => {
       const v = await tx.skillVersion.create({
@@ -278,8 +256,6 @@ export class AdminService {
           active: false,
           systemPrompt: String(body.systemPrompt ?? current.systemPrompt),
           contextRequirements: body.contextRequirements ?? current.contextRequirements,
-          inputRequirementText,
-          inputSourceMap,
           outputSchema: body.outputSchema ?? current.outputSchema,
           constraints: body.constraints ?? current.constraints,
           examples: body.examples ?? current.examples,
@@ -297,7 +273,7 @@ export class AdminService {
       });
       return v;
     });
-    return { ...version, warnings, unmatchedTokens };
+    return version;
   }
 
   async updateSkillVersion(
@@ -315,15 +291,11 @@ export class AdminService {
       throw new BadRequestException("Skill version does not belong to this skill.");
     }
 
-    const inputRequirementText = this.resolveInputRequirementText(body, current);
-    const { map: inputSourceMap, warnings, unmatchedTokens } = await this.resolveInputSourceMap(body, current);
     const version = await this.prisma.client.skillVersion.update({
       where: { id: versionId },
       data: {
         ...(body.systemPrompt !== undefined ? { systemPrompt: String(body.systemPrompt) } : {}),
         ...(body.contextRequirements !== undefined ? { contextRequirements: body.contextRequirements } : {}),
-        inputRequirementText,
-        inputSourceMap,
         ...(body.outputSchema !== undefined ? { outputSchema: body.outputSchema } : {}),
         ...(body.constraints !== undefined ? { constraints: body.constraints } : {}),
         ...(body.examples !== undefined ? { examples: body.examples } : {}),
@@ -334,7 +306,7 @@ export class AdminService {
       skillId,
       version: version.version,
     });
-    return { ...version, warnings, unmatchedTokens };
+    return version;
   }
 
   async deleteSkillVersion(actor: Actor, skillId: string, versionId: string) {
@@ -375,39 +347,7 @@ export class AdminService {
     return { success: true };
   }
 
-  private resolveInputRequirementText(body: Record<string, unknown>, current: any): string {
-    if (typeof body.inputRequirementText === "string") {
-      return body.inputRequirementText.trim();
-    }
-    return typeof current.inputRequirementText === "string" ? current.inputRequirementText : "";
-  }
 
-  private async resolveInputSourceMap(
-    body: Record<string, unknown>,
-    current: any,
-  ): Promise<{ map: any; warnings: string[]; unmatchedTokens: string[] }> {
-    if (typeof body.inputRequirementText === "string") {
-      const generated = generateInputSourceMap(body.inputRequirementText.trim());
-      if (generated.valid) {
-        return { map: generated.map, warnings: generated.warnings ?? [], unmatchedTokens: generated.unmatchedTokens ?? [] };
-      }
-
-      const proposed = await this.inputSourceMapProposer?.propose(body.inputRequirementText.trim());
-      const proposalValidation = validateInputSourceMap(proposed);
-      if (proposalValidation.valid && (proposalValidation.map.requiredInputs?.length ?? 0) > 0) {
-        return { map: proposalValidation.map, warnings: [], unmatchedTokens: generated.unmatchedTokens ?? [] };
-      }
-
-      return { map: { requiredInputs: [] }, warnings: [`No inputs could be mapped. Check for typos.`], unmatchedTokens: generated.unmatchedTokens ?? [] };
-    }
-
-    const existing = current.inputSourceMap ?? { requiredInputs: [] };
-    const validation = validateInputSourceMap(existing);
-    if (!validation.valid) {
-      throw new BadRequestException(`Existing skill input source map is invalid: ${validation.errors.join("; ")}`);
-    }
-    return { map: validation.map, warnings: [], unmatchedTokens: [] };
-  }
 
 
   jobs(actor: Actor) {
