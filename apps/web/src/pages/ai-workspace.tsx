@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
@@ -24,6 +24,13 @@ type WorkspaceConversation = {
 
 type PendingMessage = { id: string; role: "user"; content: string };
 
+function cleanMessageContent(content: string): string {
+  return content
+    .replace(/<skill_done\/>/g, "")
+    .replace(/```json[\s\S]*/gi, "")
+    .trim();
+}
+
 export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
@@ -36,6 +43,21 @@ export function AiWorkspacePage() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isTextareaScrollable, setIsTextareaScrollable] = useState(false);
+  const [textboxHeight, setTextboxHeight] = useState(80);
+  const inputWrapperRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const completedMessageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!inputWrapperRef.current) return;
+    const observer = new ResizeObserver(() => {
+      if (inputWrapperRef.current) {
+        setTextboxHeight(inputWrapperRef.current.offsetHeight);
+      }
+    });
+    observer.observe(inputWrapperRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const { data: conversation, isLoading, error } = useQuery({
     queryKey: ["workspace-flow", projectId],
@@ -43,9 +65,33 @@ export function AiWorkspacePage() {
     enabled: Boolean(projectId),
   });
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [conversation?.messages.length, pendingMessages.length, streamedReply]);
+
+
+  useLayoutEffect(() => {
+    if (!conversation?.messages) return;
+
+    // 1. Clear pending user messages once they appear in the database
+    setPendingMessages((current) => {
+      const filtered = current.filter(
+        (pending) => !conversation.messages.some((msg) => msg.content === pending.content && msg.role === "user")
+      );
+      if (filtered.length !== current.length) {
+        return filtered;
+      }
+      return current;
+    });
+
+    // 2. Clear active stream text once the database has committed the matching response
+    if (streamedReply) {
+      const lastMsg = conversation.messages[conversation.messages.length - 1];
+      const cleanStreamed = streamedReply.replace(/<skill_done\/>/g, "").trim();
+      const cleanDb = lastMsg?.content?.trim() ?? "";
+
+      if (lastMsg?.role === "assistant" && cleanDb === cleanStreamed) {
+        setStreamedReply("");
+      }
+    }
+  }, [conversation?.messages, streamedReply]);
 
   const send = useMutation({
     mutationFn: async () => {
@@ -116,6 +162,22 @@ export function AiWorkspacePage() {
                   if (event.type === "skill_transition" && event.metadata?.nextJobId) {
                     nextJobId = event.metadata.nextJobId as string;
                   }
+                  if (event.type === "completed" && event.metadata?.messages) {
+                    const sseMessages = event.metadata.messages as any[];
+                    const assistantMsg = sseMessages.find((m) => m.role === "assistant");
+                    if (assistantMsg) {
+                      completedMessageIdRef.current = assistantMsg.id;
+                    }
+                    queryClient.setQueryData(["workspace-flow", projectId], (oldData: any) => {
+                      if (!oldData) return oldData;
+                      const existingIds = new Set(oldData.messages.map((m: any) => m.id));
+                      const newMessages = sseMessages.filter((m) => !existingIds.has(m.id));
+                      return {
+                        ...oldData,
+                        messages: [...oldData.messages, ...newMessages],
+                      };
+                    });
+                  }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
                       sequence: event.sequence,
@@ -143,17 +205,24 @@ export function AiWorkspacePage() {
         throw error;
       }
     },
-    onSuccess: async () => {
-      setStreamedReply("");
-      setPendingMessages([]);
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
-    },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
-    },
+    onSuccess: async () => {},
   });
 
+  const busy = send.isPending;
 
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // Scroll immediately
+    container.scrollTop = container.scrollHeight;
+
+    // Scroll after layout/paint to handle any delayed rendering
+    const handle = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [conversation?.messages.length, pendingMessages.length, streamedReply, textboxHeight, busy]);
 
   if (isLoading) {
     return <ChatWorkspaceSkeleton />;
@@ -176,7 +245,6 @@ export function AiWorkspacePage() {
   }
 
   const activeSkill = conversation.activeSkill;
-  const busy = send.isPending;
   const visibleMessages = [...conversation.messages, ...pendingMessages];
   const placeholder = activeSkill
     ? `Ask about ${activeSkill.name.toLowerCase()}...`
@@ -186,8 +254,11 @@ export function AiWorkspacePage() {
     <Page className="h-[calc(100vh-64px)] !p-4 md:!p-6 flex flex-col overflow-hidden">
       <div className="w-full flex-1 flex flex-col min-h-0">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
-          <div className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
-            <div className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4 pb-40">
+          <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
+            <div
+              className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4"
+              style={{ paddingBottom: `${textboxHeight - 20}px` }}
+            >
               {visibleMessages.length === 0 ? (
                 <div className="my-auto flex max-w-[520px] mx-auto gap-4 rounded-2xl border border-primary/15 bg-accent-soft/15 p-5 text-sm shadow-sm">
                   <Sparkles size={24} className="text-primary flex-shrink-0" />
@@ -201,21 +272,23 @@ export function AiWorkspacePage() {
               ) : (
                 visibleMessages.map((item) => {
                   const isAssistant = item.role === "assistant";
+                  const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
                     <motion.div
-                      initial={{ opacity: 0, y: 4 }}
+                      layout
+                      initial={shouldSkipAnimation ? false : { opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
                       key={item.id}
                       className={`flex flex-col w-full ${isAssistant ? "items-start" : "items-end"}`}
                     >
                       {!isAssistant ? (
                         <div className="bg-[#d9fdd3] text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tr-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                          {item.content}
+                          {cleanMessageContent(item.content)}
                         </div>
                       ) : (
                         <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                          {item.content}
+                          {cleanMessageContent(item.content)}
                         </div>
                       )}
                     </motion.div>
@@ -223,19 +296,44 @@ export function AiWorkspacePage() {
                 })
               )}
 
-              {streamedReply ? (
-                <div className="flex flex-col items-start w-full">
-                  <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                    {streamedReply}
+              {busy && !streamedReply ? (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
+                  className="flex flex-col items-start w-full"
+                >
+                  <div className="bg-white text-zinc-900 px-4 py-3 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "-300ms", animationDuration: "1s" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "-150ms", animationDuration: "1s" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1s" }} />
                   </div>
-                </div>
+                </motion.div>
+              ) : null}
+
+              {streamedReply ? (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
+                  className="flex flex-col items-start w-full"
+                >
+                  <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
+                    {cleanMessageContent(streamedReply)}
+                  </div>
+                </motion.div>
               ) : null}
 
               <div ref={endRef} />
             </div>
           </div>
 
-          <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-4 pb-6 pt-4 w-full flex flex-col items-center">
+          <div
+            ref={inputWrapperRef}
+            className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-4 pb-6 pt-4 w-full flex flex-col items-center"
+          >
             <div className="max-w-4xl w-full">
               {send.error ? (
                 <p className="form-message mb-3 text-xs text-destructive text-center">

@@ -200,6 +200,76 @@ export function streamTextJob(
   };
 }
 
+export function streamRecentJobs(
+  onJobs: (jobs: any[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  let isAborted = false;
+  let controller = new AbortController();
+
+  const connect = async () => {
+    if (isAborted) return;
+
+    try {
+      controller = new AbortController();
+      const response = await authorizedFetch("/events/stream", {
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Failed to connect to events SSE stream: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+
+        for (const frame of frames) {
+          const line = frame.split("\n").find((item) => item.startsWith("data:"));
+          if (!line) continue;
+
+          try {
+            const payload = JSON.parse(line.slice(5).trim()) as {
+              type: string;
+              jobs: any[];
+            };
+
+            if (payload.type === "jobs") {
+              onJobs(payload.jobs);
+            }
+          } catch (parseErr) {
+            console.error("Failed to parse SSE jobs event", parseErr);
+          }
+        }
+      }
+    } catch (err: any) {
+      if (isAborted) return;
+      if (err.name === "AbortError") return;
+
+      console.warn("Events SSE stream error, retrying...", err);
+      if (onError) {
+        onError(err as Error);
+      }
+      setTimeout(connect, 2000);
+    }
+  };
+
+  connect();
+
+  return () => {
+    isAborted = true;
+    controller.abort();
+  };
+}
+
+
 async function authorizedFetch(
   path: string,
   init: RequestInit & { version?: number } = {},
