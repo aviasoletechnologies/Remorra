@@ -29,6 +29,7 @@ export async function handleConversation(payload: Payload) {
 
   let sequence = 1;
   const jobId = payload.jobRecordId;
+  let savedAssistantMsg: any = null;
   let queue: Array<{
     type: string;
     delta?: string;
@@ -295,7 +296,7 @@ export async function handleConversation(payload: Payload) {
 
     // Save ConversationMessage (assistant turn)
     if (conversationId) {
-      await prisma.conversationMessage.create({
+      savedAssistantMsg = await prisma.conversationMessage.create({
         data: {
           conversationId,
           role: "assistant",
@@ -444,7 +445,7 @@ export async function handleConversation(payload: Payload) {
             "You've completed all the steps — great work! 🎉 " +
             "Everything has been saved. Feel free to ask me anything else.";
 
-          await prisma.conversationMessage.create({
+          savedAssistantMsg = await prisma.conversationMessage.create({
             data: {
               conversationId,
               role: "assistant",
@@ -494,6 +495,18 @@ export async function handleConversation(payload: Payload) {
       }
     }
 
+    let savedUserMsg: any = null;
+    if (conversationId) {
+      savedUserMsg = await prisma.conversationMessage.findFirst({
+        where: {
+          conversationId,
+          role: "user",
+          content: String(payload.content),
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
     // Push completed LAST — after skill_transition so frontend gets nextJobId first
     queue.push({
       type: "completed",
@@ -508,6 +521,21 @@ export async function handleConversation(payload: Payload) {
           userMessage: String(payload.content),
         },
         rawOutput: result.text,
+        messages: [
+          savedUserMsg ? {
+            id: savedUserMsg.id,
+            role: "user",
+            content: savedUserMsg.content,
+            createdAt: savedUserMsg.createdAt.toISOString(),
+            documentName: savedUserMsg.documentName,
+          } : null,
+          savedAssistantMsg ? {
+            id: savedAssistantMsg.id,
+            role: "assistant",
+            content: savedAssistantMsg.content,
+            createdAt: savedAssistantMsg.createdAt.toISOString(),
+          } : null,
+        ].filter(Boolean),
       },
     });
     await flush();
