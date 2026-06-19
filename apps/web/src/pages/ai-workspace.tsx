@@ -39,6 +39,7 @@ export function AiWorkspacePage() {
   const [textboxHeight, setTextboxHeight] = useState(80);
   const inputWrapperRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const completedMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!inputWrapperRef.current) return;
@@ -156,6 +157,10 @@ export function AiWorkspacePage() {
                   }
                   if (event.type === "completed" && event.metadata?.messages) {
                     const sseMessages = event.metadata.messages as any[];
+                    const assistantMsg = sseMessages.find((m) => m.role === "assistant");
+                    if (assistantMsg) {
+                      completedMessageIdRef.current = assistantMsg.id;
+                    }
                     queryClient.setQueryData(["workspace-flow", projectId], (oldData: any) => {
                       if (!oldData) return oldData;
                       const existingIds = new Set(oldData.messages.map((m: any) => m.id));
@@ -260,9 +265,10 @@ export function AiWorkspacePage() {
               ) : (
                 visibleMessages.map((item) => {
                   const isAssistant = item.role === "assistant";
+                  const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
                     <motion.div
-                      initial={{ opacity: 0, y: 4 }}
+                      initial={shouldSkipAnimation ? false : { opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.18 }}
                       key={item.id}
@@ -283,21 +289,31 @@ export function AiWorkspacePage() {
               )}
 
               {busy && !streamedReply ? (
-                <div className="flex flex-col items-start w-full">
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex flex-col items-start w-full"
+                >
                   <div className="bg-white text-zinc-900 px-4 py-3 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "-300ms", animationDuration: "1s" }} />
                     <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "-150ms", animationDuration: "1s" }} />
                     <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1s" }} />
                   </div>
-                </div>
+                </motion.div>
               ) : null}
 
               {streamedReply ? (
-                <div className="flex flex-col items-start w-full">
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex flex-col items-start w-full"
+                >
                   <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
                     {streamedReply}
                   </div>
-                </div>
+                </motion.div>
               ) : null}
 
               <div ref={endRef} />
