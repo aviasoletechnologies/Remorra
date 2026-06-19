@@ -226,6 +226,24 @@ export async function handleConversation(payload: Payload) {
           displayText =
             "I've captured everything I need. Your product idea is saved — you can now generate your Founder Pack or continue refining.";
         }
+      } else {
+        // Extract embedded JSON block (hybrid responses)
+        const match = displayText.match(/```json\s*([\s\S]*?)\s*```/i);
+        if (match && match[1]) {
+          try {
+            jsonParsed = JSON.parse(match[1].trim());
+          } catch {
+            try {
+              jsonParsed = parseJson(match[1].trim());
+            } catch {
+              /* not JSON */
+            }
+          }
+          if (jsonParsed !== null) {
+            skillIsDone = true;
+            displayText = displayText.replace(/```json\s*[\s\S]*?```/gi, "").trim();
+          }
+        }
       }
     }
 

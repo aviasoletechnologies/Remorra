@@ -24,6 +24,13 @@ type WorkspaceConversation = {
 
 type PendingMessage = { id: string; role: "user"; content: string };
 
+function cleanMessageContent(content: string): string {
+  return content
+    .replace(/<skill_done\/>/g, "")
+    .replace(/```json[\s\S]*/gi, "")
+    .trim();
+}
+
 export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
@@ -268,19 +275,20 @@ export function AiWorkspacePage() {
                   const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
                     <motion.div
-                      initial={shouldSkipAnimation ? false : { opacity: 0, y: 4 }}
+                      layout
+                      initial={shouldSkipAnimation ? false : { opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18 }}
+                      transition={{ duration: 0.24, ease: "easeOut" }}
                       key={item.id}
                       className={`flex flex-col w-full ${isAssistant ? "items-start" : "items-end"}`}
                     >
                       {!isAssistant ? (
                         <div className="bg-[#d9fdd3] text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tr-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                          {item.content}
+                          {cleanMessageContent(item.content)}
                         </div>
                       ) : (
                         <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                          {item.content}
+                          {cleanMessageContent(item.content)}
                         </div>
                       )}
                     </motion.div>
@@ -290,9 +298,10 @@ export function AiWorkspacePage() {
 
               {busy && !streamedReply ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 4 }}
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
                   className="flex flex-col items-start w-full"
                 >
                   <div className="bg-white text-zinc-900 px-4 py-3 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal flex items-center gap-1">
@@ -305,13 +314,14 @@ export function AiWorkspacePage() {
 
               {streamedReply ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 4 }}
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
                   className="flex flex-col items-start w-full"
                 >
                   <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                    {streamedReply}
+                    {cleanMessageContent(streamedReply)}
                   </div>
                 </motion.div>
               ) : null}
