@@ -22,6 +22,8 @@ type SourceRegistryEntry = {
 type SourceValidationResult = {
   valid: boolean;
   errors: string[];
+  warnings: string[];
+  unmatchedTokens: string[];
   map: InputSourceMap;
 };
 
@@ -165,8 +167,18 @@ const SOURCE_REGISTRY: Record<string, SourceRegistryEntry> = {
   },
 };
 
+export interface MissingInputDetail {
+  key: string;
+  description?: string | undefined;
+  entity?: string | undefined;
+  field?: string | undefined;
+}
+
 export class ContextAssemblyMissingDataError extends Error {
-  constructor(readonly missingInputs: string[]) {
+  constructor(
+    readonly missingInputs: string[],
+    readonly missingDetails: MissingInputDetail[] = [],
+  ) {
     super(`Missing required context inputs: ${missingInputs.join(", ")}`);
     this.name = "ContextAssemblyMissingDataError";
   }
@@ -194,21 +206,27 @@ export function validateInputSourceMap(map: unknown): SourceValidationResult {
       errors.push("input key is required");
       continue;
     }
+    if (item.source?.type === "url") {
+      if (!item.source.value?.trim()) {
+        errors.push(`${item.key}: url source requires a non-empty value`);
+      }
+      continue;
+    }
     if (item.source?.type !== "database") {
-      errors.push(`${item.key}: source.type must be database`);
+      errors.push(`${item.key}: source.type must be "database" or "url"`);
       continue;
     }
-    const registryEntry = SOURCE_REGISTRY[item.source.entity];
+    const registryEntry = SOURCE_REGISTRY[(item.source as any).entity];
     if (!registryEntry) {
-      errors.push(`${item.key}: unknown entity ${item.source.entity}`);
+      errors.push(`${item.key}: unknown entity ${(item.source as any).entity}`);
       continue;
     }
-    if (!registryEntry.fields.includes(item.source.field)) {
-      errors.push(`${item.key}: unknown field ${item.source.entity}.${item.source.field}`);
+    if (!registryEntry.fields.includes((item.source as any).field)) {
+      errors.push(`${item.key}: unknown field ${(item.source as any).entity}.${(item.source as any).field}`);
     }
   }
 
-  return { valid: errors.length === 0, errors, map: inputMap };
+  return { valid: errors.length === 0, errors, warnings: [], unmatchedTokens: [], map: inputMap };
 }
 
 export function listInputSourceRegistry() {
@@ -225,21 +243,56 @@ export function listInputSourceRegistry() {
 }
 
 export function generateInputSourceMap(inputRequirementText: string): SourceValidationResult {
-  const text = normalizeText(inputRequirementText);
-  if (!text) {
-    return { valid: true, errors: [], map: EMPTY_INPUT_SOURCE_MAP };
+  // Extract optional markers before normalizing: "persona name (optional)" → mark as required:false
+  const optionalPattern = /([^,]+?)\s*\(optional\)/gi;
+  const optionalPhrases = new Set<string>();
+  let strippedText = inputRequirementText;
+  let optMatch: RegExpExecArray | null;
+  while ((optMatch = optionalPattern.exec(inputRequirementText)) !== null) {
+    if (optMatch[1]) optionalPhrases.add(normalizeText(optMatch[1].trim()));
+    if (optMatch[0]) strippedText = strippedText.replace(optMatch[0], optMatch[1]?.trim() ?? "");
   }
 
-  const requiredInputs: InputSourceMapItem[] = [];
+  // Detect URLs in text before normalizing — they become url source entries
+  const urlPattern = /https?:\/\/\S+/g;
+  const urlEntries: InputSourceMapItem[] = [];
+  let urlStripped = strippedText;
+  let urlM: RegExpExecArray | null;
+  let urlIdx = 0;
+  while ((urlM = urlPattern.exec(strippedText)) !== null) {
+    const url = urlM[0];
+    const key = `urlDocument${urlIdx++ > 0 ? urlIdx : ""}`;
+    urlEntries.push({ key, description: url, required: true, source: { type: "url", value: url } });
+    urlStripped = urlStripped.replace(url, "");
+  }
+
+  const text = normalizeText(urlStripped);
+  if (!text && urlEntries.length === 0) {
+    return { valid: true, errors: [], warnings: [], unmatchedTokens: [], map: EMPTY_INPUT_SOURCE_MAP };
+  }
+
+  const requiredInputs: InputSourceMapItem[] = [...urlEntries];
+  // Track which character ranges in `text` are covered by a matched alias
+  const coveredRanges: Array<{ start: number; end: number }> = [];
+
   for (const [entity, entry] of Object.entries(SOURCE_REGISTRY)) {
     for (const [alias, field] of Object.entries(entry.aliases)) {
-      if (!text.includes(normalizeText(alias))) continue;
+      const normalizedAlias = normalizeText(alias);
+      const idx = text.indexOf(normalizedAlias);
+      if (idx === -1) continue;
       const key = toInputKey(entity, field);
-      if (requiredInputs.some((item) => item.key === key)) continue;
+      // Check if this alias was marked optional
+      const isOptional = optionalPhrases.has(normalizedAlias) ||
+        [...optionalPhrases].some((p) => p.includes(normalizedAlias));
+      if (requiredInputs.some((item) => item.key === key)) {
+        coveredRanges.push({ start: idx, end: idx + normalizedAlias.length });
+        continue;
+      }
+      coveredRanges.push({ start: idx, end: idx + normalizedAlias.length });
       requiredInputs.push({
         key,
         description: alias,
-        required: true,
+        required: isOptional ? false : true,
         source: {
           type: "database",
           entity,
@@ -251,15 +304,35 @@ export function generateInputSourceMap(inputRequirementText: string): SourceVali
     }
   }
 
+  // Compute unmatched tokens: words in input not covered by any alias range
+  const unmatchedTokens: string[] = [];
+  // Split original (non-normalized) text into meaningful word groups and check coverage
+  const words = text.split(/\s+/).filter(Boolean);
+  let pos = 0;
+  for (const word of words) {
+    const wordStart = text.indexOf(word, pos);
+    const wordEnd = wordStart + word.length;
+    const isCovered = coveredRanges.some((r) => r.start <= wordStart && wordEnd <= r.end);
+    if (!isCovered && word.length > 2) {
+      // Only flag words >2 chars to skip noise like "and", "or", "a"
+      const already = unmatchedTokens.some((t) => t === word);
+      if (!already) unmatchedTokens.push(word);
+    }
+    pos = wordEnd;
+  }
+
   if (requiredInputs.length === 0) {
     return {
-      valid: false,
-      errors: [`Could not map input requirement text to known sources: "${inputRequirementText}"`],
+      valid: true,
+      errors: [],
+      warnings: text ? [`No known sources matched. Check for typos.`] : [],
+      unmatchedTokens,
       map: EMPTY_INPUT_SOURCE_MAP,
     };
   }
 
-  return validateInputSourceMap({ requiredInputs });
+  const result = validateInputSourceMap({ requiredInputs });
+  return { ...result, warnings: [], unmatchedTokens };
 }
 
 function normalizeInputSourceMap(map: unknown): InputSourceMap {
@@ -565,36 +638,65 @@ export class PrismaContextAssembler implements ContextAssembler {
 
     const resolvedInputs: Record<string, unknown> = {};
     const missingInputs: string[] = [];
+    const missingDetails: MissingInputDetail[] = [];
     const currentRuntime = { projectId, ...runtime };
 
     for (const item of validation.map.requiredInputs ?? []) {
-      const registryEntry = SOURCE_REGISTRY[item.source.entity];
+      // url source type — fetch at runtime
+      if (item.source.type === "url") {
+        try {
+          const res = await fetch(item.source.value, { signal: AbortSignal.timeout(10_000) });
+          if (res.ok) {
+            const html = await res.text();
+            const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 20_000);
+            resolvedInputs[item.key] = text;
+          } else if (item.required !== false) {
+            missingInputs.push(item.key);
+            missingDetails.push({ key: item.key, description: item.description ?? item.source.value });
+          }
+        } catch {
+          if (item.required !== false) {
+            missingInputs.push(item.key);
+            missingDetails.push({ key: item.key, description: item.description ?? item.source.value });
+          }
+        }
+        continue;
+      }
+
+      // database source type
+      const dbSource = item.source as { type: "database"; entity: string; field: string; scope?: Record<string, string>; limit?: number };
+      const registryEntry = SOURCE_REGISTRY[dbSource.entity];
       if (!registryEntry) {
-        missingInputs.push(`${item.key} (${item.source.entity} source is not registered)`);
+        missingInputs.push(`${item.key} (${dbSource.entity} source is not registered)`);
+        missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
         continue;
       }
       const delegate = this.prisma[registryEntry.delegate];
       if (!delegate?.findFirst) {
-        missingInputs.push(`${item.key} (${item.source.entity} source is unavailable)`);
+        missingInputs.push(`${item.key} (${dbSource.entity} source is unavailable)`);
+        missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
         continue;
       }
 
-      const where = buildWhere(item.source.scope ?? registryEntry.defaultScope, currentRuntime);
+      const where = buildWhere(dbSource.scope ?? registryEntry.defaultScope, currentRuntime);
       const row = await delegate.findFirst({
         where,
         orderBy: registryEntry.fields.includes("createdAt") ? { createdAt: "desc" } : undefined,
-        select: { [item.source.field]: true },
+        select: { [dbSource.field]: true },
       });
-      const value = row?.[item.source.field];
+      const value = row?.[dbSource.field];
       if (value === null || value === undefined || value === "") {
-        if (item.required !== false) missingInputs.push(item.key);
+        if (item.required !== false) {
+          missingInputs.push(item.key);
+          missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
+        }
         continue;
       }
       resolvedInputs[item.key] = value;
     }
 
     if (missingInputs.length > 0) {
-      throw new ContextAssemblyMissingDataError(missingInputs);
+      throw new ContextAssemblyMissingDataError(missingInputs, missingDetails);
     }
 
     return [

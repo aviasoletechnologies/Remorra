@@ -202,9 +202,33 @@ export async function invokeSkill(input: {
     onLlmInput: input.onLlmInput,
   }).catch((error) => {
     if (error instanceof ContextAssemblyMissingDataError) {
-      const missing = error.missingInputs.join(", ");
+      const entityLabels: Record<string, string> = {
+        Project: "project profile",
+        Persona: "personas",
+        PainPoint: "pain points",
+        UserNeed: "user needs",
+        UserStory: "user stories",
+        Ambition: "ambitions",
+        Okr: "OKRs",
+        Task: "tasks",
+        FounderPack: "Founder Pack",
+        ProductPack: "Product Pack",
+        Conversation: "conversation",
+        ConversationMessage: "conversation messages",
+      };
+      let message: string;
+      if (error.missingDetails.length > 0) {
+        const bullets = error.missingDetails.map((d) => {
+          const section = d.entity ? (entityLabels[d.entity] ?? d.entity) : d.key;
+          const what = d.description ?? d.key;
+          return `• ${what} — add or complete your ${section} first`;
+        }).join("\n");
+        message = `This skill needs more data to run. Missing:\n${bullets}`;
+      } else {
+        message = `This skill needs more data to run. Missing: ${error.missingInputs.join(", ")}`;
+      }
       return {
-        value: `I need a little more detail before I can run this skill. Missing or unavailable context: ${missing}. Please provide clearer details or update the skill input requirements so they map to known project data.`,
+        value: message,
         usage: { model: "context-assembler", inputTokens: 0, outputTokens: 0 },
         skillVersion: skill.version,
         skill: {

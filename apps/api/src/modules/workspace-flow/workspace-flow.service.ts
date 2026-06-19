@@ -77,12 +77,32 @@ export class WorkspaceFlowService {
     const content = rawContent.trim();
     if (!content) throw new BadRequestException("Message content is required.");
 
-    // Extract document text if a file was uploaded
+    // Extract document text — from uploaded file OR URL in message
     let documentName: string | undefined;
     let documentContent: string | undefined;
     if (file) {
       documentName = file.originalname;
       documentContent = await extractDocumentText(file);
+    } else {
+      const urlMatch = content.match(/https?:\/\/\S+/);
+      if (urlMatch) {
+        const url = urlMatch[0];
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+          if (res.ok) {
+            const html = await res.text();
+            // Strip HTML tags and collapse whitespace
+            const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_DOCUMENT_CHARS);
+            if (text.length > 100) {
+              documentName = url;
+              documentContent = text;
+              this.logger.log(`Fetched URL document project=${projectId} url=${url} chars=${text.length}`);
+            }
+          }
+        } catch (fetchErr) {
+          this.logger.warn(`Failed to fetch URL ${url}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
+        }
+      }
     }
 
     const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);

@@ -48,11 +48,8 @@ function describeSkillInputRequirement(version: any): string {
   return "";
 }
 
-function validateInputRequirementText(value: string): string | null {
-  if (!value.trim()) {
-    return "Input requirement text is required so the system can generate a source map.";
-  }
-  return null;
+function validateInputRequirementText(_value: string): string | null {
+  return null; // input text is optional — skills with no inputs are valid
 }
 
 export function AdminPage() {
@@ -88,6 +85,7 @@ export function AdminPage() {
   const [editPromptText, setEditPromptText] = useState("");
   const [editInputRequirementText, setEditInputRequirementText] = useState("");
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
+  const [skillEditUnmatched, setSkillEditUnmatched] = useState<string[]>([]);
   const [showInputSourceMap, setShowInputSourceMap] = useState(false);
 
 
@@ -334,10 +332,17 @@ export function AdminPage() {
         : current,
       );
       setEditingSkillVersionId(version.id);
-      toast.success("Successfully created new skill version!");
+      setSkillEditUnmatched(version.unmatchedTokens ?? []);
+      if (version.warnings?.length) {
+        setSkillEditError(`Saved with warnings: ${version.warnings.join("; ")}`);
+        toast.success("Skill version created (check input mapping warnings).");
+      } else {
+        setSkillEditError(null);
+        toast.success("Successfully created new skill version!");
+      }
     },
     onError: (err: any) => {
-      setSkillEditError(err.message || "Skill input requirements could not be mapped to known data sources.");
+      setSkillEditError(err.message || "Failed to create skill version.");
       toast.error(err.message || "Failed to create skill version.");
     },
   });
@@ -357,11 +362,17 @@ export function AdminPage() {
           }
         : current,
       );
-      setSkillEditError(null);
-      toast.success("Skill version updated successfully!");
+      setSkillEditUnmatched(version.unmatchedTokens ?? []);
+      if (version.warnings?.length) {
+        setSkillEditError(`Saved with warnings: ${version.warnings.join("; ")}`);
+        toast.success("Skill version saved (check input mapping warnings).");
+      } else {
+        setSkillEditError(null);
+        toast.success("Skill version updated successfully!");
+      }
     },
     onError: (err: any) => {
-      setSkillEditError(err.message || "Skill version could not be updated.");
+      setSkillEditError(err.message || "Failed to update skill version.");
       toast.error(err.message || "Failed to update skill version.");
     },
   });
@@ -403,7 +414,7 @@ export function AdminPage() {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
       setIsCreateSkillOpen(false);
@@ -413,7 +424,11 @@ export function AdminPage() {
       setNewSkillPrompt("");
       setNewSkillInputRequirementText("");
       setSkillCreateError(null);
-      toast.success("Skill created successfully!");
+      if (result?.warnings?.length) {
+        toast.success(`Skill created (warning: ${result.warnings.join("; ")})`);
+      } else {
+        toast.success("Skill created successfully!");
+      }
     },
     onError: (err: any) => {
       setSkillCreateError(err.message || "Failed to create skill.");
@@ -832,10 +847,26 @@ export function AdminPage() {
                         onChange={(e) => {
                           setEditInputRequirementText(e.target.value);
                           setSkillEditError(null);
+                          setSkillEditUnmatched([]);
                         }}
-                        placeholder="Example: Need project name and project summary"
+                        placeholder="Example: Need project name and persona description (optional)"
                         disabled={!isAdmin || !currentVer}
                       />
+                      {/* Matched inputs (green) + unmatched tokens (yellow) */}
+                      {(currentVer?.inputSourceMap?.requiredInputs?.length > 0 || skillEditUnmatched.length > 0) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {(currentVer?.inputSourceMap?.requiredInputs ?? []).map((item: any) => (
+                            <span key={item.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-900/40 text-green-300 border border-green-700/40">
+                              ✓ {item.description || item.key}
+                            </span>
+                          ))}
+                          {skillEditUnmatched.map((token) => (
+                            <span key={token} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-yellow-900/40 text-yellow-300 border border-yellow-700/40">
+                              ⚠ {token}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {skillEditError && (
                         <p className="form-message" role="alert">{skillEditError}</p>
                       )}
