@@ -18,6 +18,7 @@ import {
   Copy,
   CheckCircle2,
   XCircle,
+  X,
   Cpu,
   GitBranch,
   Play,
@@ -426,44 +427,48 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
           ) : null}
         </AnimatePresence>
 
-        <Sheet open={isLogsOpen} onOpenChange={setLogsOpen}>
-          <SheetContent className="w-full sm:max-w-md md:max-w-lg p-0 flex flex-col h-full bg-zinc-950 text-zinc-50 border-l border-zinc-800 shadow-2xl">
-            <SheetHeader className="border-b border-zinc-800 p-4 flex flex-row items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <SheetTitle className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
-                  <Terminal className="size-4 text-primary animate-pulse" />
-                  Backend Execution Logs
-                </SheetTitle>
-                <SheetDescription className="text-xs text-zinc-400">
-                  Real-time activity of routing, skills, and model calls
-                </SheetDescription>
-              </div>
-              <div className="flex items-center gap-2 pr-6">
-                <Badge
-                  className={cn(
-                    "text-[9px] font-bold px-2 py-0.5 rounded-full border-0 uppercase tracking-wider",
-                    streamState === "connected" && "bg-green-500/10 text-green-400 animate-pulse",
-                    (streamState === "connecting" || streamState === "reconnecting") && "bg-amber-500/10 text-amber-400",
-                    streamState === "idle" && "bg-zinc-800 text-zinc-400"
-                  )}
-                >
-                  {streamState === "connected" ? "Streaming" : streamState === "connecting" || streamState === "reconnecting" ? "Connecting" : "Idle"}
-                </Badge>
-                {logs.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={clearLogs}
-                    className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-850 cursor-pointer"
-                    title="Clear logs"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+        <MovablePanel
+          open={isLogsOpen}
+          onClose={() => setLogsOpen(false)}
+          title={
+            <div className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+              <Terminal className="size-4 text-primary animate-pulse" />
+              Backend Execution Logs
+            </div>
+          }
+          subtitle={
+            <div className="text-xs text-zinc-400">
+              Real-time activity of routing, skills, and model calls
+            </div>
+          }
+          headerActions={
+            <>
+              <RunningTimer streamState={streamState} logs={logs} />
+              <Badge
+                className={cn(
+                  "text-[9px] font-bold px-2 py-0.5 rounded-full border-0 uppercase tracking-wider",
+                  streamState === "connected" && "bg-green-500/10 text-green-400 animate-pulse",
+                  (streamState === "connecting" || streamState === "reconnecting") && "bg-amber-500/10 text-amber-400",
+                  streamState === "idle" && "bg-zinc-800 text-zinc-400"
                 )}
-              </div>
-            </SheetHeader>
-
-            <div className="flex-grow overflow-y-auto p-4 space-y-4 font-mono text-xs no-scrollbar">
+              >
+                {streamState === "connected" ? "Streaming" : streamState === "connecting" || streamState === "reconnecting" ? "Connecting" : "Idle"}
+              </Badge>
+              {logs.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={clearLogs}
+                  className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-850 cursor-pointer"
+                  title="Clear logs"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              )}
+            </>
+          }
+        >
+          <div className="flex-grow overflow-y-auto p-4 space-y-4 font-mono text-xs no-scrollbar">
               {logs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-3">
                   <div className="p-3 bg-zinc-900 rounded-full text-zinc-500">
@@ -491,11 +496,14 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                       fractionalSecondDigits: 3
                     }) : "";
 
+                    const deltaTime = getDeltaTime(index, log, logs);
+
                     return (
                       <LogItem
                         key={`${log.sequence}-${index}`}
                         log={log}
                         time={time}
+                        deltaTime={deltaTime}
                         isInfo={isInfo}
                         isSuccess={isSuccess}
                         isError={isError}
@@ -538,8 +546,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                 </div>
               </div>
             )}
-          </SheetContent>
-        </Sheet>
+        </MovablePanel>
 
         {!project ? (
           <div className="page-container">
@@ -601,9 +608,230 @@ function initials(actor: Actor | undefined) {
   return source.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
 }
 
+const getDeltaTime = (index: number, currentLog: LogEvent, allLogs: LogEvent[]) => {
+  if (index === 0) return null;
+  const prevLog = allLogs[index - 1];
+  if (!prevLog || currentLog.sequence <= prevLog.sequence) {
+    return null; // New sequence / first step of a new job run
+  }
+  const current = currentLog.createdAt ? new Date(currentLog.createdAt).getTime() : 0;
+  const prev = prevLog.createdAt ? new Date(prevLog.createdAt).getTime() : 0;
+  if (!current || !prev) return null;
+  const diff = current - prev;
+  if (diff < 0) return null;
+  if (diff < 1000) return `+${diff}ms`;
+  return `+${(diff / 1000).toFixed(2)}s`;
+};
+
+function RunningTimer({ streamState, logs }: { streamState: string; logs: LogEvent[] }) {
+  const [elapsed, setElapsed] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (streamState !== "idle") {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now();
+      }
+      const interval = setInterval(() => {
+        setElapsed(Date.now() - (startTimeRef.current ?? Date.now()));
+      }, 100);
+      return () => clearInterval(interval);
+    } else {
+      startTimeRef.current = null;
+    }
+  }, [streamState]);
+
+  const displayElapsed = useMemo(() => {
+    if (streamState !== "idle") {
+      return elapsed;
+    }
+    if (logs.length <= 1) return 0;
+    
+    let startIdx = 0;
+    for (let i = logs.length - 1; i > 0; i--) {
+      const currentLog = logs[i];
+      const prevLog = logs[i - 1];
+      if (currentLog && prevLog && currentLog.sequence <= prevLog.sequence) {
+        startIdx = i;
+        break;
+      }
+    }
+    const firstLog = logs[startIdx];
+    const lastLog = logs[logs.length - 1];
+    const first = firstLog?.createdAt ? new Date(firstLog.createdAt).getTime() : 0;
+    const last = lastLog?.createdAt ? new Date(lastLog.createdAt).getTime() : 0;
+    
+    return last && first ? Math.max(0, last - first) : 0;
+  }, [streamState, elapsed, logs]);
+
+  if (logs.length === 0) return null;
+
+  return (
+    <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800/80 px-2 py-0.5 rounded flex items-center gap-1.5 shadow-xs">
+      <span className={cn("size-1.5 rounded-full", streamState !== "idle" ? "bg-emerald-500 animate-pulse" : "bg-zinc-650")} />
+      <span>{(displayElapsed / 1000).toFixed(1)}s</span>
+    </span>
+  );
+}
+
+function MovablePanel({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  headerActions
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  children: React.ReactNode;
+  headerActions?: React.ReactNode;
+}) {
+  const [position, setPosition] = useState({ x: window.innerWidth - 520, y: 80 });
+  const [size, setSize] = useState({ width: 480, height: 650 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState<string | null>(null);
+
+  const dragStart = useRef({ x: 0, y: 0 });
+  const posStart = useRef({ x: 0, y: 0 });
+  const sizeStart = useRef({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPosition((prev) => {
+        const maxX = window.innerWidth - size.width - 20;
+        const maxY = window.innerHeight - size.height - 20;
+        return {
+          x: Math.max(20, Math.min(prev.x, maxX)),
+          y: Math.max(20, Math.min(prev.y, maxY)),
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [size]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(".no-drag")) return;
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    posStart.current = { ...position };
+    e.preventDefault();
+  };
+
+  const handleResizeStart = (e: React.MouseEvent, direction: string) => {
+    if (e.button !== 0) return;
+    setIsResizing(direction);
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    sizeStart.current = { ...size };
+    posStart.current = { ...position };
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        const dx = e.clientX - dragStart.current.x;
+        const dy = e.clientY - dragStart.current.y;
+        const nextX = Math.max(10, Math.min(posStart.current.x + dx, window.innerWidth - sizeStart.current.width - 10));
+        const nextY = Math.max(10, Math.min(posStart.current.y + dy, window.innerHeight - sizeStart.current.height - 10));
+        setPosition({ x: nextX, y: nextY });
+      }
+
+      if (isResizing) {
+        const dx = e.clientX - dragStart.current.x;
+        const dy = e.clientY - dragStart.current.y;
+        let newWidth = sizeStart.current.width;
+        let newHeight = sizeStart.current.height;
+        let newX = posStart.current.x;
+
+        if (isResizing.includes("w")) {
+          const possibleWidth = sizeStart.current.width - dx;
+          if (possibleWidth >= 320 && possibleWidth <= 1000) {
+            newWidth = possibleWidth;
+            newX = posStart.current.x + dx;
+          }
+        }
+        if (isResizing.includes("e")) {
+          newWidth = Math.max(320, Math.min(sizeStart.current.width + dx, 1000));
+        }
+        if (isResizing.includes("s")) {
+          newHeight = Math.max(400, Math.min(sizeStart.current.height + dy, window.innerHeight - posStart.current.y - 20));
+        }
+
+        setSize({ width: newWidth, height: newHeight });
+        setPosition((prev) => ({ x: newX, y: prev.y }));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(null);
+    };
+
+    if (isDragging || isResizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, isResizing]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        zIndex: 50,
+      }}
+      className="flex flex-col bg-zinc-950 text-zinc-50 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md bg-zinc-950/90"
+    >
+      <div
+        onMouseDown={handleMouseDown}
+        className="cursor-move border-b border-zinc-900 p-4 flex items-center justify-between gap-4 select-none bg-zinc-950/40"
+      >
+        <div className="flex flex-col gap-0.5">
+          {title}
+          {subtitle}
+        </div>
+        <div className="flex items-center gap-2 pr-2 no-drag">
+          {headerActions}
+          <button
+            onClick={onClose}
+            className="cursor-pointer size-6 rounded-full border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      </div>
+      <div className="flex-grow flex flex-col min-h-0">
+        {children}
+      </div>
+      <div onMouseDown={(e) => handleResizeStart(e, "w")} className="absolute left-0 top-0 bottom-0 w-1.5 cursor-w-resize hover:bg-primary/20 transition-colors animate-pulse" />
+      <div onMouseDown={(e) => handleResizeStart(e, "e")} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-e-resize hover:bg-primary/20 transition-colors animate-pulse" />
+      <div onMouseDown={(e) => handleResizeStart(e, "s")} className="absolute bottom-0 left-0 right-0 h-1.5 cursor-s-resize hover:bg-primary/20 transition-colors animate-pulse" />
+      <div onMouseDown={(e) => handleResizeStart(e, "sw")} className="absolute bottom-0 left-0 size-3 cursor-sw-resize hover:bg-primary/40 transition-colors z-20" />
+      <div onMouseDown={(e) => handleResizeStart(e, "se")} className="absolute bottom-0 right-0 size-3 cursor-se-resize hover:bg-primary/40 transition-colors z-20" />
+    </div>
+  );
+}
+
 function LogItem({
   log,
   time,
+  deltaTime,
   isInfo,
   isSuccess,
   isError,
@@ -611,6 +839,7 @@ function LogItem({
 }: {
   log: LogEvent;
   time: string;
+  deltaTime?: string | null;
   isInfo: boolean;
   isSuccess: boolean;
   isError: boolean;
@@ -734,6 +963,11 @@ function LogItem({
         <div className="flex items-center gap-2 flex-wrap">
           {time && <span className="text-[10px] text-zinc-500 font-mono">{time}</span>}
           {getBadge()}
+          {deltaTime && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900/50 text-zinc-400 font-mono">
+              {deltaTime}
+            </span>
+          )}
           {log.metadata && (
             <button
               onClick={() => setExpanded(!expanded)}
@@ -838,7 +1072,7 @@ function LogItem({
 }
 
 function getActiveSkillName(logs: LogEvent[]) {
-  const routeEvent = logs.find((log) => log.type === "info" || log.metadata?.stage === "routing" || log.metadata?.skillId);
+  const routeEvent = logs.findLast((log) => log.type === "info" || log.metadata?.stage === "routing" || log.metadata?.skillId);
   if (routeEvent) {
     if (routeEvent.type === "info" && routeEvent.delta) return routeEvent.delta;
     if (routeEvent.metadata?.skillId) {
@@ -850,7 +1084,7 @@ function getActiveSkillName(logs: LogEvent[]) {
 }
 
 function getModelName(logs: LogEvent[]) {
-  const compEvent = logs.find((log) => log.type === "completed" || log.metadata?.model);
+  const compEvent = logs.findLast((log) => log.type === "completed" || log.metadata?.model);
   if (compEvent?.metadata?.model) {
     return String(compEvent.metadata.model);
   }
@@ -858,7 +1092,7 @@ function getModelName(logs: LogEvent[]) {
 }
 
 function getOutputTokens(logs: LogEvent[]) {
-  const compEvent = logs.find((log) => log.type === "completed" || log.metadata?.outputTokens);
+  const compEvent = logs.findLast((log) => log.type === "completed" || log.metadata?.outputTokens);
   if (compEvent?.metadata?.outputTokens) {
     return Math.round(Number(compEvent.metadata.outputTokens));
   }
