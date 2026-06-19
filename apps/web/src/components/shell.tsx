@@ -31,7 +31,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { drivePhases } from "@remorra/ui";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { api } from "../lib/api";
+import { api, streamRecentJobs } from "../lib/api";
 import { useWorkspaceStore, type LogEvent } from "../lib/store";
 import { supabase } from "../lib/supabase";
 import { cn } from "../lib/utils";
@@ -133,8 +133,14 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   const { data: jobs = [] } = useQuery({
     queryKey: ["recent-jobs"],
     queryFn: () => api<Job[]>("/jobs"),
-    refetchInterval: 5000,
   });
+
+  useEffect(() => {
+    const unsubscribe = streamRecentJobs((newJobs) => {
+      queryClient.setQueryData(["recent-jobs"], newJobs);
+    });
+    return unsubscribe;
+  }, [queryClient]);
   const activeProjectId = useWorkspaceStore((state) => state.activeProjectId);
   const setActiveProjectId = useWorkspaceStore((state) => state.setActiveProjectId);
   const logs = useWorkspaceStore((state) => state.logs);
