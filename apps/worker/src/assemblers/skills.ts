@@ -115,13 +115,19 @@ export async function invokeSkill(input: {
       orderBy: { createdAt: "asc" },
     });
 
-    if (pastMessages.length === 0) {
+    // API saves the user message before enqueuing — strip it from history to
+    // avoid duplication with the user_message section added below
+    const historyMessages = pastMessages.filter(
+      (m: any) => !(m.role === "user" && m.content === input.content),
+    );
+
+    if (historyMessages.length === 0) {
       // Turn 1: assembler runs with full requirements
       contextReqsForThisTurn = requirements;
     } else {
       // Turn 2+: assembler skips, inject history instead
       contextReqsForThisTurn = [];
-      const historyText = pastMessages
+      const historyText = historyMessages
         .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
       additionalSections.push({
