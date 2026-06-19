@@ -1,7 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import Anthropic from "@anthropic-ai/sdk";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
-import { ResponseParser } from "@remorra/ai-core";
+
+function extractJson(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
+  return JSON.parse(fenced.trim());
+}
+
 
 type IntentCandidate = {
   skillId: string;
@@ -303,7 +308,7 @@ export class IntentRouterService {
 
   private parseIntentResponse(text: string, candidates: IntentCandidate[]): Partial<IntentRouteResult> {
     try {
-      return ResponseParser.extractJson(text) as Partial<IntentRouteResult>;
+      return extractJson(text) as Partial<IntentRouteResult>;
     } catch {
       this.logger.warn(`Failed to parse intent router JSON response, falling back to regex extraction.`);
       const objectMatch = text.match(/\{[\s\S]*\}/);

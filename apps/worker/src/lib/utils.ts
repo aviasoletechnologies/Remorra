@@ -1,4 +1,46 @@
-import { ResponseParser } from "@remorra/ai-core";
+export class ResponseParser {
+  static extractJson(text: string): unknown {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
+    return JSON.parse(fenced.trim());
+  }
+
+  static validate(
+    data: unknown,
+    schema: Record<string, unknown>,
+  ): { valid: boolean; data: unknown; errors?: string[] } {
+    if (!schema || Object.keys(schema).length === 0) {
+      return { valid: true, data };
+    }
+
+    if (
+      schema.type === "object" &&
+      schema.required &&
+      Array.isArray(schema.required)
+    ) {
+      const obj = data as Record<string, unknown>;
+      const missing = (schema.required as string[]).filter(
+        (key) => !(key in obj),
+      );
+      if (missing.length > 0) {
+        return {
+          valid: false,
+          data,
+          errors: missing.map((k) => `Missing required field: ${k}`),
+        };
+      }
+    }
+
+    return { valid: true, data };
+  }
+
+  static parseAndValidate(
+    text: string,
+    schema: Record<string, unknown>,
+  ): { valid: boolean; data: unknown; errors?: string[] } {
+    const data = ResponseParser.extractJson(text);
+    return ResponseParser.validate(data, schema);
+  }
+}
 
 export function jsonValue(value: unknown): any {
   return JSON.parse(JSON.stringify(value));
