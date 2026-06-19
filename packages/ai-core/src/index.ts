@@ -56,6 +56,7 @@ export interface AiInvocation {
   sections: readonly AiContextSection[];
   idempotencyKey?: string | undefined;
   onDelta?: ((delta: string, accumulated: string) => void | Promise<void>) | undefined;
+  onLlmInput?: ((system: string, messages: readonly { role: string; content: string }[]) => void) | undefined;
 }
 
 export interface AiUsage {
@@ -120,6 +121,7 @@ export class AiOrchestrator {
       skillOverride?: SkillDefinition<T>;
       additionalSections?: readonly AiContextSection[];
       contextRuntime?: Partial<RuntimeContextScope>;
+      onLlmInput?: AiInvocation["onLlmInput"];
     },
   ): Promise<AiResult<T> & { skill: SkillDefinition }> {
     const skill = input.skillOverride ?? await this.registry.getActive<T>(input.skillId);
@@ -144,6 +146,7 @@ export class AiOrchestrator {
       projectId: input.projectId,
       idempotencyKey: input.idempotencyKey,
       onDelta: input.onDelta,
+      onLlmInput: input.onLlmInput,
       skill,
       sections,
     };

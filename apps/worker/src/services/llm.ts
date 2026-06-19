@@ -87,6 +87,7 @@ export const orchestrator = new AiOrchestrator(
         ? grokModelFor(invocation.skill.modelTier ?? "standard")
         : modelFor(invocation.skill.modelTier ?? "standard");
       const messages = buildSkillMessages(invocation.sections);
+      invocation.onLlmInput?.(invocation.skill.systemPrompt ?? "", messages);
       console.info(
         `[llm:invoke] skillId=${invocation.skill.id} model=${model} turns=${messages.length} systemPromptLen=${invocation.skill.systemPrompt?.length ?? 0}`,
       );
@@ -188,6 +189,7 @@ export const orchestrator = new AiOrchestrator(
     async *stream(invocation) {
       const isGrok = config.isGrok;
       const messages = buildSkillMessages(invocation.sections);
+      invocation.onLlmInput?.(invocation.skill.systemPrompt ?? "", messages);
       console.info(`[llm:stream] skillId=${invocation.skill.id} turns=${messages.length}`);
       messages.forEach((m, i) =>
         console.info(

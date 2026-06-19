@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { boss } from "../lib/boss";
 import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
@@ -149,6 +150,18 @@ export async function handleConversation(payload: Payload) {
               queue.push({ type: "snapshot", snapshot: accumulated });
             }
           },
+          onLlmInput: (system, messages) => {
+            queue.push({
+              type: "log",
+              delta: "LLM input assembled",
+              metadata: {
+                stage: "llm_input",
+                system,
+                messages,
+              },
+            });
+            void flush();
+          },
         });
 
     queue.push({
@@ -215,9 +228,9 @@ export async function handleConversation(payload: Payload) {
       }
     }
 
-
-
     // ── DB saves — collect all events fired ─────────────────────────────────
+    // NOTE: completed event is pushed AFTER transition detection so frontend
+    // receives skill_transition (with nextJobId) before closing the stream.
     // Each DB write fires a named event. We collect them all so we can check
     // the admin's SkillEventMapping config in one query at the end.
     // Events are only collected when skillIsDone=true (final turn of a skill).
@@ -342,46 +355,77 @@ export async function handleConversation(payload: Payload) {
         const nextMapping = matchedMappings[0] ?? null;
 
         if (nextMapping) {
-          // ── NEXT SKILL FOUND → pin it, wait for user's next message ──────
+          // ── NEXT SKILL FOUND → pin it + auto-enqueue immediately ─────────
           const nextVersion = await prisma.skillVersion.findFirst({
             where: { skillId: nextMapping.skillId, active: true },
             orderBy: { version: "desc" },
           });
 
           if (nextVersion) {
+            const pinnedAt = new Date();
             await prisma.conversation.update({
               where: { id: conversationId },
               data: {
                 activeSkillId:        nextMapping.skillId,
                 activeSkillVersionId: nextVersion.id,
-                activeSkillPinnedAt:  new Date(),
+                activeSkillPinnedAt:  pinnedAt,
               },
             });
 
+            // Create job record first so we can include its ID in the transition event
+            const nextJobRecord = await prisma.jobRecord.create({
+              data: {
+                projectId,
+                userId,
+                queue: "ai.conversation",
+                payload: jsonValue({
+                  conversationId,
+                  skillId: nextMapping.skillId,
+                  skillVersionId: nextVersion.id,
+                  content: "", // skill auto-starts with empty user message
+                }),
+              },
+            });
+            const nextBossJobId = await boss.send("ai.conversation", {
+              conversationId,
+              projectId,
+              userId,
+              skillId: nextMapping.skillId,
+              skillVersionId: nextVersion.id,
+              content: "",
+              jobRecordId: nextJobRecord.id,
+            });
+            await prisma.jobRecord.update({
+              where: { id: nextJobRecord.id },
+              data: { bossJobId: nextBossJobId ?? undefined },
+            });
+
+            // Emit transition events AFTER job created so nextJobId is available
             queue.push({
               type: "skill_transition",
               snapshot: "",
               metadata: {
                 completedSkillId: result.skill.id,
                 nextSkillId:      nextMapping.skillId,
-                triggeredByEvent: nextMapping.eventType, // which event matched
+                triggeredByEvent: nextMapping.eventType,
+                nextJobId:        nextJobRecord.id,
               },
             });
-
             queue.push({
               type: "log",
-              delta: `[Transition] Event "${nextMapping.eventType}" matched! Pinned next skill: "${nextMapping.skillId}".`,
+              delta: `[Transition] Event "${nextMapping.eventType}" matched! Auto-starting skill: "${nextMapping.skillId}".`,
               metadata: {
                 stage: "transition",
                 completedSkillId: result.skill.id,
                 nextSkillId:      nextMapping.skillId,
                 triggeredByEvent: nextMapping.eventType,
+                nextJobId:        nextJobRecord.id,
               },
             });
             void flush();
 
             console.info(
-              `[worker:conversation] next skill pinned triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId}`,
+              `[worker:conversation] next skill auto-enqueued triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId} jobId=${nextBossJobId}`,
             );
           }
 
@@ -450,7 +494,7 @@ export async function handleConversation(payload: Payload) {
       }
     }
 
-    // Push SSE completed event to frontend (streaming is done)
+    // Push completed LAST — after skill_transition so frontend gets nextJobId first
     queue.push({
       type: "completed",
       snapshot: displayText,
