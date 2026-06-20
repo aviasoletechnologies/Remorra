@@ -53,6 +53,25 @@ function describeSkillInputRequirement(version: any): string {
   return "";
 }
 
+function describeInputSourceMap(sourceMap: any): string {
+  if (!sourceMap) return "No dynamic context configured";
+  const skillsCount = sourceMap.skills?.length || 0;
+  const tablesCount = Object.keys(sourceMap.tables || {}).length;
+  
+  if (skillsCount === 0 && tablesCount === 0) {
+    return "No dynamic context configured";
+  }
+  
+  const parts: string[] = [];
+  if (skillsCount > 0) {
+    parts.push(`${skillsCount} skill${skillsCount > 1 ? "s" : ""}`);
+  }
+  if (tablesCount > 0) {
+    parts.push(`${tablesCount} table${tablesCount > 1 ? "s" : ""}`);
+  }
+  return `Configured: ${parts.join(" and ")}`;
+}
+
 
 export function AdminPage() {
   const confirm = useConfirm();
@@ -80,6 +99,7 @@ export function AdminPage() {
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
+  const [isCreateContextConfigOpen, setIsCreateContextConfigOpen] = useState(false);
 
   // Skill Editing States
   const [editingSkill, setEditingSkill] = useState<any | null>(null);
@@ -89,6 +109,7 @@ export function AdminPage() {
   const [editSkillDesc, setEditSkillDesc] = useState("");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
+  const [isContextConfigOpen, setIsContextConfigOpen] = useState(false);
 
 
   // Period Selector State
@@ -713,6 +734,7 @@ export function AdminPage() {
             if (e.target === e.currentTarget) {
               setEditingSkill(null);
               setEditingSkillVersionId(null);
+              setIsContextConfigOpen(false);
             }
           }}>
             <div className="admin-drawer-content">
@@ -759,6 +781,7 @@ export function AdminPage() {
                   <Button variant="ghost" onClick={() => {
                     setEditingSkill(null);
                     setEditingSkillVersionId(null);
+                    setIsContextConfigOpen(false);
                   }}>
                     Close
                   </Button>
@@ -861,119 +884,28 @@ export function AdminPage() {
 
 
                     <div className="editor-section mt-6 border-t pt-6">
-                      <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wider">Context Assembly Configuration</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                          Context Assembly Configuration
+                        </h3>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!isAdmin || !currentVer}
+                          onClick={() => setIsContextConfigOpen(true)}
+                        >
+                          Configure Context...
+                        </Button>
+                      </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Skills selection */}
-                        <div className="border border-border rounded-xl p-4 bg-card">
-                          <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                            <span>Other Skills Conversations</span>
-                          </h4>
-                          <p className="text-xs text-muted-foreground mb-4">
-                            Select other skills whose conversation histories should be passed as input context.
-                          </p>
-                          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                            {allSkills.filter((s: any) => s.id !== editingSkill.id).map((s: any) => {
-                              const isChecked = editInputSourceMap?.skills?.includes(s.id);
-                              return (
-                                <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(e) => {
-                                      const skills = [...(editInputSourceMap?.skills || [])];
-                                      if (e.target.checked) {
-                                        skills.push(s.id);
-                                      } else {
-                                        const index = skills.indexOf(s.id);
-                                        if (index > -1) skills.splice(index, 1);
-                                      }
-                                      setEditInputSourceMap({ ...editInputSourceMap, skills });
-                                    }}
-                                    disabled={!isAdmin || !currentVer}
-                                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                                  />
-                                  <div>
-                                    <span className="font-medium text-foreground">{s.name}</span>
-                                    <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Project Tables & Columns selection */}
-                        <div className="border border-border rounded-xl p-4 bg-card">
-                          <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                          <p className="text-xs text-muted-foreground mb-4">
-                            Select database tables and optionally check specific columns to include in the context.
-                          </p>
-                          <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-2">
-                            {Object.entries(dbSchema).map(([tableName, columns]) => {
-                              const isTableSelected = editInputSourceMap?.tables && tableName in editInputSourceMap.tables;
-                              const selectedCols = editInputSourceMap?.tables?.[tableName] || [];
-
-                              return (
-                                <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
-                                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
-                                    <input
-                                      type="checkbox"
-                                      checked={isTableSelected}
-                                      onChange={(e) => {
-                                        const tables = { ...(editInputSourceMap?.tables || {}) };
-                                        if (e.target.checked) {
-                                          // Default to empty array (meaning all columns of that table as requested)
-                                          tables[tableName] = [];
-                                        } else {
-                                          delete tables[tableName];
-                                        }
-                                        setEditInputSourceMap({ ...editInputSourceMap, tables });
-                                      }}
-                                      disabled={!isAdmin || !currentVer}
-                                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                                    />
-                                    <span>{tableName}</span>
-                                  </label>
-
-                                  {isTableSelected && (
-                                    <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
-                                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                                        Columns (empty = all columns)
-                                      </span>
-                                      <div className="grid grid-cols-2 gap-2">
-                                        {columns.map((col) => {
-                                          const isColChecked = selectedCols.includes(col);
-                                          return (
-                                            <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
-                                              <input
-                                                type="checkbox"
-                                                checked={isColChecked}
-                                                onChange={(e) => {
-                                                  const tables = { ...(editInputSourceMap?.tables || {}) };
-                                                  let cols = [...(tables[tableName] || [])];
-                                                  if (e.target.checked) {
-                                                    cols.push(col);
-                                                  } else {
-                                                    cols = cols.filter((c) => c !== col);
-                                                  }
-                                                  tables[tableName] = cols;
-                                                  setEditInputSourceMap({ ...editInputSourceMap, tables });
-                                                }}
-                                                disabled={!isAdmin || !currentVer}
-                                                className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
-                                              />
-                                              <span className="font-mono">{col}</span>
-                                            </label>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
+                      <div className="p-4 bg-secondary/5 rounded-xl border border-border flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-sm font-medium text-foreground block">
+                            {describeInputSourceMap(editInputSourceMap)}
+                          </span>
+                          <span className="text-xs text-muted-foreground block">
+                            Select database tables and other skill histories to feed into this agent version.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1002,6 +934,7 @@ export function AdminPage() {
             setIsCreateSkillOpen(false);
             setNewSkillInputSourceMap({ skills: [], tables: {} });
             setSkillCreateError(null);
+            setIsCreateContextConfigOpen(false);
           }
         }}>
           <div className="admin-drawer-content">
@@ -1011,6 +944,7 @@ export function AdminPage() {
                 setIsCreateSkillOpen(false);
                 setNewSkillInputSourceMap({ skills: [], tables: {} });
                 setSkillCreateError(null);
+                setIsCreateContextConfigOpen(false);
               }}>
                 Close
               </Button>
@@ -1062,115 +996,27 @@ export function AdminPage() {
                 </div>
 
                 <div className="editor-section mt-6 border-t pt-6">
-                  <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wider">Context Assembly Configuration</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                      Context Assembly Configuration
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsCreateContextConfigOpen(true)}
+                    >
+                      Configure Context...
+                    </Button>
+                  </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Skills selection */}
-                    <div className="border border-border rounded-xl p-4 bg-card">
-                      <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                        <span>Other Skills Conversations</span>
-                      </h4>
-                      <p className="text-xs text-muted-foreground mb-4">
-                        Select other skills whose conversation histories should be passed as input context.
-                      </p>
-                      <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                        {allSkills.map((s: any) => {
-                          const isChecked = newSkillInputSourceMap?.skills?.includes(s.id);
-                          return (
-                            <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  const skills = [...(newSkillInputSourceMap?.skills || [])];
-                                  if (e.target.checked) {
-                                    skills.push(s.id);
-                                  } else {
-                                    const index = skills.indexOf(s.id);
-                                    if (index > -1) skills.splice(index, 1);
-                                  }
-                                  setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
-                                }}
-                                className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                              />
-                              <div>
-                                <span className="font-medium text-foreground">{s.name}</span>
-                                <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Project Tables & Columns selection */}
-                    <div className="border border-border rounded-xl p-4 bg-card">
-                      <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                      <p className="text-xs text-muted-foreground mb-4">
-                        Select database tables and optionally check specific columns to include in the context.
-                      </p>
-                      <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-2">
-                        {Object.entries(dbSchema).map(([tableName, columns]) => {
-                          const isTableSelected = newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables;
-                          const selectedCols = newSkillInputSourceMap?.tables?.[tableName] || [];
-
-                          return (
-                            <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
-                              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
-                                <input
-                                  type="checkbox"
-                                  checked={isTableSelected}
-                                  onChange={(e) => {
-                                    const tables = { ...(newSkillInputSourceMap?.tables || {}) };
-                                    if (e.target.checked) {
-                                      tables[tableName] = [];
-                                    } else {
-                                      delete tables[tableName];
-                                    }
-                                    setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
-                                  }}
-                                  className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                                />
-                                <span>{tableName}</span>
-                              </label>
-
-                              {isTableSelected && (
-                                <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                                    Columns (empty = all columns)
-                                  </span>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {columns.map((col) => {
-                                      const isColChecked = selectedCols.includes(col);
-                                      return (
-                                        <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
-                                          <input
-                                            type="checkbox"
-                                            checked={isColChecked}
-                                            onChange={(e) => {
-                                              const tables = { ...(newSkillInputSourceMap?.tables || {}) };
-                                              let cols = [...(tables[tableName] || [])];
-                                              if (e.target.checked) {
-                                                cols.push(col);
-                                              } else {
-                                                cols = cols.filter((c) => c !== col);
-                                              }
-                                              tables[tableName] = cols;
-                                              setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
-                                            }}
-                                            className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
-                                          />
-                                          <span className="font-mono">{col}</span>
-                                        </label>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div className="p-4 bg-secondary/5 rounded-xl border border-border flex items-center justify-between">
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium text-foreground block">
+                        {describeInputSourceMap(newSkillInputSourceMap)}
+                      </span>
+                      <span className="text-xs text-muted-foreground block">
+                        Select database tables and other skill histories to feed into this agent version.
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1200,6 +1046,268 @@ export function AdminPage() {
                   </Button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isContextConfigOpen && editingSkill && createPortal(
+        <div className="admin-config-modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) setIsContextConfigOpen(false);
+        }}>
+          <div className="admin-config-modal-content">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Configure Context Assembly</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Select database tables and skill conversation histories to include in the initial prompt context.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setIsContextConfigOpen(false)}>Close</Button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-secondary/5">
+              {/* Skills selection */}
+              <div className="border border-border rounded-xl p-4 bg-card h-fit">
+                <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                  <span>Other Skills Conversations</span>
+                </h4>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Select other skills whose conversation histories should be passed as input context.
+                </p>
+                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+                  {allSkills.filter((s: any) => s.id !== editingSkill.id).map((s: any) => {
+                    const isChecked = editInputSourceMap?.skills?.includes(s.id);
+                    return (
+                      <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            const skills = [...(editInputSourceMap?.skills || [])];
+                            if (e.target.checked) {
+                              skills.push(s.id);
+                            } else {
+                              const index = skills.indexOf(s.id);
+                              if (index > -1) skills.splice(index, 1);
+                            }
+                            setEditInputSourceMap({ ...editInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Project Tables & Columns selection */}
+              <div className="border border-border rounded-xl p-4 bg-card h-fit">
+                <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Select database tables and optionally check specific columns to include in the context.
+                </p>
+                <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
+                  {Object.entries(dbSchema).map(([tableName, columns]) => {
+                    const isTableSelected = editInputSourceMap?.tables && tableName in editInputSourceMap.tables;
+                    const selectedCols = editInputSourceMap?.tables?.[tableName] || [];
+
+                    return (
+                      <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={isTableSelected}
+                            onChange={(e) => {
+                              const tables = { ...(editInputSourceMap?.tables || {}) };
+                              if (e.target.checked) {
+                                tables[tableName] = [];
+                              } else {
+                                delete tables[tableName];
+                              }
+                              setEditInputSourceMap({ ...editInputSourceMap, tables });
+                            }}
+                            className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                          />
+                          <span>{tableName}</span>
+                        </label>
+
+                        {isTableSelected && (
+                          <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                              Columns (empty = all columns)
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
+                              {columns.map((col) => {
+                                const isColChecked = selectedCols.includes(col);
+                                return (
+                                  <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={isColChecked}
+                                      onChange={(e) => {
+                                        const tables = { ...(editInputSourceMap?.tables || {}) };
+                                        let cols = [...(tables[tableName] || [])];
+                                        if (e.target.checked) {
+                                          cols.push(col);
+                                        } else {
+                                          cols = cols.filter((c) => c !== col);
+                                        }
+                                        tables[tableName] = cols;
+                                        setEditInputSourceMap({ ...editInputSourceMap, tables });
+                                      }}
+                                      className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                    />
+                                    <span className="font-mono">{col}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
+              <Button onClick={() => setIsContextConfigOpen(false)}>Done</Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isCreateContextConfigOpen && createPortal(
+        <div className="admin-config-modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) setIsCreateContextConfigOpen(false);
+        }}>
+          <div className="admin-config-modal-content">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Configure Context Assembly</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Select database tables and skill conversation histories to include in the initial prompt context.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setIsCreateContextConfigOpen(false)}>Close</Button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-secondary/5">
+              {/* Skills selection */}
+              <div className="border border-border rounded-xl p-4 bg-card h-fit">
+                <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                  <span>Other Skills Conversations</span>
+                </h4>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Select other skills whose conversation histories should be passed as input context.
+                </p>
+                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+                  {allSkills.map((s: any) => {
+                    const isChecked = newSkillInputSourceMap?.skills?.includes(s.id);
+                    return (
+                      <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            const skills = [...(newSkillInputSourceMap?.skills || [])];
+                            if (e.target.checked) {
+                              skills.push(s.id);
+                            } else {
+                              const index = skills.indexOf(s.id);
+                              if (index > -1) skills.splice(index, 1);
+                            }
+                            setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Project Tables & Columns selection */}
+              <div className="border border-border rounded-xl p-4 bg-card h-fit">
+                <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Select database tables and optionally check specific columns to include in the context.
+                </p>
+                <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
+                  {Object.entries(dbSchema).map(([tableName, columns]) => {
+                    const isTableSelected = newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables;
+                    const selectedCols = newSkillInputSourceMap?.tables?.[tableName] || [];
+
+                    return (
+                      <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={isTableSelected}
+                            onChange={(e) => {
+                              const tables = { ...(newSkillInputSourceMap?.tables || {}) };
+                              if (e.target.checked) {
+                                tables[tableName] = [];
+                              } else {
+                                delete tables[tableName];
+                              }
+                              setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
+                            }}
+                            className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                          />
+                          <span>{tableName}</span>
+                        </label>
+
+                        {isTableSelected && (
+                          <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                              Columns (empty = all columns)
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
+                              {columns.map((col) => {
+                                const isColChecked = selectedCols.includes(col);
+                                return (
+                                  <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={isColChecked}
+                                      onChange={(e) => {
+                                        const tables = { ...(newSkillInputSourceMap?.tables || {}) };
+                                        let cols = [...(tables[tableName] || [])];
+                                        if (e.target.checked) {
+                                          cols.push(col);
+                                        } else {
+                                          cols = cols.filter((c) => c !== col);
+                                        }
+                                        tables[tableName] = cols;
+                                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
+                                      }}
+                                      className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                    />
+                                    <span className="font-mono">{col}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
+              <Button onClick={() => setIsCreateContextConfigOpen(false)}>Done</Button>
             </div>
           </div>
         </div>,
