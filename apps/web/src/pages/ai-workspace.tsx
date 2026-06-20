@@ -78,6 +78,8 @@ export function AiWorkspacePage() {
     queryKey: ["workspace-flow", projectId],
     queryFn: () => api<WorkspaceConversation>(`/workspace/projects/${projectId}/flow`),
     enabled: Boolean(projectId),
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
   });
 
 
@@ -85,18 +87,7 @@ export function AiWorkspacePage() {
   useLayoutEffect(() => {
     if (!conversation?.messages) return;
 
-    // 1. Clear pending user messages once they appear in the database
-    setPendingMessages((current) => {
-      const filtered = current.filter(
-        (pending) => !conversation.messages.some((msg) => msg.content === pending.content && msg.role === "user")
-      );
-      if (filtered.length !== current.length) {
-        return filtered;
-      }
-      return current;
-    });
-
-    // 2. Clear active stream text once the database has committed the matching response
+    // Clear active stream text once the database has committed the matching response
     if (streamedReply) {
       const lastMsg = conversation.messages[conversation.messages.length - 1];
       const cleanStreamed = streamedReply.replace(/<skill_done\/>/g, "").trim();
@@ -220,7 +211,12 @@ export function AiWorkspacePage() {
         throw error;
       }
     },
-    onSuccess: async () => {},
+    onSuccess: async (data) => {
+      if (data?.pendingId) {
+        setPendingMessages((current) => current.filter((m) => m.id !== data.pendingId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+    },
   });
 
   const busy = send.isPending;
