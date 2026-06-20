@@ -36,7 +36,7 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any },
   ) {
     return this.admin.createSkill(actor, body);
   }
@@ -84,6 +84,11 @@ export class AdminController {
     @Param("skillId") skillId: string,
   ) {
     return this.admin.deleteSkill(actor, skillId);
+  }
+
+  @Get("db-schema")
+  getDbSchema(@CurrentActor() actor: Actor) {
+    return this.admin.getDbSchema(actor);
   }
 
 

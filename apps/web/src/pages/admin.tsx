@@ -12,6 +12,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
@@ -32,6 +33,20 @@ import {
 } from "./admin/admin-system";
 
 function describeSkillInputRequirement(version: any): string {
+  if (version?.inputSourceMap) {
+    const parts: string[] = [];
+    const skills = version.inputSourceMap.skills || [];
+    const tables = Object.keys(version.inputSourceMap.tables || {});
+    if (skills.length > 0) {
+      parts.push(`Skills: ${skills.join(", ")}`);
+    }
+    if (tables.length > 0) {
+      parts.push(`Tables: ${tables.join(", ")}`);
+    }
+    if (parts.length > 0) {
+      return `Dynamic context: ${parts.join(" | ")}`;
+    }
+  }
   if (Array.isArray(version?.contextRequirements) && version.contextRequirements.length > 0) {
     return `Legacy context: ${version.contextRequirements.join(", ")}`;
   }
@@ -63,12 +78,16 @@ export function AdminPage() {
   const [newSkillName, setNewSkillName] = useState("");
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
+  const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
 
   // Skill Editing States
   const [editingSkill, setEditingSkill] = useState<any | null>(null);
   const [editingSkillVersionId, setEditingSkillVersionId] = useState<string | null>(null);
   const [editPromptText, setEditPromptText] = useState("");
+  const [editSkillName, setEditSkillName] = useState("");
+  const [editSkillDesc, setEditSkillDesc] = useState("");
+  const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
 
 
@@ -210,6 +229,12 @@ export function AdminPage() {
   });
   const allSkills = allSkillsData?.items ?? [];
 
+  const { data: dbSchema = {} } = useQuery<Record<string, string[]>>({
+    queryKey: ["admin-db-schema"],
+    queryFn: () => api("/admin/db-schema"),
+    enabled: activeTab === "system",
+  });
+
   const { data: retention = [], isLoading: loadingRetention } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
   const { data: usersData, isLoading: loadingUsers } = useQuery<any>({
     queryKey: ["admin-users", userPage],
@@ -298,17 +323,19 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt }: { skillId: string; systemPrompt: string }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, name, description }: { skillId: string; systemPrompt: string; inputSourceMap?: any; name?: string; description?: string }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, name, description }),
       }),
-    onSuccess: (version: any) => {
+    onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
       setEditingSkill((current: any) => current?.id === version.skillId
         ? {
             ...current,
+            name: variables.name ?? current.name,
+            description: variables.description ?? current.description,
             versions: [version, ...current.versions.filter((item: any) => item.id !== version.id)]
               .sort((a: any, b: any) => b.version - a.version),
           }
@@ -329,17 +356,19 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt }: { skillId: string; versionId: string; systemPrompt: string }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, name, description }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; name?: string; description?: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, name, description }),
       }),
-    onSuccess: (version: any) => {
+    onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-all-skills-list"] });
       setEditingSkill((current: any) => current?.id === version.skillId
         ? {
             ...current,
+            name: variables.name ?? current.name,
+            description: variables.description ?? current.description,
             versions: current.versions.map((item: any) => item.id === version.id ? version : item),
           }
         : current,
@@ -390,7 +419,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -403,6 +432,7 @@ export function AdminPage() {
       setNewSkillName("");
       setNewSkillDesc("");
       setNewSkillPrompt("");
+      setNewSkillInputSourceMap({ skills: [], tables: {} });
       setSkillCreateError(null);
       if (result?.warnings?.length) {
         toast.success(`Skill created (warning: ${result.warnings.join("; ")})`);
@@ -607,6 +637,9 @@ export function AdminPage() {
                   const currentVer = skill.versions.find((version: any) => version.active) ?? skill.versions[0];
                   setEditingSkillVersionId(currentVer?.id ?? null);
                   setEditPromptText(currentVer?.systemPrompt ?? "");
+                  setEditSkillName(skill.name ?? "");
+                  setEditSkillDesc(skill.description ?? "");
+                  setEditInputSourceMap(currentVer?.inputSourceMap && typeof currentVer.inputSourceMap === "object" ? currentVer.inputSourceMap : { skills: [], tables: {} });
                   setSkillEditError(null);
                 }}
                 onDelete={(skill) => deleteSkill.mutate(skill.id)}
@@ -671,13 +704,19 @@ export function AdminPage() {
         const selectVersion = (version: any) => {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
+          setEditInputSourceMap(version.inputSourceMap && typeof version.inputSourceMap === "object" ? version.inputSourceMap : { skills: [], tables: {} });
           setSkillEditError(null);
         };
 
-        return (
-          <div className="admin-modal-overlay">
-            <Card className="admin-modal-content admin-skill-version-modal">
-              <div className="modal-header">
+        return createPortal(
+          <div className="admin-drawer-overlay" onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setEditingSkill(null);
+              setEditingSkillVersionId(null);
+            }
+          }}>
+            <div className="admin-drawer-content">
+              <div className="admin-drawer-header">
                 <div>
                   <h2>Manage Skill Versions: {editingSkill.name}</h2>
                   <code>{editingSkill.id}</code>
@@ -692,6 +731,9 @@ export function AdminPage() {
                             skillId: editingSkill.id,
                             versionId: currentVer.id,
                             systemPrompt: editPromptText,
+                            inputSourceMap: editInputSourceMap,
+                            name: editSkillName,
+                            description: editSkillDesc,
                           });
                         }}
                       >
@@ -703,6 +745,9 @@ export function AdminPage() {
                           createSkillVersion.mutate({
                             skillId: editingSkill.id,
                             systemPrompt: editPromptText,
+                            inputSourceMap: editInputSourceMap,
+                            name: editSkillName,
+                            description: editSkillDesc,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -720,7 +765,30 @@ export function AdminPage() {
                 </div>
               </div>
 
-              <div className="modal-body">
+              <div className="admin-drawer-body">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 border-b pb-6">
+                  <div>
+                    <label className="admin-field-label">Skill Name</label>
+                    <input
+                      type="text"
+                      className="admin-input"
+                      value={editSkillName}
+                      onChange={(e) => setEditSkillName(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    />
+                  </div>
+                  <div>
+                    <label className="admin-field-label">Description</label>
+                    <input
+                      type="text"
+                      className="admin-input"
+                      value={editSkillDesc}
+                      onChange={(e) => setEditSkillDesc(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    />
+                  </div>
+                </div>
+
                 <div className="skill-version-manager">
                   <aside className="skill-version-list">
                     <div className="flex items-center h-8 mb-2">
@@ -783,112 +851,359 @@ export function AdminPage() {
                     <div className="editor-section">
                       <textarea
                         className="admin-textarea monospace"
-                        style={{ minHeight: "380px" }}
+                        style={{ minHeight: "260px" }}
                         value={editPromptText}
                         onChange={(e) => setEditPromptText(e.target.value)}
                         disabled={!isAdmin || !currentVer}
                       />
                     </div>
-                    <div className="editor-section">
+
+
+
+                    <div className="editor-section mt-6 border-t pt-6">
+                      <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wider">Context Assembly Configuration</h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Skills selection */}
+                        <div className="border border-border rounded-xl p-4 bg-card">
+                          <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                            <span>Other Skills Conversations</span>
+                          </h4>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            Select other skills whose conversation histories should be passed as input context.
+                          </p>
+                          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                            {allSkills.filter((s: any) => s.id !== editingSkill.id).map((s: any) => {
+                              const isChecked = editInputSourceMap?.skills?.includes(s.id);
+                              return (
+                                <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const skills = [...(editInputSourceMap?.skills || [])];
+                                      if (e.target.checked) {
+                                        skills.push(s.id);
+                                      } else {
+                                        const index = skills.indexOf(s.id);
+                                        if (index > -1) skills.splice(index, 1);
+                                      }
+                                      setEditInputSourceMap({ ...editInputSourceMap, skills });
+                                    }}
+                                    disabled={!isAdmin || !currentVer}
+                                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                                  />
+                                  <div>
+                                    <span className="font-medium text-foreground">{s.name}</span>
+                                    <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Project Tables & Columns selection */}
+                        <div className="border border-border rounded-xl p-4 bg-card">
+                          <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            Select database tables and optionally check specific columns to include in the context.
+                          </p>
+                          <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-2">
+                            {Object.entries(dbSchema).map(([tableName, columns]) => {
+                              const isTableSelected = editInputSourceMap?.tables && tableName in editInputSourceMap.tables;
+                              const selectedCols = editInputSourceMap?.tables?.[tableName] || [];
+
+                              return (
+                                <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={isTableSelected}
+                                      onChange={(e) => {
+                                        const tables = { ...(editInputSourceMap?.tables || {}) };
+                                        if (e.target.checked) {
+                                          // Default to empty array (meaning all columns of that table as requested)
+                                          tables[tableName] = [];
+                                        } else {
+                                          delete tables[tableName];
+                                        }
+                                        setEditInputSourceMap({ ...editInputSourceMap, tables });
+                                      }}
+                                      disabled={!isAdmin || !currentVer}
+                                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                                    />
+                                    <span>{tableName}</span>
+                                  </label>
+
+                                  {isTableSelected && (
+                                    <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                                        Columns (empty = all columns)
+                                      </span>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {columns.map((col) => {
+                                          const isColChecked = selectedCols.includes(col);
+                                          return (
+                                            <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
+                                              <input
+                                                type="checkbox"
+                                                checked={isColChecked}
+                                                onChange={(e) => {
+                                                  const tables = { ...(editInputSourceMap?.tables || {}) };
+                                                  let cols = [...(tables[tableName] || [])];
+                                                  if (e.target.checked) {
+                                                    cols.push(col);
+                                                  } else {
+                                                    cols = cols.filter((c) => c !== col);
+                                                  }
+                                                  tables[tableName] = cols;
+                                                  setEditInputSourceMap({ ...editInputSourceMap, tables });
+                                                }}
+                                                disabled={!isAdmin || !currentVer}
+                                                className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                              />
+                                              <span className="font-mono">{col}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="editor-section mt-4">
                       {skillEditError && (
                         <p className="form-message" role="alert">{skillEditError}</p>
                       )}
                       <p className="form-help">
-                        Save Selected Version updates the current system prompt. Save as New Version creates a separate version from your changes.
+                        Save Selected Version updates the current system prompt and input configurations. Save as New Version creates a separate version from your changes.
                       </p>
                     </div>
                   </section>
                 </div>
               </div>
-            </Card>
-          </div>
+            </div>
+          </div>,
+          document.body
         );
       })()}
 
       {/* Skill Create Modal */}
-      {isCreateSkillOpen && (
-        <div className="admin-modal-overlay">
-          <Card className="admin-modal-content">
-            <div className="modal-header">
+      {isCreateSkillOpen && createPortal(
+        <div className="admin-drawer-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setIsCreateSkillOpen(false);
+            setNewSkillInputSourceMap({ skills: [], tables: {} });
+            setSkillCreateError(null);
+          }
+        }}>
+          <div className="admin-drawer-content">
+            <div className="admin-drawer-header">
               <h2>Create New Agent Skill</h2>
               <Button variant="ghost" onClick={() => {
                 setIsCreateSkillOpen(false);
+                setNewSkillInputSourceMap({ skills: [], tables: {} });
                 setSkillCreateError(null);
               }}>
                 Close
               </Button>
             </div>
 
-            <div className="modal-body">
-              <div>
-                <label className="admin-field-label">Skill ID (unique slug)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. risk-evaluator"
-                  className="admin-input"
-                  value={newSkillId}
-                  onChange={(e) => setNewSkillId(e.target.value)}
-                />
-              </div>
+            <div className="admin-drawer-body">
+              <div className="space-y-4">
+                <div>
+                  <label className="admin-field-label">Skill ID (unique slug)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. risk-evaluator"
+                    className="admin-input"
+                    value={newSkillId}
+                    onChange={(e) => setNewSkillId(e.target.value)}
+                  />
+                </div>
 
-              <div>
-                <label className="admin-field-label">Skill Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Risk Evaluator"
-                  className="admin-input"
-                  value={newSkillName}
-                  onChange={(e) => setNewSkillName(e.target.value)}
-                />
-              </div>
+                <div>
+                  <label className="admin-field-label">Skill Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Risk Evaluator"
+                    className="admin-input"
+                    value={newSkillName}
+                    onChange={(e) => setNewSkillName(e.target.value)}
+                  />
+                </div>
 
-              <div>
-                <label className="admin-field-label">Description</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Evaluates project delivery risks"
-                  className="admin-input"
-                  value={newSkillDesc}
-                  onChange={(e) => setNewSkillDesc(e.target.value)}
-                />
-              </div>
+                <div>
+                  <label className="admin-field-label">Description</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Evaluates project delivery risks"
+                    className="admin-input"
+                    value={newSkillDesc}
+                    onChange={(e) => setNewSkillDesc(e.target.value)}
+                  />
+                </div>
 
-              <div>
-                <label className="admin-field-label">Initial System Prompt</label>
-                <textarea
-                  placeholder="You are an expert agent that..."
-                  className="admin-textarea monospace"
-                  value={newSkillPrompt}
-                  onChange={(e) => setNewSkillPrompt(e.target.value)}
-                />
-              </div>
+                <div>
+                  <label className="admin-field-label">Initial System Prompt</label>
+                  <textarea
+                    placeholder="You are an expert agent that..."
+                    className="admin-textarea monospace"
+                    value={newSkillPrompt}
+                    onChange={(e) => setNewSkillPrompt(e.target.value)}
+                  />
+                </div>
 
-              {skillCreateError && (
-                <p className="form-message" role="alert">{skillCreateError}</p>
-              )}
+                <div className="editor-section mt-6 border-t pt-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wider">Context Assembly Configuration</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Skills selection */}
+                    <div className="border border-border rounded-xl p-4 bg-card">
+                      <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                        <span>Other Skills Conversations</span>
+                      </h4>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Select other skills whose conversation histories should be passed as input context.
+                      </p>
+                      <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                        {allSkills.map((s: any) => {
+                          const isChecked = newSkillInputSourceMap?.skills?.includes(s.id);
+                          return (
+                            <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const skills = [...(newSkillInputSourceMap?.skills || [])];
+                                  if (e.target.checked) {
+                                    skills.push(s.id);
+                                  } else {
+                                    const index = skills.indexOf(s.id);
+                                    if (index > -1) skills.splice(index, 1);
+                                  }
+                                  setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
+                                }}
+                                className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                              />
+                              <div>
+                                <span className="font-medium text-foreground">{s.name}</span>
+                                <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-              <div className="form-actions">
-                <Button
-                  onClick={() => {
-                    if (!newSkillId || !newSkillName || !newSkillDesc || !newSkillPrompt) {
-                      setSkillCreateError("All fields are required.");
-                      return;
-                    }
-                    createSkillMutation.mutate({
-                      id: newSkillId,
-                      name: newSkillName,
-                      description: newSkillDesc,
-                      systemPrompt: newSkillPrompt,
-                    });
-                  }}
-                  disabled={createSkillMutation.isPending}
-                >
-                  {createSkillMutation.isPending ? "Creating..." : "Create Skill"}
-                </Button>
+                    {/* Project Tables & Columns selection */}
+                    <div className="border border-border rounded-xl p-4 bg-card">
+                      <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Select database tables and optionally check specific columns to include in the context.
+                      </p>
+                      <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-2">
+                        {Object.entries(dbSchema).map(([tableName, columns]) => {
+                          const isTableSelected = newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables;
+                          const selectedCols = newSkillInputSourceMap?.tables?.[tableName] || [];
+
+                          return (
+                            <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer p-1 rounded hover:bg-secondary/10 text-foreground">
+                                <input
+                                  type="checkbox"
+                                  checked={isTableSelected}
+                                  onChange={(e) => {
+                                    const tables = { ...(newSkillInputSourceMap?.tables || {}) };
+                                    if (e.target.checked) {
+                                      tables[tableName] = [];
+                                    } else {
+                                      delete tables[tableName];
+                                    }
+                                    setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
+                                  }}
+                                  className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                                />
+                                <span>{tableName}</span>
+                              </label>
+
+                              {isTableSelected && (
+                                <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                                    Columns (empty = all columns)
+                                  </span>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {columns.map((col) => {
+                                      const isColChecked = selectedCols.includes(col);
+                                      return (
+                                        <label key={col} className="flex items-center gap-2 text-xs cursor-pointer p-1 hover:bg-secondary/20 rounded text-foreground">
+                                          <input
+                                            type="checkbox"
+                                            checked={isColChecked}
+                                            onChange={(e) => {
+                                              const tables = { ...(newSkillInputSourceMap?.tables || {}) };
+                                              let cols = [...(tables[tableName] || [])];
+                                              if (e.target.checked) {
+                                                cols.push(col);
+                                              } else {
+                                                cols = cols.filter((c) => c !== col);
+                                              }
+                                              tables[tableName] = cols;
+                                              setNewSkillInputSourceMap({ ...newSkillInputSourceMap, tables });
+                                            }}
+                                            className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                          />
+                                          <span className="font-mono">{col}</span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {skillCreateError && (
+                  <p className="form-message" role="alert">{skillCreateError}</p>
+                )}
+
+                <div className="form-actions pt-4">
+                  <Button
+                    onClick={() => {
+                      if (!newSkillId || !newSkillName || !newSkillDesc || !newSkillPrompt) {
+                        setSkillCreateError("All fields are required.");
+                        return;
+                      }
+                      createSkillMutation.mutate({
+                        id: newSkillId,
+                        name: newSkillName,
+                        description: newSkillDesc,
+                        systemPrompt: newSkillPrompt,
+                        inputSourceMap: newSkillInputSourceMap,
+                      });
+                    }}
+                    disabled={createSkillMutation.isPending}
+                  >
+                    {createSkillMutation.isPending ? "Creating..." : "Create Skill"}
+                  </Button>
+                </div>
               </div>
             </div>
-          </Card>
-        </div>
+          </div>
+        </div>,
+        document.body
       )}
     </Page>
   );

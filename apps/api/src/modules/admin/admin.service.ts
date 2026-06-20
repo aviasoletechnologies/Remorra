@@ -3,6 +3,7 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { skillVersionInputSchema } from "@remorra/contracts";
 
 // Safe local micro-template engine helpers
 function renderTemplateLocal(template: string, data: any): string {
@@ -122,7 +123,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -130,7 +131,7 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt } = body;
+    const { systemPrompt, inputSourceMap } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
@@ -159,6 +160,7 @@ export class AdminService {
           active: true,
           systemPrompt,
           contextRequirements: {},
+          inputSourceMap: inputSourceMap ?? {},
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -243,6 +245,16 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
+    const parsed = skillVersionInputSchema.parse(body);
+    if (parsed.name !== undefined || parsed.description !== undefined) {
+      await this.prisma.client.skill.update({
+        where: { id: skillId },
+        data: {
+          ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
+          ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
+        },
+      });
+    }
     const current = await this.prisma.client.skillVersion.findFirstOrThrow({
       where: { skillId },
       orderBy: { version: "desc" },
@@ -254,12 +266,13 @@ export class AdminService {
           skillId,
           version: current.version + 1,
           active: false,
-          systemPrompt: String(body.systemPrompt ?? current.systemPrompt),
-          contextRequirements: body.contextRequirements ?? current.contextRequirements,
-          outputSchema: body.outputSchema ?? current.outputSchema,
-          constraints: body.constraints ?? current.constraints,
-          examples: body.examples ?? current.examples,
-          retryPolicy: body.retryPolicy ?? current.retryPolicy,
+          systemPrompt: String(parsed.systemPrompt ?? current.systemPrompt),
+          contextRequirements: parsed.contextRequirements ?? current.contextRequirements,
+          inputSourceMap: parsed.inputSourceMap !== undefined ? parsed.inputSourceMap : current.inputSourceMap,
+          outputSchema: parsed.outputSchema !== undefined ? parsed.outputSchema : current.outputSchema,
+          constraints: parsed.constraints ?? current.constraints,
+          examples: parsed.examples ?? current.examples,
+          retryPolicy: parsed.retryPolicy ?? current.retryPolicy,
         },
       });
       await tx.platformAuditEvent.create({
@@ -284,6 +297,16 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
+    const parsed = skillVersionInputSchema.parse(body);
+    if (parsed.name !== undefined || parsed.description !== undefined) {
+      await this.prisma.client.skill.update({
+        where: { id: skillId },
+        data: {
+          ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
+          ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
+        },
+      });
+    }
     const current = await this.prisma.client.skillVersion.findUniqueOrThrow({
       where: { id: versionId },
     });
@@ -294,12 +317,13 @@ export class AdminService {
     const version = await this.prisma.client.skillVersion.update({
       where: { id: versionId },
       data: {
-        ...(body.systemPrompt !== undefined ? { systemPrompt: String(body.systemPrompt) } : {}),
-        ...(body.contextRequirements !== undefined ? { contextRequirements: body.contextRequirements } : {}),
-        ...(body.outputSchema !== undefined ? { outputSchema: body.outputSchema } : {}),
-        ...(body.constraints !== undefined ? { constraints: body.constraints } : {}),
-        ...(body.examples !== undefined ? { examples: body.examples } : {}),
-        ...(body.retryPolicy !== undefined ? { retryPolicy: body.retryPolicy } : {}),
+        ...(parsed.systemPrompt !== undefined ? { systemPrompt: String(parsed.systemPrompt) } : {}),
+        ...(parsed.contextRequirements !== undefined ? { contextRequirements: parsed.contextRequirements } : {}),
+        ...(parsed.inputSourceMap !== undefined ? { inputSourceMap: parsed.inputSourceMap } : {}),
+        ...(parsed.outputSchema !== undefined ? { outputSchema: parsed.outputSchema } : {}),
+        ...(parsed.constraints !== undefined ? { constraints: parsed.constraints } : {}),
+        ...(parsed.examples !== undefined ? { examples: parsed.examples } : {}),
+        ...(parsed.retryPolicy !== undefined ? { retryPolicy: parsed.retryPolicy } : {}),
       },
     });
     await this.auditPlatform(actor, "platform.skill_version.updated", "skill_version", versionId, {
@@ -345,6 +369,35 @@ export class AdminService {
       name: skill.name,
     });
     return { success: true };
+  }
+
+  async getDbSchema(actor: Actor) {
+    this.requireAdmin(actor);
+    const columns: Array<{ table_name: string; column_name: string }> = await this.prisma.client.$queryRaw`
+      SELECT table_name, column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public'
+      AND table_name NOT IN ('_prisma_migrations', 'CostConfig', 'PlatformAuditEvent', 'PlatformAuditPayload', 'JobRecord', 'JobAttempt', 'OutboxEvent', 'JobStreamEvent', 'PlatformRole')
+      ORDER BY table_name, column_name;
+    `;
+
+    const tableMap: Record<string, string[]> = {};
+    for (const col of columns) {
+      const tbl = col.table_name;
+      if (!tableMap[tbl]) {
+        tableMap[tbl] = [];
+      }
+      tableMap[tbl].push(col.column_name);
+    }
+
+    const projectTables: Record<string, string[]> = {};
+    for (const [tbl, cols] of Object.entries(tableMap)) {
+      if (cols.includes("projectId") || tbl === "Project") {
+        projectTables[tbl] = cols;
+      }
+    }
+
+    return projectTables;
   }
 
 

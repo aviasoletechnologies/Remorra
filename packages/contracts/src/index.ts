@@ -186,3 +186,20 @@ export const cursorPageSchema = <T extends z.ZodType>(item: T) =>
     data: z.array(item),
     nextCursor: z.string().nullable(),
   });
+
+export const skillVersionInputSchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  contextRequirements: z.array(z.string()).optional(),
+  inputSourceMap: z.object({
+    skills: z.array(z.string()).optional(),
+    tables: z.record(z.string(), z.array(z.string())).optional(),
+  }).optional(),
+  outputSchema: z.unknown().nullable().optional(),
+  constraints: z.array(z.string()).optional(),
+  examples: z.unknown().optional(),
+  retryPolicy: z.unknown().optional(),
+});
+export type SkillVersionInput = z.infer<typeof skillVersionInputSchema>;
+
