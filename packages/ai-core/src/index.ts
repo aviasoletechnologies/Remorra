@@ -40,6 +40,8 @@ export type InputSourceMapItem =
         field: string;
         scope?: Record<string, string>;
         limit?: number;
+        multiple?: boolean;
+        include?: string[];
       };
     }
   | {
@@ -193,6 +195,5 @@ export {
   PrismaAuditLogger,
   ResponseParser,
   generateInputSourceMap,
-  listInputSourceRegistry,
   validateInputSourceMap,
 } from "./prisma-implementations.js";

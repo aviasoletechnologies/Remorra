@@ -205,13 +205,16 @@ export class SupabaseAuthGuard implements CanActivate {
               ? payload.email
               : "unknown@invalid",
         };
-      } catch {
-        // Legacy Supabase HS256 tokens are not exposed through the JWKS endpoint.
+      } catch (jwksErr) {
+        this.logger.warn(`[auth] JWKS verify failed: ${(jwksErr as Error)?.message}`);
       }
     }
     if (!this.supabase) throw new Error("Supabase token verifier unavailable");
     const { data, error } = await this.supabase.auth.getUser(token);
-    if (error || !data.user) throw error ?? new Error("Supabase user missing");
+    if (error || !data.user) {
+      this.logger.warn(`[auth] getUser failed: ${JSON.stringify(error)}`);
+      throw error ?? new Error("Supabase user missing");
+    }
     return {
       userId: data.user.id,
       email: data.user.email ?? "unknown@invalid",
