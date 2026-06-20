@@ -4,7 +4,7 @@ import { config } from "../config";
 import { withRetry } from "../lib/retry";
 import { orchestrator, anthropic, modelFor } from "../services/llm";
 import { grokModelFor, invokeGrokStream } from "../services/providers/grok";
-import { injectKnowledgeBases } from "./context";
+import { injectKnowledgeBases, assembleContext } from "./context";
 
 export const GENERAL_CHAT_SYSTEM_PROMPT = [
   "You are Remorra's general workspace assistant.",
@@ -97,7 +97,13 @@ export async function invokeSkill(input: {
   }
 
   // Determine context requirements for this turn and build history
+  const sourceMap = (skill.inputSourceMap as any) || {};
+  const hasCustomContext =
+    (Array.isArray(sourceMap.skills) && sourceMap.skills.length > 0) ||
+    (sourceMap.tables && Object.keys(sourceMap.tables).length > 0);
+
   let contextReqsForThisTurn = requirements;
+  let customSections: any[] = [];
 
   if (input.conversationId) {
     // Conversational skill — detect turn 1 vs turn 2+
@@ -122,7 +128,12 @@ export async function invokeSkill(input: {
 
     if (historyMessages.length === 0) {
       // Turn 1: assembler runs with full requirements
-      contextReqsForThisTurn = requirements;
+      if (hasCustomContext) {
+        customSections = await assembleContext(input.projectId, sourceMap);
+        contextReqsForThisTurn = [];
+      } else {
+        contextReqsForThisTurn = requirements;
+      }
     } else {
       // Turn 2+: assembler skips, inject history instead
       contextReqsForThisTurn = [];
@@ -136,15 +147,23 @@ export async function invokeSkill(input: {
       });
     }
   } else {
-    // Flow helper (no conversationId) — keep legacy fallback if requirements empty
-    if (requirements.length === 0) {
-      additionalSections.push({
-        tag: "application_context",
-        trust: "application",
-        content: JSON.stringify(input.context),
-      });
+    // Flow helper (no conversationId)
+    if (hasCustomContext) {
+      customSections = await assembleContext(input.projectId, sourceMap);
+      contextReqsForThisTurn = [];
+    } else {
+      if (requirements.length === 0) {
+        additionalSections.push({
+          tag: "application_context",
+          trust: "application",
+          content: JSON.stringify(input.context),
+        });
+      }
     }
   }
+
+  // Inject any assembled custom sections
+  additionalSections.push(...customSections);
 
   // Document injection (current message only, any turn)
   if (input.documentName && input.documentContent) {

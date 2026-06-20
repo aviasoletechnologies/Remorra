@@ -11,6 +11,7 @@ describe("Admin & Support Ops Console Tests", () => {
     prismaMock = {
       client: {
         $transaction: vi.fn(async (cb) => cb(prismaMock.client)),
+        $queryRaw: vi.fn(),
         profile: {
           count: vi.fn(),
           findMany: vi.fn(),
@@ -82,6 +83,7 @@ describe("Admin & Support Ops Console Tests", () => {
           findUnique: vi.fn(),
           create: vi.fn(),
           count: vi.fn(),
+          update: vi.fn(),
         },
       },
     };
@@ -421,6 +423,7 @@ describe("Admin & Support Ops Console Tests", () => {
           active: true,
           systemPrompt: "Test Prompt",
           contextRequirements: {},
+          inputSourceMap: {},
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -462,6 +465,7 @@ describe("Admin & Support Ops Console Tests", () => {
         version: 1,
         systemPrompt: "Old Prompt",
         contextRequirements: [],
+        inputSourceMap: {},
         outputSchema: null,
         constraints: [],
         examples: [],
@@ -491,13 +495,61 @@ describe("Admin & Support Ops Console Tests", () => {
       });
     });
 
-    it("updates an existing skill version in place", async () => {
+    it("creates a new skill version and updates skill name/description if provided", async () => {
+      prismaMock.client.skillVersion.findFirstOrThrow.mockResolvedValue({
+        id: "version-1-id",
+        skillId: "test-skill",
+        version: 1,
+        systemPrompt: "Old Prompt",
+        contextRequirements: [],
+        inputSourceMap: {},
+        outputSchema: null,
+        constraints: [],
+        examples: [],
+        retryPolicy: {},
+      });
+      prismaMock.client.skillVersion.create.mockResolvedValue({
+        id: "version-2-id",
+        skillId: "test-skill",
+        version: 2,
+        active: false,
+      });
+
+      await adminService.createSkillVersion(
+        { userId: "admin-1", platformRole: "admin" } as any,
+        "test-skill",
+        {
+          systemPrompt: "New Prompt",
+          name: "Updated Skill Name",
+          description: "Updated Skill Description",
+        },
+      );
+
+      expect(prismaMock.client.skill.update).toHaveBeenCalledWith({
+        where: { id: "test-skill" },
+        data: {
+          name: "Updated Skill Name",
+          description: "Updated Skill Description",
+        },
+      });
+
+      expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          skillId: "test-skill",
+          version: 2,
+          systemPrompt: "New Prompt",
+        }),
+      });
+    });
+
+    it("updates an existing skill version in place and updates skill name/description if provided", async () => {
       prismaMock.client.skillVersion.findUniqueOrThrow.mockResolvedValue({
         id: "version-2-id",
         skillId: "test-skill",
         version: 2,
         systemPrompt: "Old Prompt",
         contextRequirements: [],
+        inputSourceMap: {},
         outputSchema: null,
         constraints: [],
         examples: [],
@@ -515,8 +567,18 @@ describe("Admin & Support Ops Console Tests", () => {
         "version-2-id",
         {
           systemPrompt: "Updated Prompt",
+          name: "Updated Skill Name",
+          description: "Updated Skill Description",
         },
       );
+
+      expect(prismaMock.client.skill.update).toHaveBeenCalledWith({
+        where: { id: "test-skill" },
+        data: {
+          name: "Updated Skill Name",
+          description: "Updated Skill Description",
+        },
+      });
 
       expect(prismaMock.client.skillVersion.update).toHaveBeenCalledWith({
         where: { id: "version-2-id" },
@@ -564,6 +626,23 @@ describe("Admin & Support Ops Console Tests", () => {
         ),
       ).rejects.toThrow(BadRequestException);
       expect(prismaMock.client.skillVersion.delete).not.toHaveBeenCalled();
+    });
+
+    it("returns project-related tables and columns dynamically", async () => {
+      prismaMock.client.$queryRaw.mockResolvedValue([
+        { table_name: "Project", column_name: "name" },
+        { table_name: "Project", column_name: "summary" },
+        { table_name: "Ambition", column_name: "projectId" },
+        { table_name: "Ambition", column_name: "title" },
+        { table_name: "IgnoredTable", column_name: "someCol" },
+      ]);
+
+      const res = await adminService.getDbSchema({ platformRole: "admin" } as any);
+
+      expect(res).toEqual({
+        Project: ["name", "summary"],
+        Ambition: ["projectId", "title"],
+      });
     });
 
   });

@@ -10,6 +10,7 @@ export interface SkillDefinition<TOutput = unknown> {
   modelTier: ModelTier;
   systemPrompt: string;
   contextRequirements: readonly string[];
+  inputSourceMap?: any;
   outputSchema?: any;
   constraints: readonly string[];
   tokenCeiling?: number;
@@ -152,6 +153,7 @@ export class PrismaSkillRegistry implements SkillRegistry {
       modelTier,
       systemPrompt: version.systemPrompt,
       contextRequirements: (version.contextRequirements as string[]) ?? [],
+      inputSourceMap: version.inputSourceMap ?? {},
       constraints: (version.constraints as string[]) ?? [],
       tokenCeiling,
       retryPolicy: version.retryPolicy,
