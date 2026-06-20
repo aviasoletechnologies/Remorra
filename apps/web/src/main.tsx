@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
             <TooltipProvider>
               <ConfirmProvider>
                 <App />
-                <Toaster position="bottom-right" richColors />
+                <Toaster position="top-right" richColors />
               </ConfirmProvider>
             </TooltipProvider>
           </LazyMotion>

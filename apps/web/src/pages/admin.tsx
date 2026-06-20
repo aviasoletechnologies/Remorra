@@ -796,6 +796,9 @@ export function AdminPage() {
               </div>
 
               <div className="admin-drawer-body">
+                {skillEditError && (
+                  <p className="form-message mb-4" role="alert">{skillEditError}</p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 border-b pb-6">
                   <div>
                     <label className="admin-field-label">Skill Name</label>
@@ -918,9 +921,6 @@ export function AdminPage() {
                     </div>
 
                     <div className="editor-section mt-4">
-                      {skillEditError && (
-                        <p className="form-message" role="alert">{skillEditError}</p>
-                      )}
                       <p className="form-help">
                         Save Selected Version updates the current system prompt and input configurations. Save as New Version creates a separate version from your changes.
                       </p>
@@ -958,6 +958,9 @@ export function AdminPage() {
             </div>
 
             <div className="admin-drawer-body">
+              {skillCreateError && (
+                <p className="form-message mb-4" role="alert">{skillCreateError}</p>
+              )}
               <div className="space-y-4">
                 <div>
                   <label className="admin-field-label">Skill ID (unique slug)</label>
@@ -1027,10 +1030,6 @@ export function AdminPage() {
                     </div>
                   </div>
                 </div>
-
-                {skillCreateError && (
-                  <p className="form-message" role="alert">{skillCreateError}</p>
-                )}
 
                 <div className="form-actions pt-4">
                   <Button
