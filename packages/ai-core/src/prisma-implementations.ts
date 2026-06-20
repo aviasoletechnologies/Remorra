@@ -12,13 +12,6 @@ import type {
   AuditLogger,
 } from "./index.js";
 
-type SourceRegistryEntry = {
-  delegate: string;
-  fields: readonly string[];
-  aliases: Record<string, string>;
-  defaultScope: Record<string, string>;
-};
-
 type SourceValidationResult = {
   valid: boolean;
   errors: string[];
@@ -28,144 +21,6 @@ type SourceValidationResult = {
 };
 
 const EMPTY_INPUT_SOURCE_MAP: InputSourceMap = { requiredInputs: [] };
-
-const SOURCE_REGISTRY: Record<string, SourceRegistryEntry> = {
-  Project: {
-    delegate: "project",
-    fields: ["id", "name", "summary", "phase", "version"],
-    aliases: {
-      "project id": "id",
-      "project name": "name",
-      "project title": "name",
-      "product name": "name",
-      "project summary": "summary",
-      "product summary": "summary",
-      "project phase": "phase",
-      "project version": "version",
-    },
-    defaultScope: { id: "$runtime.projectId" },
-  },
-  Conversation: {
-    delegate: "conversation",
-    fields: ["id", "projectId", "kind", "status", "activeSkillId", "activeSkillVersionId"],
-    aliases: {
-      "conversation id": "id",
-      "conversation status": "status",
-      "active skill": "activeSkillId",
-      "active skill id": "activeSkillId",
-      "active skill version": "activeSkillVersionId",
-    },
-    defaultScope: { id: "$runtime.conversationId" },
-  },
-  ConversationMessage: {
-    delegate: "conversationMessage",
-    fields: ["id", "conversationId", "role", "content", "skillId", "skillVersionId"],
-    aliases: {
-      "latest message": "content",
-      "user message": "content",
-      "message role": "role",
-    },
-    defaultScope: { conversationId: "$runtime.conversationId" },
-  },
-  Ambition: {
-    delegate: "ambition",
-    fields: ["id", "projectId", "title", "detail", "version"],
-    aliases: {
-      ambition: "title",
-      ambitions: "title",
-      "ambition title": "title",
-      "ambition detail": "detail",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  Okr: {
-    delegate: "okr",
-    fields: ["id", "projectId", "objective", "keyResults", "version"],
-    aliases: {
-      okr: "objective",
-      okrs: "objective",
-      objective: "objective",
-      "key results": "keyResults",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  Persona: {
-    delegate: "persona",
-    fields: ["id", "projectId", "name", "description", "version"],
-    aliases: {
-      persona: "name",
-      personas: "name",
-      "persona name": "name",
-      "persona description": "description",
-      audience: "description",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  PainPoint: {
-    delegate: "painPoint",
-    fields: ["id", "projectId", "personaId", "statement", "version"],
-    aliases: {
-      "pain point": "statement",
-      "pain points": "statement",
-      problem: "statement",
-      problems: "statement",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  UserNeed: {
-    delegate: "userNeed",
-    fields: ["id", "projectId", "personaId", "statement", "version"],
-    aliases: {
-      "user need": "statement",
-      "user needs": "statement",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  UserStory: {
-    delegate: "userStory",
-    fields: ["id", "projectId", "title", "description", "acceptance", "status", "priority"],
-    aliases: {
-      "user story": "title",
-      "user stories": "title",
-      story: "title",
-      stories: "title",
-      acceptance: "acceptance",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  Task: {
-    delegate: "task",
-    fields: ["id", "projectId", "title", "description", "status", "priority", "position"],
-    aliases: {
-      task: "title",
-      tasks: "title",
-      "task status": "status",
-      priority: "priority",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  FounderPack: {
-    delegate: "founderPack",
-    fields: ["id", "projectId", "version", "content", "confirmedAt"],
-    aliases: {
-      "founder pack": "content",
-      "founder pack content": "content",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-  ProductPack: {
-    delegate: "productPack",
-    fields: ["id", "projectId", "version", "content", "coveragePercent", "linkageValid"],
-    aliases: {
-      "product pack": "content",
-      "product pack content": "content",
-      coverage: "coveragePercent",
-      "coverage percent": "coveragePercent",
-      linkage: "linkageValid",
-    },
-    defaultScope: { projectId: "$runtime.projectId" },
-  },
-};
 
 export interface MissingInputDetail {
   key: string;
@@ -182,15 +37,6 @@ export class ContextAssemblyMissingDataError extends Error {
     super(`Missing required context inputs: ${missingInputs.join(", ")}`);
     this.name = "ContextAssemblyMissingDataError";
   }
-}
-
-function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function toInputKey(entity: string, field: string): string {
-  const raw = `${entity}${field.charAt(0).toUpperCase()}${field.slice(1)}`;
-  return raw.charAt(0).toLowerCase() + raw.slice(1);
 }
 
 function hasInputSourceMap(map: InputSourceMap | null | undefined): map is InputSourceMap {
@@ -223,148 +69,55 @@ export function validateInputSourceMap(map: unknown): SourceValidationResult {
       errors.push(`${item.key}: source.type must be "database", "url", or "skill_output"`);
       continue;
     }
-    const registryEntry = SOURCE_REGISTRY[(item.source as any).entity];
-    if (!registryEntry) {
-      errors.push(`${item.key}: unknown entity ${(item.source as any).entity}`);
-      continue;
-    }
-    if (!registryEntry.fields.includes((item.source as any).field)) {
-      errors.push(`${item.key}: unknown field ${(item.source as any).entity}.${(item.source as any).field}`);
-    }
+    // Entity validated at runtime via Prisma delegate convention — no static registry needed
   }
 
   return { valid: errors.length === 0, errors, warnings: [], unmatchedTokens: [], map: inputMap };
 }
 
-export function listInputSourceRegistry() {
-  return Object.fromEntries(
-    Object.entries(SOURCE_REGISTRY).map(([entity, entry]) => [
-      entity,
-      {
-        fields: entry.fields,
-        aliases: Object.keys(entry.aliases),
-        defaultScope: entry.defaultScope,
-      },
-    ]),
-  );
-}
-
 export function generateInputSourceMap(inputRequirementText: string): SourceValidationResult {
-  // Extract optional markers before normalizing: "persona name (optional)" → mark as required:false
-  const optionalPattern = /([^,]+?)\s*\(optional\)/gi;
-  const optionalPhrases = new Set<string>();
-  let strippedText = inputRequirementText;
-  let optMatch: RegExpExecArray | null;
-  while ((optMatch = optionalPattern.exec(inputRequirementText)) !== null) {
-    if (optMatch[1]) optionalPhrases.add(normalizeText(optMatch[1].trim()));
-    if (optMatch[0]) strippedText = strippedText.replace(optMatch[0], optMatch[1]?.trim() ?? "");
-  }
-
-  // Detect skill output references — multiple natural phrasings:
-  //   "use X output", "get output from X skill", "output from X", "need X output", "X skill output"
-  const skillOutputPatterns = [
-    /\buse\s+(.+?)\s+output\b/gi,
-    /\bget\s+(?:the\s+)?output\s+from\s+(.+?)(?:\s+skill)?\b/gi,
-    /\boutput\s+from\s+(.+?)(?:\s+skill)?\b/gi,
-    /\bneed\s+(.+?)\s+output\b/gi,
-    /\b(.+?)\s+skill\s+output\b/gi,
-  ];
-  const skillOutputEntries: InputSourceMapItem[] = [];
-  let skillOutputStripped = strippedText;
-  let soIdx = 0;
-  for (const pat of skillOutputPatterns) {
-    let soM: RegExpExecArray | null;
-    while ((soM = pat.exec(strippedText)) !== null) {
-      const skillName = soM[1]?.trim().replace(/\bskill\b/gi, "").trim() ?? "";
-      if (!skillName) continue;
-      // Deduplicate by skillName
-      if (skillOutputEntries.some((e) => (e.source as any).skillName?.toLowerCase() === skillName.toLowerCase())) continue;
-      const key = `skillOutput${soIdx++ > 0 ? soIdx : ""}`;
-      skillOutputEntries.push({ key, description: `${skillName} output`, required: true, source: { type: "skill_output", skillId: "", skillName } });
-      if (soM[0]) skillOutputStripped = skillOutputStripped.replace(soM[0], "");
-    }
-  }
-
-  // Detect URLs in text before normalizing — they become url source entries
-  const urlPattern = /https?:\/\/\S+/g;
-  const urlEntries: InputSourceMapItem[] = [];
-  let urlStripped = skillOutputStripped;
-  let urlM: RegExpExecArray | null;
-  let urlIdx = 0;
-  while ((urlM = urlPattern.exec(skillOutputStripped)) !== null) {
-    const url = urlM[0];
-    const key = `urlDocument${urlIdx++ > 0 ? urlIdx : ""}`;
-    urlEntries.push({ key, description: url, required: true, source: { type: "url", value: url } });
-    urlStripped = urlStripped.replace(url, "");
-  }
-
-  const text = normalizeText(urlStripped);
-  if (!text && urlEntries.length === 0) {
+  if (!inputRequirementText.trim()) {
     return { valid: true, errors: [], warnings: [], unmatchedTokens: [], map: EMPTY_INPUT_SOURCE_MAP };
   }
 
-  const requiredInputs: InputSourceMapItem[] = [...skillOutputEntries, ...urlEntries];
-  // Track which character ranges in `text` are covered by a matched alias
-  const coveredRanges: Array<{ start: number; end: number }> = [];
+  const requiredInputs: InputSourceMapItem[] = [];
 
-  for (const [entity, entry] of Object.entries(SOURCE_REGISTRY)) {
-    for (const [alias, field] of Object.entries(entry.aliases)) {
-      const normalizedAlias = normalizeText(alias);
-      const idx = text.indexOf(normalizedAlias);
-      if (idx === -1) continue;
-      const key = toInputKey(entity, field);
-      // Check if this alias was marked optional
-      const isOptional = optionalPhrases.has(normalizedAlias) ||
-        [...optionalPhrases].some((p) => p.includes(normalizedAlias));
-      if (requiredInputs.some((item) => item.key === key)) {
-        coveredRanges.push({ start: idx, end: idx + normalizedAlias.length });
-        continue;
-      }
-      coveredRanges.push({ start: idx, end: idx + normalizedAlias.length });
-      requiredInputs.push({
-        key,
-        description: alias,
-        required: isOptional ? false : true,
-        source: {
-          type: "database",
-          entity,
-          field,
-          scope: entry.defaultScope,
-          limit: 1,
-        },
-      });
-    }
+  // Detect URLs
+  const urlPattern = /https?:\/\/\S+/g;
+  let urlStripped = inputRequirementText;
+  let urlIdx = 0;
+  let urlM: RegExpExecArray | null;
+  while ((urlM = urlPattern.exec(inputRequirementText)) !== null) {
+    const url = urlM[0];
+    const key = `urlDocument${urlIdx++ > 0 ? urlIdx : ""}`;
+    requiredInputs.push({ key, description: url, required: true, source: { type: "url", value: url } });
+    urlStripped = urlStripped.replace(url, "");
   }
 
-  // Compute unmatched tokens: words in input not covered by any alias range
-  const unmatchedTokens: string[] = [];
-  // Split original (non-normalized) text into meaningful word groups and check coverage
-  const words = text.split(/\s+/).filter(Boolean);
-  let pos = 0;
-  for (const word of words) {
-    const wordStart = text.indexOf(word, pos);
-    const wordEnd = wordStart + word.length;
-    const isCovered = coveredRanges.some((r) => r.start <= wordStart && wordEnd <= r.end);
-    if (!isCovered && word.length > 2) {
-      // Only flag words >2 chars to skip noise like "and", "or", "a"
-      const already = unmatchedTokens.some((t) => t === word);
-      if (!already) unmatchedTokens.push(word);
-    }
-    pos = wordEnd;
+  // Detect @skill mentions for skill_output entries
+  const mentionPattern = /@([\w\s-]+?)(?:\.(\w+))?(?=\s|,|$)/g;
+  let mentionM: RegExpExecArray | null;
+  let soIdx = 0;
+  while ((mentionM = mentionPattern.exec(inputRequirementText)) !== null) {
+    const skillName = mentionM[1]?.trim() ?? "";
+    const jsonPath = mentionM[2]?.trim();
+    if (!skillName) continue;
+    const key = `skillOutput${soIdx++ > 0 ? soIdx : ""}`;
+    requiredInputs.push({
+      key,
+      description: `${skillName} output`,
+      required: true,
+      source: { type: "skill_output", skillId: "", skillName, ...(jsonPath ? { jsonPath } : {}) },
+    });
+    urlStripped = urlStripped.replace(mentionM[0], "");
   }
 
   if (requiredInputs.length === 0) {
-    return {
-      valid: true,
-      errors: [],
-      warnings: text ? [`No known sources matched. Check for typos.`] : [],
-      unmatchedTokens,
-      map: EMPTY_INPUT_SOURCE_MAP,
-    };
+    return { valid: true, errors: [], warnings: [], unmatchedTokens: [], map: EMPTY_INPUT_SOURCE_MAP };
   }
 
   const result = validateInputSourceMap({ requiredInputs });
-  return { ...result, warnings: [], unmatchedTokens };
+  return { ...result, warnings: [], unmatchedTokens: [] };
 }
 
 function normalizeInputSourceMap(map: unknown): InputSourceMap {
@@ -442,7 +195,7 @@ export class PrismaContextAssembler implements ContextAssembler {
 
   async assemble(
     projectId: string,
-    requirements: readonly string[],
+    _requirements: readonly string[],
     options?: {
       inputSourceMap?: InputSourceMap | null;
       runtime?: RuntimeContextScope;
@@ -451,211 +204,7 @@ export class PrismaContextAssembler implements ContextAssembler {
     if (hasInputSourceMap(options?.inputSourceMap)) {
       return this.assembleFromSourceMap(projectId, options.inputSourceMap, options.runtime);
     }
-
-    const sections: AiContextSection[] = [];
-    const project = await this.prisma.project.findUniqueOrThrow({
-      where: { id: projectId },
-    });
-
-    for (const req of requirements) {
-      switch (req) {
-        case "project.metadata":
-          sections.push({
-            tag: "project_metadata",
-            trust: "trusted",
-            content: JSON.stringify({
-              id: project.id,
-              name: project.name,
-              summary: project.summary,
-              phase: project.phase,
-              version: project.version,
-            }),
-          });
-          break;
-
-        case "project.phase":
-          sections.push({
-            tag: "project_phase",
-            trust: "trusted",
-            content: project.phase,
-          });
-          break;
-
-        case "ambitions.all":
-        case "okrs.all": {
-          const ambitions = await this.prisma.ambition.findMany({
-            where: { projectId },
-            include: { okrs: true },
-          });
-          sections.push({
-            tag: "ambitions",
-            trust: "trusted",
-            content: JSON.stringify(ambitions),
-          });
-          break;
-        }
-
-        case "personas.all": {
-          const personas = await this.prisma.persona.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "personas",
-            trust: "trusted",
-            content: JSON.stringify(personas),
-          });
-          break;
-        }
-
-        case "personas.all_with_pain_points_and_user_needs": {
-          const personas = await this.prisma.persona.findMany({
-            where: { projectId },
-            include: { painPoints: true, userNeeds: true },
-          });
-          sections.push({
-            tag: "personas_with_needs",
-            trust: "trusted",
-            content: JSON.stringify(personas),
-          });
-          break;
-        }
-
-        case "linkage_map.full": {
-          const [ambitions, personas, stories] = await Promise.all([
-            this.prisma.ambition.findMany({
-              where: { projectId },
-              include: { okrs: true },
-            }),
-            this.prisma.persona.findMany({
-              where: { projectId },
-              include: { painPoints: true, userNeeds: true },
-            }),
-            this.prisma.userStory.findMany({ where: { projectId } }),
-          ]);
-          sections.push({
-            tag: "linkage_map",
-            trust: "trusted",
-            content: JSON.stringify({ ambitions, personas, stories }),
-          });
-          break;
-        }
-
-        case "viability_score.current": {
-          const snapshot = await this.prisma.viabilitySnapshot.findFirst({
-            where: { projectId },
-            orderBy: { createdAt: "desc" },
-          });
-          sections.push({
-            tag: "viability_score",
-            trust: "trusted",
-            content: JSON.stringify(snapshot),
-          });
-          break;
-        }
-
-        case "founder.preferred_name": {
-          const owner = await this.prisma.profile.findFirst({
-            where: { ownedProjects: { some: { id: projectId } } },
-          });
-          sections.push({
-            tag: "founder",
-            trust: "trusted",
-            content: JSON.stringify({
-              preferredName: owner?.preferredName,
-            }),
-          });
-          break;
-        }
-
-        case "user_stories.all": {
-          const stories = await this.prisma.userStory.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "user_stories",
-            trust: "trusted",
-            content: JSON.stringify(stories),
-          });
-          break;
-        }
-
-        case "tasks.all": {
-          const tasks = await this.prisma.task.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "tasks",
-            trust: "trusted",
-            content: JSON.stringify(tasks),
-          });
-          break;
-        }
-
-        case "cycles.all": {
-          const cycles = await this.prisma.cycle.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "cycles",
-            trust: "trusted",
-            content: JSON.stringify(cycles),
-          });
-          break;
-        }
-
-        case "raid_items.all": {
-          const items = await this.prisma.raidItem.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "raid_items",
-            trust: "trusted",
-            content: JSON.stringify(items),
-          });
-          break;
-        }
-
-        case "finance.all": {
-          const entries = await this.prisma.financeEntry.findMany({
-            where: { projectId },
-          });
-          sections.push({
-            tag: "finance",
-            trust: "trusted",
-            content: JSON.stringify(entries),
-          });
-          break;
-        }
-
-        case "founder_pack.current": {
-          const pack = await this.prisma.founderPack.findFirst({
-            where: { projectId },
-            orderBy: { version: "desc" },
-          });
-          sections.push({
-            tag: "founder_pack",
-            trust: "trusted",
-            content: JSON.stringify(pack),
-          });
-          break;
-        }
-
-        case "product_pack.current": {
-          const pack = await this.prisma.productPack.findFirst({
-            where: { projectId },
-            orderBy: { version: "desc" },
-          });
-          sections.push({
-            tag: "product_pack",
-            trust: "trusted",
-            content: JSON.stringify(pack),
-          });
-          break;
-        }
-      }
-    }
-
-    return sections;
+    return [];
   }
 
   private async assembleFromSourceMap(
@@ -732,35 +281,46 @@ export class PrismaContextAssembler implements ContextAssembler {
       }
 
       // database source type
-      const dbSource = item.source as { type: "database"; entity: string; field: string; scope?: Record<string, string>; limit?: number };
-      const registryEntry = SOURCE_REGISTRY[dbSource.entity];
-      if (!registryEntry) {
-        missingInputs.push(`${item.key} (${dbSource.entity} source is not registered)`);
-        missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
-        continue;
-      }
-      const delegate = this.prisma[registryEntry.delegate];
+      const dbSource = item.source as { type: "database"; entity: string; field: string; scope?: Record<string, string>; limit?: number; multiple?: boolean; include?: string[] };
+      // Resolve Prisma delegate dynamically via camelCase convention (no static registry)
+      const delegateName = dbSource.entity.charAt(0).toLowerCase() + dbSource.entity.slice(1);
+      const delegate = this.prisma[delegateName];
       if (!delegate?.findFirst) {
         missingInputs.push(`${item.key} (${dbSource.entity} source is unavailable)`);
         missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
         continue;
       }
 
-      const where = buildWhere(dbSource.scope ?? registryEntry.defaultScope, currentRuntime);
-      const row = await delegate.findFirst({
-        where,
-        orderBy: registryEntry.fields.includes("createdAt") ? { createdAt: "desc" } : undefined,
-        select: { [dbSource.field]: true },
-      });
-      const value = row?.[dbSource.field];
-      if (value === null || value === undefined || value === "") {
-        if (item.required !== false) {
+      const where = buildWhere(dbSource.scope ?? {}, currentRuntime);
+
+      // Build include from admin-configured relation names
+      const includeClause = dbSource.include?.length
+        ? dbSource.include.reduce<Record<string, boolean>>((acc, rel) => { acc[rel] = true; return acc; }, {})
+        : undefined;
+
+      // field: "*" means fetch all columns (no select filter)
+      const selectClause = dbSource.field === "*" ? undefined : { [dbSource.field]: true };
+
+      if (dbSource.multiple) {
+        const rows = await delegate.findMany({ where, include: includeClause, select: selectClause });
+        if (rows.length === 0 && item.required !== false) {
           missingInputs.push(item.key);
           missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
+          continue;
         }
-        continue;
+        resolvedInputs[item.key] = rows;
+      } else {
+        const row = await delegate.findFirst({ where, include: includeClause, select: selectClause });
+        const value = dbSource.field === "*" ? row : row?.[dbSource.field];
+        if (value === null || value === undefined || value === "") {
+          if (item.required !== false) {
+            missingInputs.push(item.key);
+            missingDetails.push({ key: item.key, description: item.description, entity: dbSource.entity, field: dbSource.field });
+          }
+          continue;
+        }
+        resolvedInputs[item.key] = value;
       }
-      resolvedInputs[item.key] = value;
     }
 
     if (missingInputs.length > 0) {

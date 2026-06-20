@@ -208,24 +208,12 @@ export async function invokeSkill(input: {
     onLlmInput: input.onLlmInput,
   }).catch((error) => {
     if (error instanceof ContextAssemblyMissingDataError) {
-      const entityLabels: Record<string, string> = {
-        Project: "project profile",
-        Persona: "personas",
-        PainPoint: "pain points",
-        UserNeed: "user needs",
-        UserStory: "user stories",
-        Ambition: "ambitions",
-        Okr: "OKRs",
-        Task: "tasks",
-        FounderPack: "Founder Pack",
-        ProductPack: "Product Pack",
-        Conversation: "conversation",
-        ConversationMessage: "conversation messages",
-      };
       let message: string;
       if (error.missingDetails.length > 0) {
         const bullets = error.missingDetails.map((d) => {
-          const section = d.entity ? (entityLabels[d.entity] ?? d.entity) : d.key;
+          const section = d.entity
+            ? d.entity.replace(/([A-Z])/g, " $1").trim().toLowerCase()
+            : d.key;
           const what = d.description ?? d.key;
           return `• ${what} — add or complete your ${section} first`;
         }).join("\n");

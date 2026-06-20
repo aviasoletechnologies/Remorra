@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Injectable } from "@nestjs/common";
-import { listInputSourceRegistry } from "@remorra/ai-core";
 
 function resolveLlmProvider(): string {
   return process.env.LLM_PROVIDER
@@ -71,7 +70,7 @@ export class InputSourceMapProposalService {
     ].join(" ");
     const content = JSON.stringify({
       inputRequirementText,
-      allowedRegistry: listInputSourceRegistry(),
+      instruction: "Build a valid inputSourceMap with database, url, or skill_output source types. Use explicit entity, field, and scope values. For database sources, set scope with $runtime.projectId or $runtime.conversationId.",
       outputShape: {
         requiredInputs: [
           {

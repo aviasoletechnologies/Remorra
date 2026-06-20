@@ -395,6 +395,104 @@ async function main() {
     });
   }
 
+  // Entity Extractor skill
+  await prisma.skill.upsert({
+    where: { id: "entity-extractor" },
+    create: {
+      id: "entity-extractor",
+      name: "Entity Extractor",
+      description: "Conversational skill that reviews all project entities with the user and applies add/update/delete operations based on confirmed changes.",
+      versions: {
+        create: {
+          version: 1,
+          active: true,
+          systemPrompt: [
+            "You are the project data reviewer for Remorra.",
+            "",
+            "Your context contains all current project entities including their database IDs (id fields): personas with pain points and user needs, ambitions with OKRs, and user stories.",
+            "",
+            "Step 1: Present all entities clearly to the user — list personas (with their pain points and user needs), ambitions (with OKRs), and user stories. Show them in a readable format.",
+            "",
+            "Step 2: Ask the user to confirm, or tell you what to add, remove, or update. Handle changes conversationally. Keep asking until the user confirms everything is correct.",
+            "",
+            "Step 3: When the user confirms, output ONLY this JSON — no text before or after, no markdown fences:",
+            "",
+            "{",
+            "  \"operations\": [",
+            "    { \"action\": \"create\", \"entity\": \"EntityName\", \"data\": { ... } },",
+            "    { \"action\": \"update\", \"entity\": \"EntityName\", \"id\": \"the-db-id\", \"data\": { ... } },",
+            "    { \"action\": \"delete\", \"entity\": \"EntityName\", \"id\": \"the-db-id\" }",
+            "  ]",
+            "}",
+            "",
+            "Rules:",
+            "- Use exact Prisma entity names: Persona, PainPoint, UserNeed, Ambition, Okr, UserStory",
+            "- For update and delete: use the exact id from your context",
+            "- For create: omit id — include all required fields and foreign keys (e.g. personaId links a PainPoint to its Persona, ambitionId links an Okr to its Ambition)",
+            "- projectId is added automatically — do not include it in data",
+            "- If nothing changed, output { \"operations\": [] }",
+            "- Output JSON only — no explanation, no summary after the JSON",
+          ].join("\n"),
+          contextRequirements: [],
+          inputRequirementText: "",
+          inputSourceMap: {
+            requiredInputs: [
+              {
+                key: "project",
+                description: "Project details",
+                required: true,
+                source: { type: "database", entity: "Project", field: "*", scope: { id: "$runtime.projectId" } },
+              },
+              {
+                key: "personas",
+                description: "All personas with pain points and user needs",
+                required: false,
+                source: { type: "database", entity: "Persona", field: "*", scope: { projectId: "$runtime.projectId" }, multiple: true, include: ["painPoints", "userNeeds"] },
+              },
+              {
+                key: "ambitions",
+                description: "All ambitions with OKRs",
+                required: false,
+                source: { type: "database", entity: "Ambition", field: "*", scope: { projectId: "$runtime.projectId" }, multiple: true, include: ["okrs"] },
+              },
+              {
+                key: "userStories",
+                description: "All user stories",
+                required: false,
+                source: { type: "database", entity: "UserStory", field: "*", scope: { projectId: "$runtime.projectId" }, multiple: true },
+              },
+            ],
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              operations: {
+                type: "array",
+                items: {
+                  type: "object",
+                  required: ["action", "entity"],
+                  properties: {
+                    action: { type: "string", enum: ["create", "update", "delete"] },
+                    entity: { type: "string" },
+                    id: { type: "string" },
+                    data: { type: "object" },
+                  },
+                },
+              },
+            },
+          },
+          constraints: [],
+          examples: [],
+          retryPolicy: { limit: 2, backoff: true },
+        },
+      },
+    },
+    update: {
+      name: "Entity Extractor",
+      description: "Conversational skill that reviews all project entities with the user and applies add/update/delete operations based on confirmed changes.",
+    },
+  });
+
   const costs = [
     { key: "model:claude-sonnet-4-6", name: "Claude 3.5 Sonnet", unit: "per_1m_tokens", currency: "USD", active: true, inputCostMinor: 300, outputCostMinor: 1500, flatCostMinor: 0 },
     { key: "model:claude-opus-4-8", name: "Claude 3 Opus", unit: "per_1m_tokens", currency: "USD", active: true, inputCostMinor: 1500, outputCostMinor: 7500, flatCostMinor: 0 },
