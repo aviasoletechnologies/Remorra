@@ -370,6 +370,9 @@ export function AdminPage() {
         setSkillEditError(null);
         toast.success("Successfully created new skill version!");
       }
+      setEditingSkill(null);
+      setEditingSkillVersionId(null);
+      setIsContextConfigOpen(false);
     },
     onError: (err: any) => {
       setSkillEditError(err.message || "Failed to create skill version.");
@@ -401,6 +404,9 @@ export function AdminPage() {
         setSkillEditError(null);
         toast.success("Skill version updated successfully!");
       }
+      setEditingSkill(null);
+      setEditingSkillVersionId(null);
+      setIsContextConfigOpen(false);
     },
     onError: (err: any) => {
       setSkillEditError(err.message || "Failed to update skill version.");
@@ -455,6 +461,7 @@ export function AdminPage() {
       setNewSkillPrompt("");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
       setSkillCreateError(null);
+      setIsCreateContextConfigOpen(false);
       if (result?.warnings?.length) {
         toast.success(`Skill created (warning: ${result.warnings.join("; ")})`);
       } else {
