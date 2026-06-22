@@ -197,12 +197,17 @@ export async function handleDocument(payload: Payload) {
       if (error) throw error;
       
       await logStream("Finalizing storage and GeneratedDocument references...", "finalize_refs");
-      const storageObject = await prisma.storageObject.create({
-        data: {
+      const storageObject = await prisma.storageObject.upsert({
+        where: { path },
+        create: {
           projectId: project.id,
           bucket,
           path,
           mimeType: "application/pdf",
+          sizeBytes: bytes.byteLength,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+        update: {
           sizeBytes: bytes.byteLength,
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
@@ -211,10 +216,10 @@ export async function handleDocument(payload: Payload) {
         where: { id: document.id },
         data: {
           status: "completed",
-          storageObjectId: storageObject.id,
+          storageObject: { connect: { id: storageObject.id } },
           expiresAt: storageObject.expiresAt,
-          templateVersionId: activeTemplateVer?.id ?? null,
-          templateVersion: activeTemplateVer?.version ?? null,
+          templateVer: activeTemplateVer ? { connect: { id: activeTemplateVer.id } } : undefined,
+          templateVersion: activeTemplateVer?.version ?? 1,
         },
       });
       if (document.reportGenerationId) {
