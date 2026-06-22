@@ -47,6 +47,7 @@ export async function assembleContext(
     tables?: Record<string, string[]>;
   },
   previousSkillId?: string,
+  currentSkillId?: string,
 ) {
   const sections: { tag: string; trust: "trusted" | "application" | "user"; content: string }[] = [];
 
@@ -65,6 +66,9 @@ export async function assembleContext(
     }
 
     for (const skillId of resolvedSkills) {
+      // Skip current skill — conversation_history in skills.ts already covers it
+      if (skillId === currentSkillId) continue;
+
       const messages = await prisma.conversationMessage.findMany({
         where: {
           conversation: {
