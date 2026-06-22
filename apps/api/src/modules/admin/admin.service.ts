@@ -159,7 +159,6 @@ export class AdminService {
           version: 1,
           active: true,
           systemPrompt,
-          contextRequirements: {},
           inputSourceMap: inputSourceMap ?? {},
           constraints: [],
           examples: [],
@@ -267,7 +266,6 @@ export class AdminService {
           version: current.version + 1,
           active: false,
           systemPrompt: String(parsed.systemPrompt ?? current.systemPrompt),
-          contextRequirements: parsed.contextRequirements ?? current.contextRequirements,
           inputSourceMap: parsed.inputSourceMap !== undefined ? parsed.inputSourceMap : current.inputSourceMap,
           outputSchema: parsed.outputSchema !== undefined ? parsed.outputSchema : current.outputSchema,
           constraints: parsed.constraints ?? current.constraints,
@@ -318,7 +316,6 @@ export class AdminService {
       where: { id: versionId },
       data: {
         ...(parsed.systemPrompt !== undefined ? { systemPrompt: String(parsed.systemPrompt) } : {}),
-        ...(parsed.contextRequirements !== undefined ? { contextRequirements: parsed.contextRequirements } : {}),
         ...(parsed.inputSourceMap !== undefined ? { inputSourceMap: parsed.inputSourceMap } : {}),
         ...(parsed.outputSchema !== undefined ? { outputSchema: parsed.outputSchema } : {}),
         ...(parsed.constraints !== undefined ? { constraints: parsed.constraints } : {}),

@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma";
 vi.mock("../lib/prisma", () => {
   return {
     prisma: {
-      conversation: {
+      conversationMessage: {
         findMany: vi.fn(),
       },
       project: {
@@ -25,34 +25,25 @@ describe("assembleContext Service Tests", () => {
   });
 
   it("fetches and formats other skills' conversations", async () => {
-    const mockConversations = [
-      {
-        id: "c1",
-        activeSkillId: "skill-a",
-        messages: [
-          { role: "user", content: "Hello from skill A", createdAt: new Date(1000) },
-          { role: "assistant", content: "Response from skill A", createdAt: new Date(2000) },
-        ],
-      },
+    const mockMessages = [
+      { role: "user", content: "Hello from skill A", createdAt: new Date(1000) },
+      { role: "assistant", content: "Response from skill A", createdAt: new Date(2000) },
     ];
 
-    vi.mocked(prisma.conversation.findMany).mockResolvedValue(mockConversations as any);
+    vi.mocked(prisma.conversationMessage.findMany).mockResolvedValue(mockMessages as any);
 
     const sections = await assembleContext("p1", {
       skills: ["skill-a"],
     });
 
-    expect(prisma.conversation.findMany).toHaveBeenCalledWith({
+    expect(prisma.conversationMessage.findMany).toHaveBeenCalledWith({
       where: {
-        projectId: "p1",
-        activeSkillId: "skill-a",
-      },
-      include: {
-        messages: {
-          orderBy: { createdAt: "asc" },
+        conversation: {
+          projectId: "p1",
         },
+        skillId: "skill-a",
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" },
     });
 
     expect(sections).toHaveLength(1);

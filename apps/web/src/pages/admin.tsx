@@ -32,26 +32,41 @@ import {
   type AdminSystemSubTab,
 } from "./admin/admin-system";
 
-function describeSkillInputRequirement(version: any): string {
-  if (version?.inputSourceMap) {
-    const parts: string[] = [];
-    const skills = version.inputSourceMap.skills || [];
-    const tables = Object.keys(version.inputSourceMap.tables || {});
-    if (skills.length > 0) {
-      parts.push(`Skills: ${skills.join(", ")}`);
-    }
-    if (tables.length > 0) {
-      parts.push(`Tables: ${tables.join(", ")}`);
-    }
-    if (parts.length > 0) {
-      return `Dynamic context: ${parts.join(" | ")}`;
+function parseInputSourceMap(val: any): any {
+  if (!val) return { skills: [], tables: {} };
+  if (typeof val === "string") {
+    try {
+      return parseInputSourceMap(JSON.parse(val));
+    } catch {
+      return { skills: [], tables: {} };
     }
   }
-  if (Array.isArray(version?.contextRequirements) && version.contextRequirements.length > 0) {
-    return `Legacy context: ${version.contextRequirements.join(", ")}`;
+  if (typeof val === "object") {
+    return {
+      skills: Array.isArray(val.skills) ? val.skills : [],
+      tables: val.tables && typeof val.tables === "object" ? val.tables : {}
+    };
+  }
+  return { skills: [], tables: {} };
+}
+
+function describeSkillInputRequirement(version: any): string {
+  const sourceMap = parseInputSourceMap(version?.inputSourceMap);
+  const parts: string[] = [];
+  const skills = sourceMap.skills;
+  const tables = Object.keys(sourceMap.tables);
+  if (skills.length > 0) {
+    parts.push(`Skills: ${skills.join(", ")}`);
+  }
+  if (tables.length > 0) {
+    parts.push(`Tables: ${tables.join(", ")}`);
+  }
+  if (parts.length > 0) {
+    return `Dynamic context: ${parts.join(" | ")}`;
   }
   return "";
 }
+
 
 function describeInputSourceMap(sourceMap: any): string {
   if (!sourceMap) return "No dynamic context configured";
@@ -667,7 +682,7 @@ export function AdminPage() {
                   setEditPromptText(currentVer?.systemPrompt ?? "");
                   setEditSkillName(skill.name ?? "");
                   setEditSkillDesc(skill.description ?? "");
-                  setEditInputSourceMap(currentVer?.inputSourceMap && typeof currentVer.inputSourceMap === "object" ? currentVer.inputSourceMap : { skills: [], tables: {} });
+                  setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
                   setSkillEditError(null);
                 }}
                 onDelete={(skill) => deleteSkill.mutate(skill.id)}
@@ -732,7 +747,7 @@ export function AdminPage() {
         const selectVersion = (version: any) => {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
-          setEditInputSourceMap(version.inputSourceMap && typeof version.inputSourceMap === "object" ? version.inputSourceMap : { skills: [], tables: {} });
+          setEditInputSourceMap(parseInputSourceMap(version.inputSourceMap));
           setSkillEditError(null);
         };
 

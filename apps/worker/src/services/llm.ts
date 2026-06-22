@@ -32,6 +32,49 @@ export function selectedModelFor(tier: string): string {
   return config.isGrok ? grokModelFor(tier) : modelFor(tier);
 }
 
+export function toYaml(val: any, indent = 0): string {
+  const prefix = " ".repeat(indent);
+  if (val === null || val === undefined) return "null";
+  if (typeof val !== "object") {
+    const str = String(val);
+    if (str.includes("\n")) {
+      return `|\n${str.split("\n").map(line => prefix + line).join("\n")}`;
+    }
+    return str;
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0) return "[]";
+    return val.map(item => {
+      if (typeof item === "object" && item !== null) {
+        const itemStr = toYaml(item, indent + 2);
+        const lines = itemStr.split("\n");
+        const firstLine = (lines[0] ?? "").trim();
+        const restLines = lines.slice(1).join("\n");
+        return `${prefix}- ${firstLine}${restLines ? "\n" + restLines : ""}`;
+      }
+      return `${prefix}- ${toYaml(item, indent + 2)}`;
+    }).join("\n");
+  }
+  const keys = Object.keys(val);
+  if (keys.length === 0) return "{}";
+  return keys.map(k => {
+    const v = val[k];
+    if (v === null || v === undefined) {
+      return `${prefix}${k}: null`;
+    }
+    if (typeof v === "object") {
+      const formattedValue = toYaml(v, indent + 2);
+      return `${prefix}${k}:\n${formattedValue}`;
+    }
+    const strVal = String(v);
+    if (strVal.includes("\n")) {
+      const valueIndent = " ".repeat(indent + 2);
+      return `${prefix}${k}: |\n${strVal.split("\n").map(line => valueIndent + line).join("\n")}`;
+    }
+    return `${prefix}${k}: ${strVal}`;
+  }).join("\n");
+}
+
 // Build multi-turn messages for skills: conversation_history becomes actual
 // user/assistant turns so the LLM sees proper context and follows its system prompt.
 export function buildSkillMessages(
@@ -40,7 +83,18 @@ export function buildSkillMessages(
   const historySection = sections.find((s) => s.tag === "conversation_history");
   const contextSections = sections.filter((s) => s.tag !== "conversation_history");
   const contextStr = contextSections
-    .map((s) => `<${s.tag} trust="${s.trust}">${s.content}</${s.tag}>`)
+    .map((s) => {
+      let content = s.content;
+      if (s.tag === "application_context") {
+        try {
+          const parsed = JSON.parse(s.content);
+          content = toYaml(parsed);
+        } catch {
+          // Fallback to original content if it fails to parse
+        }
+      }
+      return `<${s.tag} trust="${s.trust}">${content}</${s.tag}>`;
+    })
     .join("\n");
 
   const messages: Array<{ role: string; content: string }> = [];

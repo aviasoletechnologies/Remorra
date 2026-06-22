@@ -67,6 +67,7 @@ export async function invokeSkill(input: {
   documentContent?: string;
   onDelta?: (delta: string, accumulated: string) => Promise<void>;
   onLlmInput?: (system: string, messages: readonly { role: string; content: string }[]) => void;
+  onLog?: (delta: string, metadata?: any) => void;
 }) {
   // Free tier budget check
   await checkTokenBudget(input.userId);
@@ -78,11 +79,6 @@ export async function invokeSkill(input: {
         where: { skillId, active: true },
         orderBy: { version: "desc" },
       });
-
-  // Legacy context fallback if requirements are empty
-  const requirements = Array.isArray(skill.contextRequirements)
-    ? (skill.contextRequirements as string[])
-    : [];
 
   const additionalSections: any[] = [];
 
@@ -102,8 +98,46 @@ export async function invokeSkill(input: {
     (Array.isArray(sourceMap.skills) && sourceMap.skills.length > 0) ||
     (sourceMap.tables && Object.keys(sourceMap.tables).length > 0);
 
-  let contextReqsForThisTurn = requirements;
   let customSections: any[] = [];
+
+  // Run dynamic context assembler if configured
+  if (hasCustomContext) {
+    if (input.onLog) {
+      input.onLog("Dynamic context assembler matching...", {
+        stage: "context_assembly_match",
+        configuredSkills: sourceMap.skills || [],
+        configuredTables: Object.keys(sourceMap.tables || {}),
+      });
+    }
+
+    customSections = await assembleContext(input.projectId, sourceMap);
+
+    if (input.onLog) {
+      const skillsRetrieved = customSections
+        .filter(s => s.tag.startsWith("skill_conversation_history_"))
+        .map(s => s.tag.replace("skill_conversation_history_", ""));
+      const tablesRetrieved = customSections
+        .filter(s => s.tag === "application_context")
+        .flatMap(s => {
+          try {
+            return Object.keys(JSON.parse(s.content));
+          } catch {
+            return [];
+          }
+        });
+      input.onLog("Dynamic context assembler retrieved data", {
+        stage: "context_assembly_retrieved",
+        retrievedSkills: skillsRetrieved,
+        retrievedTables: tablesRetrieved,
+        assembledSections: customSections.map(s => ({
+          tag: s.tag,
+          trust: s.trust,
+          charCount: s.content.length,
+          preview: s.content
+        }))
+      });
+    }
+  }
 
   if (input.conversationId) {
     // Conversational skill — detect turn 1 vs turn 2+
@@ -126,17 +160,8 @@ export async function invokeSkill(input: {
       (m: any) => !(m.role === "user" && m.content === input.content),
     );
 
-    if (historyMessages.length === 0) {
-      // Turn 1: assembler runs with full requirements
-      if (hasCustomContext) {
-        customSections = await assembleContext(input.projectId, sourceMap);
-        contextReqsForThisTurn = [];
-      } else {
-        contextReqsForThisTurn = requirements;
-      }
-    } else {
-      // Turn 2+: assembler skips, inject history instead
-      contextReqsForThisTurn = [];
+    if (historyMessages.length > 0) {
+      // Turn 2+: inject history
       const historyText = historyMessages
         .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
@@ -148,17 +173,12 @@ export async function invokeSkill(input: {
     }
   } else {
     // Flow helper (no conversationId)
-    if (hasCustomContext) {
-      customSections = await assembleContext(input.projectId, sourceMap);
-      contextReqsForThisTurn = [];
-    } else {
-      if (requirements.length === 0) {
-        additionalSections.push({
-          tag: "application_context",
-          trust: "application",
-          content: JSON.stringify(input.context),
-        });
-      }
+    if (!hasCustomContext) {
+      additionalSections.push({
+        tag: "application_context",
+        trust: "application",
+        content: JSON.stringify(input.context),
+      });
     }
   }
 
@@ -209,11 +229,10 @@ export async function invokeSkill(input: {
       version: skill.version,
       modelTier: (skill.modelTier ?? "standard") as "fast" | "standard" | "reasoning",
       systemPrompt: withSkillDoneInstruction(skill.systemPrompt) + systemPromptSuffix,
-      contextRequirements: contextReqsForThisTurn,
-      outputSchema: skill.outputSchema,
       constraints: Array.isArray(skill.constraints) ? (skill.constraints as string[]) : [],
       tokenCeiling: skill.tokenCeiling,
       retryPolicy: skill.retryPolicy,
+      outputSchema: skill.outputSchema,
     },
     additionalSections,
     contextRuntime: {

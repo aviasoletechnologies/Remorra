@@ -119,6 +119,9 @@ export async function handleConversation(payload: Payload) {
     });
     void flush();
 
+    let lastSystemPrompt = "";
+    let lastLlmMessages: any = null;
+
     const result = isGeneralChat
       ? await invokeGeneralConversation({
           userId,
@@ -152,6 +155,8 @@ export async function handleConversation(payload: Payload) {
             }
           },
           onLlmInput: (system, messages) => {
+            lastSystemPrompt = system;
+            lastLlmMessages = messages as any;
             queue.push({
               type: "log",
               delta: "LLM input assembled",
@@ -160,6 +165,14 @@ export async function handleConversation(payload: Payload) {
                 system,
                 messages,
               },
+            });
+            void flush();
+          },
+          onLog: (delta, metadata) => {
+            queue.push({
+              type: "log",
+              delta,
+              metadata,
             });
             void flush();
           },
@@ -175,8 +188,8 @@ export async function handleConversation(payload: Payload) {
         modelTier: result.skill.modelTier,
         model: selectedModelFor(result.skill.modelTier ?? "standard"),
         rawInput: {
-          systemPrompt: result.skill.systemPrompt ?? null,
-          userMessage: String(payload.content),
+          systemPrompt: lastSystemPrompt || result.skill.systemPrompt || null,
+          userMessage: lastLlmMessages ? (lastLlmMessages[lastLlmMessages.length - 1]?.content ?? String(payload.content)) : String(payload.content),
         },
         rawOutput: result.text,
       },
