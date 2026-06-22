@@ -4,7 +4,8 @@ import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
-import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper";
+import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper.js";
+import { triggerChatReportPdf } from "../services/pdf.js";
 
 function cleanJsonString(str: string): string {
   let cleaned = str.trim();
@@ -209,10 +210,16 @@ export async function handleConversation(payload: Payload) {
     // The tag is stripped from displayText so the user never sees it.
     let displayText = result.text;
     let skillIsDone = false;
+    let shouldGeneratePdf = false;
 
-    if (!isGeneralChat && result.text.includes("<skill_done/>")) {
+    if (!isGeneralChat && displayText.includes("<generate_pdf/>")) {
+      shouldGeneratePdf = true;
+      displayText = displayText.replace(/<generate_pdf\/>/g, "").trim();
+    }
+
+    if (!isGeneralChat && displayText.includes("<skill_done/>")) {
       skillIsDone = true;
-      displayText = result.text.replace(/<skill_done\/>/g, "").trim();
+      displayText = displayText.replace(/<skill_done\/>/g, "").trim();
       console.info(
         `[worker:conversation] skill_done tag detected project=${projectId} conversation=${conversationId} skillId=${result.skill.id}`,
       );
@@ -255,6 +262,26 @@ export async function handleConversation(payload: Payload) {
           if (jsonParsed !== null) {
             skillIsDone = true;
             displayText = displayText.replace(/```json\s*[\s\S]*?```/gi, "").trim();
+          }
+        }
+      }
+      if (jsonParsed === null) {
+        // Case 3: raw JSON object appended at end of prose
+        const trailingMatch = displayText.match(/^([\s\S]*?)(\{[\s\S]*\})\s*$/);
+        if (trailingMatch?.[2]) {
+          const matchStr = trailingMatch[2].trim();
+          try {
+            jsonParsed = JSON.parse(matchStr);
+          } catch {
+            try {
+              jsonParsed = parseJson(matchStr);
+            } catch {
+              /* not JSON */
+            }
+          }
+          if (jsonParsed !== null) {
+            skillIsDone = true;
+            displayText = trailingMatch[1]?.trim() ?? "";
           }
         }
       }
@@ -327,6 +354,11 @@ export async function handleConversation(payload: Payload) {
         });
         void flush();
       }
+    }
+
+    if (shouldGeneratePdf && conversationId) {
+      const pdfDoc = await triggerChatReportPdf(projectId, userId, conversationId, displayText);
+      displayText = displayText + `\n\n[📄 Download Generated Report](/api/v1/documents/${pdfDoc.id}/download)`;
     }
 
     // Save ConversationMessage (assistant turn)

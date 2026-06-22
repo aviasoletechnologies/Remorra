@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X } from "lucide-react";
-import { useEffect, useRef, useState, useLayoutEffect } from "react";
+import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
@@ -8,6 +8,7 @@ import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 
 const mdComponents = {
   h1: (p: any) => <h1 className="text-base font-semibold mt-3 mb-1" {...p} />,
@@ -20,6 +21,39 @@ const mdComponents = {
   strong: (p: any) => <strong className="font-semibold" {...p} />,
   hr: () => <hr className="my-3 border-zinc-200" />,
   code: (p: any) => <code className="bg-zinc-100 rounded px-1 py-0.5 text-xs font-mono" {...p} />,
+  a: ({ href, children, ...p }: any) => {
+    const isDocDownload = href?.includes("/documents/") && href?.includes("/download");
+    if (isDocDownload) {
+      const handleDownload = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        const toastId = toast.loading("Checking PDF status...");
+        try {
+          const docId = href.split("/documents/")[1].split("/")[0];
+          const response = await api<{ ready: boolean; url?: string }>(`/documents/${docId}/download`);
+          if (response.ready && response.url) {
+            toast.success("PDF is ready! Opening in new tab...", { id: toastId });
+            window.open(response.url, "_blank");
+          } else {
+            toast.info("PDF is still generating. Please wait a few seconds and try again!", { id: toastId });
+          }
+        } catch (err) {
+          toast.error("Failed to fetch PDF. Please try again.", { id: toastId });
+          console.error(err);
+        }
+      };
+      return (
+        <a
+          href={href}
+          onClick={handleDownload}
+          className="text-emerald-600 hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+          {...p}
+        >
+          {children}
+        </a>
+      );
+    }
+    return <a href={href} className="text-emerald-600 hover:underline" {...p}>{children}</a>;
+  },
 };
 
 type WorkspaceActiveSkill = {
@@ -42,6 +76,7 @@ type PendingMessage = { id: string; role: "user"; content: string };
 function cleanMessageContent(content: string): string {
   return content
     .replace(/<skill_done\/>/g, "")
+    .replace(/<generate_pdf\/>/g, "")
     .replace(/```json[\s\S]*/gi, "")
     .trim();
 }
