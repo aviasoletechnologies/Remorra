@@ -56,7 +56,8 @@ function describeSkillInputRequirement(version: any): string {
   const skills = sourceMap.skills;
   const tables = Object.keys(sourceMap.tables);
   if (skills.length > 0) {
-    parts.push(`Skills: ${skills.join(", ")}`);
+    const skillLabels = skills.map((s: string) => s === "@previous" ? "Previous Skill" : s);
+    parts.push(`Skills: ${skillLabels.join(", ")}`);
   }
   if (tables.length > 0) {
     parts.push(`Tables: ${tables.join(", ")}`);
@@ -1089,38 +1090,30 @@ export function AdminPage() {
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Other Skills Conversations</span>
+                  <span>Previous skill Conversations</span>
                 </h4>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Select other skills whose conversation histories should be passed as input context.
+                  Select if the previous skill's conversation history should be passed as input context.
                 </p>
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  {allSkills.filter((s: any) => s.id !== editingSkill.id).map((s: any) => {
-                    const isChecked = editInputSourceMap?.skills?.includes(s.id);
-                    return (
-                      <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const skills = [...(editInputSourceMap?.skills || [])];
-                            if (e.target.checked) {
-                              skills.push(s.id);
-                            } else {
-                              const index = skills.indexOf(s.id);
-                              if (index > -1) skills.splice(index, 1);
-                            }
-                            setEditInputSourceMap({ ...editInputSourceMap, skills });
-                          }}
-                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                        />
-                        <div>
-                          <span className="font-medium text-foreground">{s.name}</span>
-                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
-                        </div>
-                      </label>
-                    );
-                  })}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                    <input
+                      type="checkbox"
+                      checked={editInputSourceMap?.skills?.includes("@previous") || false}
+                      onChange={(e) => {
+                        const skills = [...(editInputSourceMap?.skills || [])].filter(s => s !== "@previous");
+                        if (e.target.checked) {
+                          skills.push("@previous");
+                        }
+                        setEditInputSourceMap({ ...editInputSourceMap, skills });
+                      }}
+                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-medium text-foreground">Previous skill Conversations</span>
+                      <span className="text-xs text-muted-foreground block font-mono">Include conversation history of the previous skill in the flow</span>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -1220,38 +1213,30 @@ export function AdminPage() {
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Other Skills Conversations</span>
+                  <span>Previous skill Conversations</span>
                 </h4>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Select other skills whose conversation histories should be passed as input context.
+                  Select if the previous skill's conversation history should be passed as input context.
                 </p>
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  {allSkills.map((s: any) => {
-                    const isChecked = newSkillInputSourceMap?.skills?.includes(s.id);
-                    return (
-                      <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const skills = [...(newSkillInputSourceMap?.skills || [])];
-                            if (e.target.checked) {
-                              skills.push(s.id);
-                            } else {
-                              const index = skills.indexOf(s.id);
-                              if (index > -1) skills.splice(index, 1);
-                            }
-                            setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
-                          }}
-                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                        />
-                        <div>
-                          <span className="font-medium text-foreground">{s.name}</span>
-                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
-                        </div>
-                      </label>
-                    );
-                  })}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/10 p-1.5 rounded">
+                    <input
+                      type="checkbox"
+                      checked={newSkillInputSourceMap?.skills?.includes("@previous") || false}
+                      onChange={(e) => {
+                        const skills = [...(newSkillInputSourceMap?.skills || [])].filter(s => s !== "@previous");
+                        if (e.target.checked) {
+                          skills.push("@previous");
+                        }
+                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
+                      }}
+                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-medium text-foreground">Previous skill Conversations</span>
+                      <span className="text-xs text-muted-foreground block font-mono">Include conversation history of the previous skill in the flow</span>
+                    </div>
+                  </label>
                 </div>
               </div>
 

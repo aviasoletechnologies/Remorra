@@ -15,6 +15,9 @@ vi.mock("../lib/prisma", () => {
       ambition: {
         findMany: vi.fn(),
       },
+      flowRun: {
+        findFirst: vi.fn(),
+      },
     },
   };
 });
@@ -107,5 +110,58 @@ describe("assembleContext Service Tests", () => {
       title: "Scale to 10k users",
       detail: "Using SEO",
     });
+  });
+
+  it("resolves @previous skill dynamically from flow runs", async () => {
+    const mockMessages = [
+      { role: "user", content: "Hello from previous skill", createdAt: new Date(1000) },
+      { role: "assistant", content: "Response from previous skill", createdAt: new Date(2000) },
+    ];
+
+    vi.mocked(prisma.conversationMessage.findMany).mockResolvedValue(mockMessages as any);
+    
+    const mockFlowRun = {
+      id: "run-1",
+      currentStepKey: "step-2",
+      flowVersion: {
+        steps: [
+          { id: "s1", key: "step-1", skillId: "first-skill", position: 1, transitionRules: { nextStepKey: "step-2" } },
+          { id: "s2", key: "step-2", skillId: "second-skill", position: 2, transitionRules: {} },
+        ]
+      }
+    };
+
+    vi.mocked(prisma.flowRun.findFirst).mockResolvedValue(mockFlowRun as any);
+
+    const sections = await assembleContext("p1", {
+      skills: ["@previous"],
+    }, "second-skill", "conv-1");
+
+    expect(prisma.flowRun.findFirst).toHaveBeenCalledWith({
+      where: { conversationId: "conv-1", projectId: "p1" },
+      include: {
+        flowVersion: {
+          include: {
+            steps: {
+              orderBy: { position: "asc" },
+            },
+          },
+        },
+      },
+    });
+
+    expect(prisma.conversationMessage.findMany).toHaveBeenCalledWith({
+      where: {
+        conversation: {
+          projectId: "p1",
+        },
+        skillId: "first-skill",
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tag).toBe("skill_conversation_history_first_skill");
+    expect(sections[0]!.content).toContain("Conversation history for skill first-skill:");
   });
 });
