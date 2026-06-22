@@ -110,7 +110,12 @@ export async function invokeSkill(input: {
       });
     }
 
-    customSections = await assembleContext(input.projectId, sourceMap);
+    customSections = await assembleContext(
+      input.projectId,
+      sourceMap,
+      skillId,
+      input.conversationId
+    );
 
     if (input.onLog) {
       const skillsRetrieved = customSections
