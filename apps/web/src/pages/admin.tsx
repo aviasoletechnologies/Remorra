@@ -82,7 +82,11 @@ function describeInputSourceMap(sourceMap: any): string {
   
   const parts: string[] = [];
   if (skillsCount > 0) {
-    parts.push(`${skillsCount} skill${skillsCount > 1 ? "s" : ""}`);
+    if (sourceMap.skills.includes("@previous")) {
+      parts.push("Previous skill conversations");
+    } else {
+      parts.push(`${skillsCount} skill${skillsCount > 1 ? "s" : ""}`);
+    }
   }
   if (tablesCount > 0) {
     parts.push(`${tablesCount} table${tablesCount > 1 ? "s" : ""}`);
