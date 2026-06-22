@@ -32,7 +32,7 @@ export async function triggerChatReportPdf(
     },
   });
 
-  await prisma.jobRecord.create({
+  const job = await prisma.jobRecord.create({
     data: {
       projectId,
       userId,
@@ -44,12 +44,20 @@ export async function triggerChatReportPdf(
     },
   });
 
-  await boss.send("document.render", {
+  const bossJobId = await boss.send("document.render", {
+    jobRecordId: job.id,
     documentId: document.id,
     documentType: "chat-report",
     projectId,
     userId,
   });
+
+  if (bossJobId) {
+    await prisma.jobRecord.update({
+      where: { id: job.id },
+      data: { bossJobId },
+    });
+  }
 
   return document;
 }

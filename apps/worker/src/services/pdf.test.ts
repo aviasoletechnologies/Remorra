@@ -24,6 +24,7 @@ vi.mock("../lib/prisma", () => {
       },
       jobRecord: {
         create: vi.fn().mockResolvedValue({ id: "mock-job-rec-id" }),
+        update: vi.fn().mockResolvedValue({ id: "mock-job-rec-id" }),
       },
     },
   };
@@ -47,6 +48,7 @@ describe("PDF Service - triggerChatReportPdf", () => {
     vi.mocked(prisma.reportGeneration.create).mockClear();
     vi.mocked(prisma.generatedDocument.create).mockClear();
     vi.mocked(prisma.jobRecord.create).mockClear();
+    vi.mocked(prisma.jobRecord.update).mockClear();
     vi.mocked(boss.send).mockClear();
 
     const document = await triggerChatReportPdf(
@@ -90,10 +92,16 @@ describe("PDF Service - triggerChatReportPdf", () => {
     });
 
     expect(boss.send).toHaveBeenCalledWith("document.render", {
+      jobRecordId: "mock-job-rec-id",
       documentId: "mock-doc-id",
       documentType: "chat-report",
       projectId: "project-123",
       userId: "user-456",
+    });
+
+    expect(prisma.jobRecord.update).toHaveBeenCalledWith({
+      where: { id: "mock-job-rec-id" },
+      data: { bossJobId: "mock-job-id" },
     });
 
     expect(document).toEqual({ id: "mock-doc-id" });
