@@ -307,8 +307,8 @@ export async function handleConversation(payload: Payload) {
       }
     }
 
-    // Save ConversationMessage (assistant turn)
-    if (conversationId) {
+    // Save ConversationMessage (assistant turn) — skip if displayText is empty (e.g. pure JSON skill)
+    if (conversationId && displayText.trim()) {
       savedAssistantMsg = await prisma.conversationMessage.create({
         data: {
           conversationId,
