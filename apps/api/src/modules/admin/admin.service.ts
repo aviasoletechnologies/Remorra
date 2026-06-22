@@ -399,7 +399,6 @@ export class AdminService {
 
 
 
-
   jobs(actor: Actor) {
     this.requireAdmin(actor);
     return this.prisma.client.jobRecord.findMany({

@@ -4,7 +4,7 @@ import { jsonValue, parseJson, parseAndValidateJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { projectContext } from "../assemblers/context";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
-import { applyGenericExtractMappings } from "../services/extract-mapper";
+import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper";
 
 function cleanJsonString(str: string): string {
   let cleaned = str.trim();
@@ -288,12 +288,16 @@ export async function handleConversation(payload: Payload) {
         try {
           queue.push({
             type: "log",
-            delta: `[Mapper] Parsing JSON structures to update Project, Persona, Ambition, etc...`,
+            delta: `[Mapper] Parsing JSON and applying entity operations...`,
             metadata: { stage: "mapper_start" },
           });
           void flush();
 
-          await applyGenericExtractMappings(projectId, jsonParsed);
+          if ((jsonParsed as any)?.operations !== undefined) {
+            await applyOperationsExtract(projectId, jsonParsed);
+          } else {
+            await applyGenericExtractMappings(projectId, jsonParsed);
+          }
 
           queue.push({
             type: "log",
