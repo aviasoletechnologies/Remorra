@@ -211,7 +211,7 @@ export function AiWorkspacePage() {
         throw error;
       }
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       if (data?.pendingId) {
         setPendingMessages((current) => current.filter((m) => m.id !== data.pendingId));
       }
