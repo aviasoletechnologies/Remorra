@@ -1303,6 +1303,32 @@ export function AdminPage() {
                 <p className="text-xs text-muted-foreground mb-4">
                   Select database tables and optionally check specific columns to include in the context.
                 </p>
+                <div className="flex items-center gap-2 mb-3">
+                  <label className={`flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider ${newSkillInputSourceMap?.skills?.includes("@previous") ? "cursor-not-allowed text-muted-foreground/50" : "cursor-pointer hover:text-foreground text-muted-foreground"}`}>
+                    <input
+                      type="checkbox"
+                      checked={
+                        Object.keys(dbSchema || {}).length > 0 &&
+                        Object.keys(dbSchema || {}).every(tableName => newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables)
+                      }
+                      disabled={newSkillInputSourceMap?.skills?.includes("@previous")}
+                      onChange={(e) => {
+                        const skills = [...(newSkillInputSourceMap?.skills || [])].filter(s => s !== "@previous");
+                        if (e.target.checked) {
+                          const tables: Record<string, string[]> = {};
+                          Object.keys(dbSchema || {}).forEach(tableName => {
+                            tables[tableName] = [];
+                          });
+                          setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills, tables });
+                        } else {
+                          setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills, tables: {} });
+                        }
+                      }}
+                      className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                    />
+                    <span>Select All Tables</span>
+                  </label>
+                </div>
                 <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
                   {Object.entries(dbSchema || {}).map(([tableName, columns]) => {
                     const isTableSelected = newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables;
