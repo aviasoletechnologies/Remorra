@@ -220,41 +220,47 @@ export async function handleConversation(payload: Payload) {
 
     // ── Detection 2: JSON response ───────────────────────────────────────────
     // Skills that return a JSON object signal completion by returning structured
-    // data. Parse it, mark done, and replace raw JSON with a friendly message.
+    // data. Parse it, mark done, and strip raw JSON from displayText.
     let jsonParsed: unknown = null;
+
+    function tryParseJson(str: string): unknown {
+      try { return JSON.parse(str); } catch { /* ignore */ }
+      try { return parseJson(str); } catch { /* ignore */ }
+      return null;
+    }
+
     if (!isGeneralChat && conversationId) {
       const cleaned = cleanJsonString(displayText);
+
+      // Case 1: entire response is JSON
       if (cleaned.startsWith("{") || cleaned.startsWith("[")) {
-        try {
-          jsonParsed = JSON.parse(cleaned);
-        } catch {
-          try {
-            jsonParsed = parseJson(cleaned);
-          } catch {
-            /* not JSON */
-          }
-        }
+        jsonParsed = tryParseJson(cleaned);
         if (jsonParsed !== null) {
           skillIsDone = true;
-          displayText =
-            "I've captured everything I need. Your product idea is saved — you can now generate your Founder Pack or continue refining.";
+          displayText = "";
         }
-      } else {
-        // Extract embedded JSON block (hybrid responses)
-        const match = displayText.match(/```json\s*([\s\S]*?)\s*```/i);
-        if (match && match[1]) {
-          try {
-            jsonParsed = JSON.parse(match[1].trim());
-          } catch {
-            try {
-              jsonParsed = parseJson(match[1].trim());
-            } catch {
-              /* not JSON */
-            }
-          }
+      }
+
+      if (jsonParsed === null) {
+        // Case 2: fenced ```json block embedded in prose
+        const fencedMatch = displayText.match(/```json\s*([\s\S]*?)\s*```/i);
+        if (fencedMatch?.[1]) {
+          jsonParsed = tryParseJson(fencedMatch[1].trim());
           if (jsonParsed !== null) {
             skillIsDone = true;
             displayText = displayText.replace(/```json\s*[\s\S]*?```/gi, "").trim();
+          }
+        }
+      }
+
+      if (jsonParsed === null) {
+        // Case 3: raw JSON object appended at end of prose
+        const trailingMatch = displayText.match(/^([\s\S]*?)(\{[\s\S]*\})\s*$/);
+        if (trailingMatch?.[2]) {
+          jsonParsed = tryParseJson(trailingMatch[2].trim());
+          if (jsonParsed !== null) {
+            skillIsDone = true;
+            displayText = trailingMatch[1].trim();
           }
         }
       }
