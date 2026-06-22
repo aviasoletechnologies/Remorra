@@ -35,145 +35,194 @@ export async function handleDocument(payload: Payload) {
         },
         include: { reportGeneration: true },
       });
-  const project = await prisma.project.findUniqueOrThrow({
-    where: { id: document.projectId },
-  });
 
-  // 1. Determine template key
-  let templateId = "";
-  if (
-    document.type === "founder-pack" ||
-    document.type === "product-pack" ||
-    document.type === "investor-pack" ||
-    document.type === "build-pack"
-  ) {
-    templateId = document.type;
-  } else if (document.type.startsWith("report:")) {
-    const reportDefId = document.type.substring(7);
-    const reportDefVer = await prisma.reportDefinitionVersion.findFirst({
-      where: { reportDefinitionId: reportDefId, active: true },
-    });
-    templateId = reportDefVer?.templateKey ?? "report-default";
-  } else {
-    templateId = "report-default";
-  }
+  let sequence = 1;
+  const jobId = payload.jobRecordId;
+  const projectId = document.projectId;
+  const userId = document.reportGeneration?.requestedById ?? (payload.userId ? String(payload.userId) : null);
 
-  // 2. Fetch active template version (bypassed for chat-report)
-  let activeTemplateVer: any = null;
-  if (document.type !== "chat-report") {
-    activeTemplateVer = await prisma.documentTemplateVersion.findFirst({
-      where: { documentTemplateId: templateId, active: true },
-    });
-    if (!activeTemplateVer) {
-      throw new Error(`No active template version found for template key: ${templateId}`);
-    }
-  }
-
-  // 3. Assemble data
-  const reportContent = document.reportGeneration?.content?.structuredContent;
-  let content: any = {};
-  if (document.type === "founder-pack") {
-    content = await assembleFounderPackData(project.id);
-  } else if (document.type === "product-pack") {
-    content = await assembleProductPackData(project.id);
-  } else if (document.type === "investor-pack") {
-    content = await assembleInvestorPackData(project.id);
-  } else if (document.type === "build-pack") {
-    // Write snapshot for history
-    const rawContext = await projectContext(project.id);
-    const activeCycle = await prisma.cycle.findFirst({
-      where: { projectId: project.id, status: "active" },
-    });
-    await prisma.buildPackSnapshot.create({
-      data: {
-        projectId: project.id,
-        cycleId: activeCycle?.id,
-        content: jsonValue(rawContext),
-      },
-    });
-    content = await assembleBuildPackData(project.id);
-  } else {
-    content = reportContent ?? (await projectContext(project.id));
-  }
-
-  // 4. Validate payload using AJV (bypassed for chat-report)
-  if (document.type !== "chat-report" && activeTemplateVer?.schema) {
-    const schema = activeTemplateVer.schema as any;
-    const validate = ajv.compile(schema);
-    const isValid = validate(content);
-    if (!isValid) {
-      throw new Error(
-        `Data validation failed for template ${templateId}: ${ajv.errorsText(validate.errors)}`,
-      );
-    }
-  }
-
-  // 5. Render HTML
-  let html = "";
-  if (document.type === "chat-report") {
-    const text = (content as any)?.text || "";
-    html = renderChatReportHtml("Generated Report", text);
-  } else {
-    const renderedBody = renderTemplate(activeTemplateVer.html, content);
-    html = `<!doctype html><html><head><meta charset="utf-8"><style>${activeTemplateVer.css}</style></head><body>${renderedBody}</body></html>`;
-  }
-
-  // 6. Launch Puppeteer (sandbox blocked network)
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  try {
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
-    page.on("request", (request) => {
-      if (request.url().startsWith("data:") || request.url() === "about:blank") {
-        void request.continue();
-      } else {
-        void request.abort();
-      }
-    });
-    await page.setContent(html, { waitUntil: "domcontentloaded" });
-    const bytes = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "18mm", right: "18mm", bottom: "18mm", left: "18mm" },
-    });
-    const path = `${project.id}/${document.type}/${document.id}.pdf`;
-    const { error } = await supabase.storage
-      .from(bucket)
-      .upload(path, bytes, { contentType: "application/pdf", upsert: true });
-    if (error) throw error;
-    const storageObject = await prisma.storageObject.create({
-      data: {
-        projectId: project.id,
-        bucket,
-        path,
-        mimeType: "application/pdf",
-        sizeBytes: bytes.byteLength,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    });
-    await prisma.generatedDocument.update({
-      where: { id: document.id },
-      data: {
-        status: "completed",
-        storageObjectId: storageObject.id,
-        expiresAt: storageObject.expiresAt,
-        templateVersionId: activeTemplateVer.id,
-        templateVersion: activeTemplateVer.version,
-      },
-    });
-    if (document.reportGenerationId) {
-      await prisma.reportGeneration.update({
-        where: { id: document.reportGenerationId },
-        data: { status: "completed", completedAt: new Date() },
+  const logStream = async (message: string, stage?: string, type = "log", extraMetadata?: any) => {
+    if (!jobId) return;
+    try {
+      await prisma.jobStreamEvent.create({
+        data: {
+          jobId,
+          projectId: projectId || null,
+          userId: userId || null,
+          sequence: sequence++,
+          type,
+          delta: message,
+          metadata: jsonValue({
+            stage,
+            ...extraMetadata,
+          }),
+        },
       });
+    } catch (err) {
+      console.error("[worker:document] failed to write JobStreamEvent", err);
     }
-    return { documentId: document.id, path };
-  } finally {
-    await browser.close();
+  };
+
+  try {
+    await logStream("Initializing PDF rendering engine...", "start");
+    await logStream(document.type, "routing", "info", { skillId: document.type });
+    await logStream("PDF Compiler", "invoking", "completed", { model: "Puppeteer PDF Engine" });
+
+    const project = await prisma.project.findUniqueOrThrow({
+      where: { id: document.projectId },
+    });
+
+    // 1. Determine template key
+    await logStream("Locating active document template...", "find_template");
+    let templateId = "";
+    if (
+      document.type === "founder-pack" ||
+      document.type === "product-pack" ||
+      document.type === "investor-pack" ||
+      document.type === "build-pack"
+    ) {
+      templateId = document.type;
+    } else if (document.type.startsWith("report:")) {
+      const reportDefId = document.type.substring(7);
+      const reportDefVer = await prisma.reportDefinitionVersion.findFirst({
+        where: { reportDefinitionId: reportDefId, active: true },
+      });
+      templateId = reportDefVer?.templateKey ?? "report-default";
+    } else {
+      templateId = "report-default";
+    }
+
+    // 2. Fetch active template version (bypassed for chat-report)
+    let activeTemplateVer: any = null;
+    if (document.type !== "chat-report") {
+      activeTemplateVer = await prisma.documentTemplateVersion.findFirst({
+        where: { documentTemplateId: templateId, active: true },
+      });
+      if (!activeTemplateVer) {
+        throw new Error(`No active template version found for template key: ${templateId}`);
+      }
+    }
+
+    // 3. Assemble data
+    await logStream("Assembling document data context...", "assemble_data");
+    const reportContent = document.reportGeneration?.content?.structuredContent;
+    let content: any = {};
+    if (document.type === "founder-pack") {
+      content = await assembleFounderPackData(project.id);
+    } else if (document.type === "product-pack") {
+      content = await assembleProductPackData(project.id);
+    } else if (document.type === "investor-pack") {
+      content = await assembleInvestorPackData(project.id);
+    } else if (document.type === "build-pack") {
+      // Write snapshot for history
+      const rawContext = await projectContext(project.id);
+      const activeCycle = await prisma.cycle.findFirst({
+        where: { projectId: project.id, status: "active" },
+      });
+      await prisma.buildPackSnapshot.create({
+        data: {
+          projectId: project.id,
+          cycleId: activeCycle?.id,
+          content: jsonValue(rawContext),
+        },
+      });
+      content = await assembleBuildPackData(project.id);
+    } else {
+      content = reportContent ?? (await projectContext(project.id));
+    }
+
+    // 4. Validate payload using AJV (bypassed for chat-report)
+    if (document.type !== "chat-report" && activeTemplateVer?.schema) {
+      await logStream("Validating payload data schema...", "validate_schema");
+      const schema = activeTemplateVer.schema as any;
+      const validate = ajv.compile(schema);
+      const isValid = validate(content);
+      if (!isValid) {
+        throw new Error(
+          `Data validation failed for template ${templateId}: ${ajv.errorsText(validate.errors)}`,
+        );
+      }
+    }
+
+    // 5. Render HTML
+    await logStream("Compiling HTML layout structure...", "compile_html");
+    let html = "";
+    if (document.type === "chat-report") {
+      const text = (content as any)?.text || "";
+      html = renderChatReportHtml("Generated Report", text);
+    } else {
+      const renderedBody = renderTemplate(activeTemplateVer.html, content);
+      html = `<!doctype html><html><head><meta charset="utf-8"><style>${activeTemplateVer.css}</style></head><body>${renderedBody}</body></html>`;
+    }
+
+    // 6. Launch Puppeteer (sandbox blocked network)
+    await logStream("Launching Puppeteer browser instance...", "launch_puppeteer");
+    const browser = await puppeteer.launch({
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    try {
+      await logStream("Setting viewport and rendering layout PDF...", "render_pdf");
+      const page = await browser.newPage();
+      await page.setRequestInterception(true);
+      page.on("request", (request) => {
+        if (request.url().startsWith("data:") || request.url() === "about:blank") {
+          void request.continue();
+        } else {
+          void request.abort();
+        }
+      });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const bytes = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        margin: { top: "18mm", right: "18mm", bottom: "18mm", left: "18mm" },
+      });
+      const path = `${project.id}/${document.type}/${document.id}.pdf`;
+      
+      await logStream("Uploading generated PDF artifact to storage...", "upload_storage");
+      const { error } = await supabase.storage
+        .from(bucket)
+        .upload(path, bytes, { contentType: "application/pdf", upsert: true });
+      if (error) throw error;
+      
+      await logStream("Finalizing storage and GeneratedDocument references...", "finalize_refs");
+      const storageObject = await prisma.storageObject.create({
+        data: {
+          projectId: project.id,
+          bucket,
+          path,
+          mimeType: "application/pdf",
+          sizeBytes: bytes.byteLength,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+      await prisma.generatedDocument.update({
+        where: { id: document.id },
+        data: {
+          status: "completed",
+          storageObjectId: storageObject.id,
+          expiresAt: storageObject.expiresAt,
+          templateVersionId: activeTemplateVer?.id ?? null,
+          templateVersion: activeTemplateVer?.version ?? null,
+        },
+      });
+      if (document.reportGenerationId) {
+        await prisma.reportGeneration.update({
+          where: { id: document.reportGenerationId },
+          data: { status: "completed", completedAt: new Date() },
+        });
+      }
+      await logStream("PDF generation completed successfully!", "completed", "completed");
+      return { documentId: document.id, path };
+    } finally {
+      await browser.close();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    await logStream(`PDF generation failed: ${message}`, "failed", "failed");
+    throw err;
   }
 }
 
