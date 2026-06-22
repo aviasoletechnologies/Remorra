@@ -1118,6 +1118,11 @@ export function AdminPage() {
                     </div>
                   </label>
                 </div>
+                {Object.keys(editInputSourceMap?.tables || {}).length > 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
+                    ⚠️ Not available because Project Database Tables are configured. If needed, please uncheck them first.
+                  </p>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}
@@ -1192,6 +1197,11 @@ export function AdminPage() {
                     );
                   })}
                 </div>
+                {editInputSourceMap?.skills?.includes("@previous") && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
+                    ⚠️ Not available because Previous skill Conversations are included. If needed, please uncheck it first.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1248,6 +1258,11 @@ export function AdminPage() {
                     </div>
                   </label>
                 </div>
+                {Object.keys(newSkillInputSourceMap?.tables || {}).length > 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
+                    ⚠️ Not available because Project Database Tables are configured. If needed, please uncheck them first.
+                  </p>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}
@@ -1322,6 +1337,11 @@ export function AdminPage() {
                     );
                   })}
                 </div>
+                {newSkillInputSourceMap?.skills?.includes("@previous") && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
+                    ⚠️ Not available because Previous skill Conversations are included. If needed, please uncheck it first.
+                  </p>
+                )}
               </div>
             </div>
 
