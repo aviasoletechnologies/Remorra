@@ -53,61 +53,64 @@ export async function assembleContext(
 
   // 1. Fetch other skills' conversations if configured
   if (inputSourceMap.skills && inputSourceMap.skills.length > 0) {
-    const resolvedSkills = [...inputSourceMap.skills];
-    const prevIndex = resolvedSkills.indexOf("@previous");
-    if (prevIndex > -1) {
-      resolvedSkills.splice(prevIndex, 1);
-      
-      let previousSkillId: string | null = null;
-      if (conversationId && currentSkillId) {
-        const flowRun = await prisma.flowRun.findFirst({
-          where: { conversationId, projectId },
-          include: {
-            flowVersion: {
-              include: {
-                steps: {
-                  orderBy: { position: "asc" },
-                },
+    const resolvedSkills: string[] = [];
+
+    let previousSkillId: string | null = null;
+    if (conversationId && currentSkillId) {
+      const flowRun = await prisma.flowRun.findFirst({
+        where: { conversationId, projectId },
+        include: {
+          flowVersion: {
+            include: {
+              steps: {
+                orderBy: { position: "asc" },
               },
             },
           },
-        });
+        },
+      });
 
-        if (flowRun) {
-          const steps = flowRun.flowVersion.steps;
-          const activeStep = steps.find(
-            (s: any) => s.skillId === currentSkillId || s.key === flowRun.currentStepKey
-          );
-          if (activeStep) {
-            if (activeStep.parentStepKey) {
-              const parentStep = steps.find((s: any) => s.key === activeStep.parentStepKey);
-              if (parentStep?.skillId) {
-                previousSkillId = parentStep.skillId;
-              }
+      if (flowRun) {
+        const steps = flowRun.flowVersion.steps;
+        const activeStep = steps.find(
+          (s: any) => s.skillId === currentSkillId || s.key === flowRun.currentStepKey
+        );
+        if (activeStep) {
+          if (activeStep.parentStepKey) {
+            const parentStep = steps.find((s: any) => s.key === activeStep.parentStepKey);
+            if (parentStep?.skillId) {
+              previousSkillId = parentStep.skillId;
             }
-            if (!previousSkillId) {
-              const transitionStep = steps.find((s: any) => {
-                const rules = s.transitionRules as any;
-                return rules?.nextStepKey === activeStep.key;
-              });
-              if (transitionStep?.skillId) {
-                previousSkillId = transitionStep.skillId;
-              }
+          }
+          if (!previousSkillId) {
+            const transitionStep = steps.find((s: any) => {
+              const rules = s.transitionRules as any;
+              return rules?.nextStepKey === activeStep.key;
+            });
+            if (transitionStep?.skillId) {
+              previousSkillId = transitionStep.skillId;
             }
-            if (!previousSkillId) {
-              const precedingStep = [...steps]
-                .reverse()
-                .find((s: any) => s.position < activeStep.position && s.skillId);
-              if (precedingStep?.skillId) {
-                previousSkillId = precedingStep.skillId;
-              }
+          }
+          if (!previousSkillId) {
+            const precedingStep = [...steps]
+              .reverse()
+              .find((s: any) => s.position < activeStep.position && s.skillId);
+            if (precedingStep?.skillId) {
+              previousSkillId = precedingStep.skillId;
             }
           }
         }
       }
+    }
 
-      if (previousSkillId) {
-        resolvedSkills.push(previousSkillId);
+    if (previousSkillId) {
+      resolvedSkills.push(previousSkillId);
+    } else {
+      // Fallback: If not run inside a flow, or if it is legacy data, load the non-@previous configured skills
+      for (const skillId of inputSourceMap.skills) {
+        if (skillId !== "@previous") {
+          resolvedSkills.push(skillId);
+        }
       }
     }
 

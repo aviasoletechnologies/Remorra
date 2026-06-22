@@ -42,8 +42,10 @@ function parseInputSourceMap(val: any): any {
     }
   }
   if (typeof val === "object") {
+    const rawSkills = Array.isArray(val.skills) ? val.skills : [];
+    const skills = rawSkills.length > 0 ? ["@previous"] : [];
     return {
-      skills: Array.isArray(val.skills) ? val.skills : [],
+      skills,
       tables: val.tables && typeof val.tables === "object" ? val.tables : {}
     };
   }
