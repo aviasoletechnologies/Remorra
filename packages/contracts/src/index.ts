@@ -191,7 +191,6 @@ export const skillVersionInputSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   systemPrompt: z.string().optional(),
-  contextRequirements: z.array(z.string()).optional(),
   inputSourceMap: z.object({
     skills: z.array(z.string()).optional(),
     tables: z.record(z.string(), z.array(z.string())).optional(),

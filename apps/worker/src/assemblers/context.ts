@@ -53,22 +53,18 @@ export async function assembleContext(
   // 1. Fetch other skills' conversations if configured
   if (inputSourceMap.skills && inputSourceMap.skills.length > 0) {
     for (const skillId of inputSourceMap.skills) {
-      const conversations = await prisma.conversation.findMany({
+      const messages = await prisma.conversationMessage.findMany({
         where: {
-          projectId,
-          activeSkillId: skillId,
-        },
-        include: {
-          messages: {
-            orderBy: { createdAt: "asc" },
+          conversation: {
+            projectId,
           },
+          skillId,
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: "asc" },
       });
 
-      if (conversations.length > 0) {
-        const messagesText = conversations
-          .flatMap((c: any) => c.messages)
+      if (messages.length > 0) {
+        const messagesText = messages
           .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
           .join("\n");
 
