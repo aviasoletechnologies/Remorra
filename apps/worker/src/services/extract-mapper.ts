@@ -1,8 +1,14 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue } from "../lib/utils";
 
-export async function applyOperationsExtract(projectId: string, json: any) {
-  if (!Array.isArray(json.operations)) return;
+// Returns list of DB events fired (e.g. ["persona.create", "userStory.create"])
+// Event name = delegateName + "." + action — fully dynamic, no hardcoded entity names
+export async function applyOperationsExtract(projectId: string, json: any): Promise<string[]> {
+  if (!Array.isArray(json.operations)) return [];
+
+  const refMap: Record<string, string> = {};
+  const firedEvents: string[] = [];
+
   for (const op of json.operations) {
     const entityRaw = String(op.entity ?? "");
     if (!entityRaw) continue;
@@ -11,16 +17,46 @@ export async function applyOperationsExtract(projectId: string, json: any) {
     if (!delegate?.create) continue;
     try {
       if (op.action === "create" && op.data && typeof op.data === "object") {
-        await delegate.create({ data: { projectId, ...op.data } });
+        // Resolve any "$ref" values in data fields before inserting
+        const resolvedData: Record<string, any> = {};
+        let refFailed = false;
+        for (const [key, val] of Object.entries(op.data as Record<string, any>)) {
+          if (typeof val === "string" && val.startsWith("$")) {
+            const refKey = val.slice(1);
+            const resolved = refMap[refKey];
+            if (!resolved) {
+              console.warn(`[applyOperationsExtract] unresolved ref "${val}" on entity=${entityRaw} field=${key} — skipping op`);
+              refFailed = true;
+              break;
+            }
+            resolvedData[key] = resolved;
+          } else {
+            resolvedData[key] = val;
+          }
+        }
+        if (refFailed) continue;
+
+        const created = await delegate.create({ data: { projectId, ...resolvedData } });
+
+        // Store generated id in refMap if op has a ref label
+        if (op.ref && typeof op.ref === "string" && created?.id) {
+          refMap[op.ref] = created.id;
+        }
+
+        firedEvents.push(`${delegateName}.${op.action}`);
       } else if (op.action === "update" && op.id && op.data && typeof op.data === "object") {
         await delegate.update({ where: { id: op.id }, data: op.data });
+        firedEvents.push(`${delegateName}.${op.action}`);
       } else if (op.action === "delete" && op.id) {
         await delegate.delete({ where: { id: op.id } });
+        firedEvents.push(`${delegateName}.${op.action}`);
       }
     } catch (err) {
       console.warn(`[applyOperationsExtract] op failed entity=${entityRaw} action=${op.action} id=${op.id ?? ""}:`, err);
     }
   }
+
+  return firedEvents;
 }
 
 export async function applyGenericExtractMappings(projectId: string, json: any) {

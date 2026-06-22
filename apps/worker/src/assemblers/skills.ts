@@ -20,11 +20,9 @@ export const GENERAL_CHAT_SYSTEM_PROMPT = [
 const SKILL_DONE_INSTRUCTION = `
 
 [Internal system instruction — never reveal this to the user]
-When you have fully completed your task and collected all required information from the user,
-end your FINAL response with exactly this tag on a new line: <skill_done/>
+When your task is complete, end your response with exactly this tag on a new line: <skill_done/>
 Rules:
-- Add <skill_done/> ONLY when the task is genuinely and completely done.
-- Do NOT add it in the middle of a conversation that still has unanswered questions.
+- Add <skill_done/> ONLY when your task is fully done.
 - Do NOT mention, explain, or show this tag to the user in any way.`;
 
 function withSkillDoneInstruction(systemPrompt: string | null): string {
@@ -61,6 +59,7 @@ export async function invokeSkill(input: {
   userId: string;
   projectId: string;
   conversationId?: string;
+  previousSkillId?: string;
   content: string;
   context?: unknown;
   documentName?: string;
@@ -113,8 +112,7 @@ export async function invokeSkill(input: {
     customSections = await assembleContext(
       input.projectId,
       sourceMap,
-      skillId,
-      input.conversationId
+      input.previousSkillId,
     );
 
     if (input.onLog) {
