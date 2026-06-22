@@ -22,6 +22,7 @@ export async function handleConversation(payload: Payload) {
   const userId = String(payload.userId ?? "");
   const projectId = String(payload.projectId ?? "");
   const conversationId = String(payload.conversationId ?? "");
+  const previousSkillId = payload.previousSkillId ? String(payload.previousSkillId) : undefined;
   const isGeneralChat = String(payload.fallbackMode ?? "") === "general_chat";
   console.info(
     `[worker:conversation] start project=${projectId} conversation=${conversationId} user=${userId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${String(payload.skillId ?? "none")} skillVersionId=${String(payload.skillVersionId ?? "none")}`,
@@ -143,6 +144,7 @@ export async function handleConversation(payload: Payload) {
           userId,
           projectId,
           conversationId: conversationId || undefined,
+          previousSkillId,
           content: String(payload.content),
           context: flowState?.context ?? (await projectContext(projectId)),
           documentName: typeof payload.documentName === "string" && payload.documentName ? payload.documentName : undefined,
@@ -260,7 +262,7 @@ export async function handleConversation(payload: Payload) {
           jsonParsed = tryParseJson(trailingMatch[2].trim());
           if (jsonParsed !== null) {
             skillIsDone = true;
-            displayText = trailingMatch[1].trim();
+            displayText = (trailingMatch[1] ?? "").trim();
           }
         }
       }
@@ -289,36 +291,6 @@ export async function handleConversation(payload: Payload) {
           metadata: { stage: "db_save", payload: jsonParsed },
         });
         void flush();
-
-        // Run the generic table mapper
-        try {
-          queue.push({
-            type: "log",
-            delta: `[Mapper] Parsing JSON and applying entity operations...`,
-            metadata: { stage: "mapper_start" },
-          });
-          void flush();
-
-          if ((jsonParsed as any)?.operations !== undefined) {
-            await applyOperationsExtract(projectId, jsonParsed);
-          } else {
-            await applyGenericExtractMappings(projectId, jsonParsed);
-          }
-
-          queue.push({
-            type: "log",
-            delta: `[Mapper] Successfully synced and updated database entities.`,
-            metadata: { stage: "mapper_success" },
-          });
-          void flush();
-        } catch (mapErr) {
-          console.warn(`[worker:conversation] generic mapper error:`, mapErr);
-          queue.push({
-            type: "log",
-            delta: `[Mapper] Warning: Mapping JSON to tables failed: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
-          });
-          void flush();
-        }
 
         if (skillIsDone && !isGeneralChat) {
           firedEvents.push("structured_extract.create"); // ← event from this save
@@ -424,7 +396,8 @@ export async function handleConversation(payload: Payload) {
                   conversationId,
                   skillId: nextMapping.skillId,
                   skillVersionId: nextVersion.id,
-                  content: "", // skill auto-starts with empty user message
+                  previousSkillId: result.skill.id,
+                  content: displayText,
                 }),
               },
             });
@@ -434,7 +407,8 @@ export async function handleConversation(payload: Payload) {
               userId,
               skillId: nextMapping.skillId,
               skillVersionId: nextVersion.id,
-              content: "",
+              previousSkillId: result.skill.id,
+              content: displayText,
               jobRecordId: nextJobRecord.id,
             });
             await prisma.jobRecord.update({
@@ -472,53 +446,164 @@ export async function handleConversation(payload: Payload) {
           }
 
         } else {
-          // ── NO MATCH → unpin + close session gracefully ───────────────────
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: {
-              activeSkillId:        null,
-              activeSkillVersionId: null,
-              activeSkillPinnedAt:  null,
-            },
-          });
+          // ── NO SKILL-TO-SKILL MATCH → run DB mapper, fire DB events, check again ──
+          const dbFiredEvents: string[] = [];
 
-          const closingText =
-            "You've completed all the steps — great work! 🎉 " +
-            "Everything has been saved. Feel free to ask me anything else.";
+          if (jsonParsed !== null) {
+            try {
+              queue.push({
+                type: "log",
+                delta: `[Mapper] No skill-to-skill mapping. Running DB mapper...`,
+                metadata: { stage: "mapper_start" },
+              });
+              void flush();
 
-          savedAssistantMsg = await prisma.conversationMessage.create({
-            data: {
-              conversationId,
-              role: "assistant",
-              content: closingText,
-              skillId:        null,
-              skillVersionId: null,
-            },
-          });
+              if ((jsonParsed as any)?.operations !== undefined) {
+                const ops = await applyOperationsExtract(projectId, jsonParsed);
+                dbFiredEvents.push(...ops);
+              } else {
+                await applyGenericExtractMappings(projectId, jsonParsed);
+                // generic mapper does not return granular events — use structured_extract.create
+                dbFiredEvents.push("structured_extract.create");
+              }
 
-          queue.push({
-            type: "session_complete",
-            snapshot: closingText,
-            metadata: {
-              completedSkillId: result.skill.id,
-              firedEvents,
-            },
-          });
+              queue.push({
+                type: "log",
+                delta: `[Mapper] DB operations complete. DB events: [${dbFiredEvents.join(", ")}]`,
+                metadata: { stage: "mapper_success", dbFiredEvents },
+              });
+              void flush();
+            } catch (mapErr) {
+              console.warn(`[worker:conversation] mapper error:`, mapErr);
+              queue.push({
+                type: "log",
+                delta: `[Mapper] Warning: DB mapper failed: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
+              });
+              void flush();
+            }
+          }
 
-          queue.push({
-            type: "log",
-            delta: `[Session] No matching event mappings. Closed session gracefully.`,
-            metadata: {
-              stage: "session_close",
-              completedSkillId: result.skill.id,
-              firedEvents,
-            },
-          });
-          void flush();
+          // Check DB-level events against SkillEventMapping
+          const dbMapping = dbFiredEvents.length > 0
+            ? (await prisma.skillEventMapping.findFirst({
+                where: { eventType: { in: dbFiredEvents }, active: true },
+                orderBy: { id: "asc" },
+              }))
+            : null;
 
-          console.info(
-            `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] skillId=${result.skill.id}`,
-          );
+          if (dbMapping) {
+            // ── DB EVENT MATCH → activate next skill ─────────────────────────
+            const dbNextVersion = await prisma.skillVersion.findFirst({
+              where: { skillId: dbMapping.skillId, active: true },
+              orderBy: { version: "desc" },
+            });
+
+            if (dbNextVersion) {
+              const pinnedAt = new Date();
+              await prisma.conversation.update({
+                where: { id: conversationId },
+                data: {
+                  activeSkillId:        dbMapping.skillId,
+                  activeSkillVersionId: dbNextVersion.id,
+                  activeSkillPinnedAt:  pinnedAt,
+                },
+              });
+
+              const dbNextJobRecord = await prisma.jobRecord.create({
+                data: {
+                  projectId,
+                  userId,
+                  queue: "ai.conversation",
+                  payload: jsonValue({
+                    conversationId,
+                    skillId: dbMapping.skillId,
+                    skillVersionId: dbNextVersion.id,
+                    content: "",
+                  }),
+                },
+              });
+              const dbNextBossJobId = await boss.send("ai.conversation", {
+                conversationId,
+                projectId,
+                userId,
+                skillId: dbMapping.skillId,
+                skillVersionId: dbNextVersion.id,
+                content: "",
+                jobRecordId: dbNextJobRecord.id,
+              });
+              await prisma.jobRecord.update({
+                where: { id: dbNextJobRecord.id },
+                data: { bossJobId: dbNextBossJobId ?? undefined },
+              });
+
+              queue.push({
+                type: "skill_transition",
+                snapshot: "",
+                metadata: {
+                  completedSkillId: result.skill.id,
+                  nextSkillId:      dbMapping.skillId,
+                  triggeredByEvent: dbMapping.eventType,
+                  nextJobId:        dbNextJobRecord.id,
+                },
+              });
+              queue.push({
+                type: "log",
+                delta: `[Transition] DB event "${dbMapping.eventType}" matched! Auto-starting skill: "${dbMapping.skillId}".`,
+                metadata: {
+                  stage: "transition",
+                  completedSkillId: result.skill.id,
+                  nextSkillId:      dbMapping.skillId,
+                  triggeredByEvent: dbMapping.eventType,
+                  nextJobId:        dbNextJobRecord.id,
+                },
+              });
+              void flush();
+
+              console.info(
+                `[worker:conversation] next skill auto-enqueued via DB event triggeredBy=${dbMapping.eventType} nextSkill=${dbMapping.skillId} conversation=${conversationId}`,
+              );
+            }
+          } else {
+            // ── NOTHING MATCHED → unpin + close session gracefully ───────────
+            await prisma.conversation.update({
+              where: { id: conversationId },
+              data: {
+                activeSkillId:        null,
+                activeSkillVersionId: null,
+                activeSkillPinnedAt:  null,
+              },
+            });
+
+            const closingText =
+              "You've completed all the steps — great work! 🎉 " +
+              "Everything has been saved. Feel free to ask me anything else.";
+
+            savedAssistantMsg = await prisma.conversationMessage.create({
+              data: {
+                conversationId,
+                role: "assistant",
+                content: closingText,
+                skillId:        null,
+                skillVersionId: null,
+              },
+            });
+
+            queue.push({
+              type: "session_complete",
+              snapshot: closingText,
+              metadata: { completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
+            });
+            queue.push({
+              type: "log",
+              delta: `[Session] No matching event mappings. Closed session gracefully.`,
+              metadata: { stage: "session_close", completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
+            });
+            void flush();
+
+            console.info(
+              `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] dbFiredEvents=[${dbFiredEvents.join(", ")}] skillId=${result.skill.id}`,
+            );
+          }
         }
 
       } catch (chainErr) {
