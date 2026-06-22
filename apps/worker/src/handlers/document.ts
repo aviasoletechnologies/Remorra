@@ -36,10 +36,19 @@ export async function handleDocument(payload: Payload) {
         include: { reportGeneration: true },
       });
 
-  let sequence = 1;
   const jobId = payload.jobRecordId;
   const projectId = document.projectId;
   const userId = document.reportGeneration?.requestedById ?? (payload.userId ? String(payload.userId) : null);
+
+  // Fetch the current max sequence for this jobId to handle retries safely
+  const maxEvent = jobId
+    ? await prisma.jobStreamEvent.findFirst({
+        where: { jobId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+    : null;
+  let sequence = (maxEvent?.sequence ?? 0) + 1;
 
   const logStream = async (message: string, stage?: string, type = "log", extraMetadata?: any) => {
     if (!jobId) return;
