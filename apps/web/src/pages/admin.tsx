@@ -11,7 +11,7 @@ import {
   Trash2,
   CheckCircle2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Badge, Button, Card } from "../components/ui";
 import { api } from "../lib/api";
@@ -116,7 +116,6 @@ export function AdminPage() {
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
   const [isCreateContextConfigOpen, setIsCreateContextConfigOpen] = useState(false);
 
-  // Skill Editing States
   const [editingSkill, setEditingSkill] = useState<any | null>(null);
   const [editingSkillVersionId, setEditingSkillVersionId] = useState<string | null>(null);
   const [editPromptText, setEditPromptText] = useState("");
@@ -768,7 +767,7 @@ export function AdminPage() {
                 <div className="flex items-center gap-2">
                   {isAdmin && currentVer && (
                     <>
-                       <Button
+                      <Button
                         disabled={updateSkillVersion.isPending}
                         onClick={() => {
                           updateSkillVersion.mutate({

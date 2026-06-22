@@ -15,7 +15,6 @@ export async function projectContext(projectId: string) {
   });
 }
 
-
 export async function injectKnowledgeBases(userContent: string, skillId: string) {
   const kbSkills = ["evolve-facilitator", "document-drafter"];
   if (!kbSkills.includes(skillId)) return [];

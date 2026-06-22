@@ -1,6 +1,28 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue } from "../lib/utils";
 
+export async function applyOperationsExtract(projectId: string, json: any) {
+  if (!Array.isArray(json.operations)) return;
+  for (const op of json.operations) {
+    const entityRaw = String(op.entity ?? "");
+    if (!entityRaw) continue;
+    const delegateName = entityRaw.charAt(0).toLowerCase() + entityRaw.slice(1);
+    const delegate = (prisma as any)[delegateName];
+    if (!delegate?.create) continue;
+    try {
+      if (op.action === "create" && op.data && typeof op.data === "object") {
+        await delegate.create({ data: { projectId, ...op.data } });
+      } else if (op.action === "update" && op.id && op.data && typeof op.data === "object") {
+        await delegate.update({ where: { id: op.id }, data: op.data });
+      } else if (op.action === "delete" && op.id) {
+        await delegate.delete({ where: { id: op.id } });
+      }
+    } catch (err) {
+      console.warn(`[applyOperationsExtract] op failed entity=${entityRaw} action=${op.action} id=${op.id ?? ""}:`, err);
+    }
+  }
+}
+
 export async function applyGenericExtractMappings(projectId: string, json: any) {
   if (!json || typeof json !== "object") return;
 

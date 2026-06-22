@@ -6,6 +6,21 @@ import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const mdComponents = {
+  h1: (p: any) => <h1 className="text-base font-semibold mt-3 mb-1" {...p} />,
+  h2: (p: any) => <h2 className="text-sm font-semibold mt-3 mb-1" {...p} />,
+  h3: (p: any) => <h3 className="text-sm font-semibold mt-2 mb-0.5" {...p} />,
+  p: (p: any) => <p className="mb-2 last:mb-0" {...p} />,
+  ul: (p: any) => <ul className="list-disc pl-4 mb-2 space-y-0.5" {...p} />,
+  ol: (p: any) => <ol className="list-decimal pl-4 mb-2 space-y-0.5" {...p} />,
+  li: (p: any) => <li className="leading-relaxed" {...p} />,
+  strong: (p: any) => <strong className="font-semibold" {...p} />,
+  hr: () => <hr className="my-3 border-zinc-200" />,
+  code: (p: any) => <code className="bg-zinc-100 rounded px-1 py-0.5 text-xs font-mono" {...p} />,
+};
 
 type WorkspaceActiveSkill = {
   id: string;
@@ -63,6 +78,8 @@ export function AiWorkspacePage() {
     queryKey: ["workspace-flow", projectId],
     queryFn: () => api<WorkspaceConversation>(`/workspace/projects/${projectId}/flow`),
     enabled: Boolean(projectId),
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
   });
 
 
@@ -70,18 +87,7 @@ export function AiWorkspacePage() {
   useLayoutEffect(() => {
     if (!conversation?.messages) return;
 
-    // 1. Clear pending user messages once they appear in the database
-    setPendingMessages((current) => {
-      const filtered = current.filter(
-        (pending) => !conversation.messages.some((msg) => msg.content === pending.content && msg.role === "user")
-      );
-      if (filtered.length !== current.length) {
-        return filtered;
-      }
-      return current;
-    });
-
-    // 2. Clear active stream text once the database has committed the matching response
+    // Clear active stream text once the database has committed the matching response
     if (streamedReply) {
       const lastMsg = conversation.messages[conversation.messages.length - 1];
       const cleanStreamed = streamedReply.replace(/<skill_done\/>/g, "").trim();
@@ -205,7 +211,12 @@ export function AiWorkspacePage() {
         throw error;
       }
     },
-    onSuccess: async () => {},
+    onSuccess: async (data) => {
+      if (data?.pendingId) {
+        setPendingMessages((current) => current.filter((m) => m.id !== data.pendingId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+    },
   });
 
   const busy = send.isPending;
@@ -288,7 +299,7 @@ export function AiWorkspacePage() {
                         </div>
                       ) : (
                         <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                          {cleanMessageContent(item.content)}
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cleanMessageContent(item.content)}</ReactMarkdown>
                         </div>
                       )}
                     </motion.div>
@@ -321,7 +332,7 @@ export function AiWorkspacePage() {
                   className="flex flex-col items-start w-full"
                 >
                   <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
-                    {cleanMessageContent(streamedReply)}
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cleanMessageContent(streamedReply)}</ReactMarkdown>
                   </div>
                 </motion.div>
               ) : null}
