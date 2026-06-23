@@ -83,7 +83,7 @@ function describeInputSourceMap(sourceMap: any): string {
   const parts: string[] = [];
   if (skillsCount > 0) {
     if (sourceMap.skills.includes("@previous")) {
-      parts.push("Previous skill conversations");
+      parts.push("Previous skill output");
     } else {
       parts.push(`${skillsCount} skill${skillsCount > 1 ? "s" : ""}`);
     }
@@ -276,6 +276,11 @@ export function AdminPage() {
     queryFn: () => api("/admin/db-schema"),
     enabled: activeTab === "system",
   });
+
+  const ALLOWED_TABLES = ["Persona", "PainPoint", "UserNeed", "Ambition", "Okr", "UserStory", "Task"];
+  const filteredDbSchema = Object.fromEntries(
+    Object.entries(dbSchema).filter(([tableName]) => ALLOWED_TABLES.includes(tableName))
+  );
 
   const { data: retention = [], isLoading: loadingRetention } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
   const { data: usersData, isLoading: loadingUsers } = useQuery<any>({
@@ -1096,10 +1101,10 @@ export function AdminPage() {
               {/* Skills selection */}
               <div className={`border border-border rounded-xl p-4 bg-card h-fit ${Object.keys(editInputSourceMap?.tables || {}).length > 0 ? "opacity-50" : ""}`}>
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Conversations</span>
+                  <span>Previous skill Output</span>
                 </h4>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's conversation history should be passed as input context.
+                  Select if the previous skill's output should be passed as input context.
                 </p>
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
                   <label className={`flex items-center gap-2 text-sm p-1.5 rounded ${Object.keys(editInputSourceMap?.tables || {}).length > 0 ? "cursor-not-allowed" : "cursor-pointer hover:bg-secondary/10"}`}>
@@ -1119,8 +1124,8 @@ export function AdminPage() {
                       className="rounded border-input text-emerald-500 focus:ring-emerald-500"
                     />
                     <div>
-                      <span className="font-medium text-foreground">Previous skill Conversations</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include conversation history of the previous skill in the flow</span>
+                      <span className="font-medium text-foreground">Previous skill Output</span>
+                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
                     </div>
                   </label>
                 </div>
@@ -1142,15 +1147,15 @@ export function AdminPage() {
                     <input
                       type="checkbox"
                       checked={
-                        Object.keys(dbSchema || {}).length > 0 &&
-                        Object.keys(dbSchema || {}).every(tableName => tableName in (editInputSourceMap?.tables || {}))
+                        Object.keys(filteredDbSchema).length > 0 &&
+                        Object.keys(filteredDbSchema).every(tableName => tableName in (editInputSourceMap?.tables || {}))
                       }
                       disabled={editInputSourceMap?.skills?.includes("@previous")}
                       onChange={(e) => {
                         const skills = [...(editInputSourceMap?.skills || [])].filter(s => s !== "@previous");
                         if (e.target.checked) {
                           const tables: Record<string, string[]> = {};
-                          Object.keys(dbSchema || {}).forEach(tableName => {
+                          Object.keys(filteredDbSchema).forEach(tableName => {
                             tables[tableName] = [];
                           });
                           setEditInputSourceMap({ ...editInputSourceMap, skills, tables });
@@ -1164,7 +1169,7 @@ export function AdminPage() {
                   </label>
                 </div>
                 <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
-                  {Object.entries(dbSchema || {}).map(([tableName, columns]) => {
+                  {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
                     const selectedCols = editInputSourceMap?.tables?.[tableName] || [];
                     const isTableSelected = tableName in (editInputSourceMap?.tables || {});
                     
@@ -1231,7 +1236,7 @@ export function AdminPage() {
                 </div>
                 {editInputSourceMap?.skills?.includes("@previous") && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
-                    ⚠️ Not available because Previous skill Conversations are included. If needed, please uncheck it first.
+                    ⚠️ Not available because Previous skill Output is included. If needed, please uncheck it first.
                   </p>
                 )}
               </div>
@@ -1262,10 +1267,10 @@ export function AdminPage() {
               {/* Skills selection */}
               <div className={`border border-border rounded-xl p-4 bg-card h-fit ${Object.keys(newSkillInputSourceMap?.tables || {}).length > 0 ? "opacity-50" : ""}`}>
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Conversations</span>
+                  <span>Previous skill Output</span>
                 </h4>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's conversation history should be passed as input context.
+                  Select if the previous skill's output should be passed as input context.
                 </p>
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
                   <label className={`flex items-center gap-2 text-sm p-1.5 rounded ${Object.keys(newSkillInputSourceMap?.tables || {}).length > 0 ? "cursor-not-allowed" : "cursor-pointer hover:bg-secondary/10"}`}>
@@ -1285,8 +1290,8 @@ export function AdminPage() {
                       className="rounded border-input text-emerald-500 focus:ring-emerald-500"
                     />
                     <div>
-                      <span className="font-medium text-foreground">Previous skill Conversations</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include conversation history of the previous skill in the flow</span>
+                      <span className="font-medium text-foreground">Previous skill Output</span>
+                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
                     </div>
                   </label>
                 </div>
@@ -1308,15 +1313,15 @@ export function AdminPage() {
                     <input
                       type="checkbox"
                       checked={
-                        Object.keys(dbSchema || {}).length > 0 &&
-                        Object.keys(dbSchema || {}).every(tableName => newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables)
+                        Object.keys(filteredDbSchema).length > 0 &&
+                        Object.keys(filteredDbSchema).every(tableName => newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables)
                       }
                       disabled={newSkillInputSourceMap?.skills?.includes("@previous")}
                       onChange={(e) => {
                         const skills = [...(newSkillInputSourceMap?.skills || [])].filter(s => s !== "@previous");
                         if (e.target.checked) {
                           const tables: Record<string, string[]> = {};
-                          Object.keys(dbSchema || {}).forEach(tableName => {
+                          Object.keys(filteredDbSchema).forEach(tableName => {
                             tables[tableName] = [];
                           });
                           setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills, tables });
@@ -1330,7 +1335,7 @@ export function AdminPage() {
                   </label>
                 </div>
                 <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
-                  {Object.entries(dbSchema || {}).map(([tableName, columns]) => {
+                  {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
                     const isTableSelected = newSkillInputSourceMap?.tables && tableName in newSkillInputSourceMap.tables;
                     const selectedCols = newSkillInputSourceMap?.tables?.[tableName] || [];
 
@@ -1397,7 +1402,7 @@ export function AdminPage() {
                 </div>
                 {newSkillInputSourceMap?.skills?.includes("@previous") && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-3 font-medium">
-                    ⚠️ Not available because Previous skill Conversations are included. If needed, please uncheck it first.
+                    ⚠️ Not available because Previous skill Output is included. If needed, please uncheck it first.
                   </p>
                 )}
               </div>
