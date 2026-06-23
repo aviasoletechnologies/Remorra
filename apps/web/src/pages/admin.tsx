@@ -826,6 +826,7 @@ export function AdminPage() {
                             versionId: currentVer.id,
                             systemPrompt: editPromptText,
                             inputSourceMap: editInputSourceMap,
+                            outputSchema: editOutputSchema,
                             name: editSkillName,
                             description: editSkillDesc,
                           });
@@ -840,6 +841,7 @@ export function AdminPage() {
                             skillId: editingSkill.id,
                             systemPrompt: editPromptText,
                             inputSourceMap: editInputSourceMap,
+                            outputSchema: editOutputSchema,
                             name: editSkillName,
                             description: editSkillDesc,
                           });
