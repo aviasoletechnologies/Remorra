@@ -1,8 +1,12 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue } from "../lib/utils";
 
-// Returns list of DB events fired (e.g. ["persona.create", "userStory.create"])
-// Event name = delegateName + "." + action — fully dynamic, no hardcoded entity names
+function toSnakeCase(str: string): string {
+  return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+}
+
+// Returns list of DB events fired (e.g. ["persona.create", "user_need.create"])
+// Event name = snake_case(delegateName) + "." + action — matches SkillEventMapping format
 export async function applyOperationsExtract(projectId: string, json: any): Promise<string[]> {
   if (!Array.isArray(json.operations)) return [];
 
@@ -13,6 +17,27 @@ export async function applyOperationsExtract(projectId: string, json: any): Prom
     const entityRaw = String(op.entity ?? "");
     if (!entityRaw) continue;
     const delegateName = entityRaw.charAt(0).toLowerCase() + entityRaw.slice(1);
+
+    // Project: only update allowed (never create/delete), restricted to safe fields, uses projectId
+    if (delegateName === "project") {
+      if (op.action === "update" && op.data && typeof op.data === "object") {
+        try {
+          const allowedFields = ["summary", "name"];
+          const filteredData: Record<string, any> = {};
+          for (const [key, val] of Object.entries(op.data as Record<string, any>)) {
+            if (allowedFields.includes(key)) filteredData[key] = val;
+          }
+          if (Object.keys(filteredData).length > 0) {
+            await (prisma as any).project.update({ where: { id: projectId }, data: filteredData });
+            firedEvents.push("project.update");
+          }
+        } catch (err) {
+          console.warn(`[applyOperationsExtract] project update failed:`, err);
+        }
+      }
+      continue;
+    }
+
     const delegate = (prisma as any)[delegateName];
     if (!delegate?.create) continue;
     try {
@@ -43,13 +68,13 @@ export async function applyOperationsExtract(projectId: string, json: any): Prom
           refMap[op.ref] = created.id;
         }
 
-        firedEvents.push(`${delegateName}.${op.action}`);
+        firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "update" && op.id && op.data && typeof op.data === "object") {
         await delegate.update({ where: { id: op.id }, data: op.data });
-        firedEvents.push(`${delegateName}.${op.action}`);
+        firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "delete" && op.id) {
         await delegate.delete({ where: { id: op.id } });
-        firedEvents.push(`${delegateName}.${op.action}`);
+        firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       }
     } catch (err) {
       console.warn(`[applyOperationsExtract] op failed entity=${entityRaw} action=${op.action} id=${op.id ?? ""}:`, err);
