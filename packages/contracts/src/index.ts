@@ -195,7 +195,10 @@ export const skillVersionInputSchema = z.object({
     skills: z.array(z.string()).optional(),
     tables: z.record(z.string(), z.array(z.string())).optional(),
   }).optional(),
-  outputSchema: z.unknown().nullable().optional(),
+  outputSchema: z.object({
+    type: z.enum(["table", "custom", "text"]),
+    value: z.any()
+  }).nullable().optional(),
   constraints: z.array(z.string()).optional(),
   examples: z.unknown().optional(),
   retryPolicy: z.unknown().optional(),

@@ -24,7 +24,7 @@ vi.mock("../lib/prisma", () => {
 
 describe("assembleContext Service Tests", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("returns structured JSON output when extract exists for skill", async () => {

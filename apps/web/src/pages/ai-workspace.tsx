@@ -77,6 +77,7 @@ function cleanMessageContent(content: string): string {
   return content
     .replace(/<skill_done\/>/g, "")
     .replace(/<generate_pdf\/>/g, "")
+    .replace(/<output_data>[\s\S]*<\/output_data>/gi, "")
     .replace(/```json[\s\S]*/gi, "")
     .trim();
 }

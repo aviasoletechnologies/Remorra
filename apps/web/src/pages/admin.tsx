@@ -21,6 +21,7 @@ import { AdminSupport } from "./admin/admin-support";
 import { AdminCosts } from "./admin/admin-costs";
 import { AdminUsers } from "./admin/admin-users";
 import { AdminTemplates } from "./admin/admin-templates";
+import Editor from "@monaco-editor/react";
 import { useConfirm } from "../components/confirm-dialog";
 import {
   AdminFlows,
@@ -69,6 +70,28 @@ function describeSkillInputRequirement(version: any): string {
   }
   return "";
 }
+
+function parseOutputSchema(val: any): { type: string; value: any } {
+  if (!val) return { type: "text", value: "" };
+  if (typeof val === "string") {
+    try {
+      const parsed = JSON.parse(val);
+      return parseOutputSchema(parsed);
+    } catch {
+      return { type: "text", value: val };
+    }
+  }
+  return { type: val.type || "text", value: val.value || "" };
+}
+
+function describeOutputSchema(schema: any): string {
+  if (!schema || !schema.value) return "No output schema defined";
+  if (schema.type === "table") return `Table: ${schema.value}`;
+  if (schema.type === "custom") return `Custom Schema defined`;
+  if (schema.type === "text") return `Text rules defined`;
+  return "No output schema defined";
+}
+
 
 
 function describeInputSourceMap(sourceMap: any): string {
@@ -120,8 +143,10 @@ export function AdminPage() {
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
   const [isCreateContextConfigOpen, setIsCreateContextConfigOpen] = useState(false);
+  const [isCreateOutputSchemaConfigOpen, setIsCreateOutputSchemaConfigOpen] = useState(false);
 
   const [editingSkill, setEditingSkill] = useState<any | null>(null);
   const [editingSkillVersionId, setEditingSkillVersionId] = useState<string | null>(null);
@@ -129,8 +154,10 @@ export function AdminPage() {
   const [editSkillName, setEditSkillName] = useState("");
   const [editSkillDesc, setEditSkillDesc] = useState("");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
   const [isContextConfigOpen, setIsContextConfigOpen] = useState(false);
+  const [isOutputSchemaConfigOpen, setIsOutputSchemaConfigOpen] = useState(false);
 
 
   // Period Selector State
@@ -370,10 +397,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputSourceMap, name, description }: { skillId: string; systemPrompt: string; inputSourceMap?: any; name?: string; description?: string }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, name, description }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -399,6 +426,7 @@ export function AdminPage() {
       setEditingSkill(null);
       setEditingSkillVersionId(null);
       setIsContextConfigOpen(false);
+      setIsOutputSchemaConfigOpen(false);
     },
     onError: (err: any) => {
       setSkillEditError(err.message || "Failed to create skill version.");
@@ -406,10 +434,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, name, description }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; name?: string; description?: string }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, name, description }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -433,6 +461,7 @@ export function AdminPage() {
       setEditingSkill(null);
       setEditingSkillVersionId(null);
       setIsContextConfigOpen(false);
+      setIsOutputSchemaConfigOpen(false);
     },
     onError: (err: any) => {
       setSkillEditError(err.message || "Failed to update skill version.");
@@ -472,7 +501,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -486,8 +515,10 @@ export function AdminPage() {
       setNewSkillDesc("");
       setNewSkillPrompt("");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
+      setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
       setIsCreateContextConfigOpen(false);
+      setIsCreateOutputSchemaConfigOpen(false);
       if (result?.warnings?.length) {
         toast.success(`Skill created (warning: ${result.warnings.join("; ")})`);
       } else {
@@ -759,6 +790,7 @@ export function AdminPage() {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
           setEditInputSourceMap(parseInputSourceMap(version.inputSourceMap));
+          setEditOutputSchema(parseOutputSchema(version.outputSchema));
           setSkillEditError(null);
         };
 
@@ -946,6 +978,33 @@ export function AdminPage() {
                       </div>
                     </div>
 
+                    <div className="editor-section mt-6 border-t pt-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                          Output Schema Configuration
+                        </h3>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!isAdmin || !currentVer}
+                          onClick={() => setIsOutputSchemaConfigOpen(true)}
+                        >
+                          Configure Output...
+                        </Button>
+                      </div>
+                      
+                      <div className="p-4 bg-secondary/5 rounded-xl border border-border flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-sm font-medium text-foreground block">
+                            {describeOutputSchema(editOutputSchema)}
+                          </span>
+                          <span className="text-xs text-muted-foreground block">
+                            Define strict structure boundaries for the AI's response.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="editor-section mt-4">
                       <p className="form-help">
                         Save Selected Version updates the current system prompt and input configurations. Save as New Version creates a separate version from your changes.
@@ -1052,6 +1111,32 @@ export function AdminPage() {
                       </span>
                       <span className="text-xs text-muted-foreground block">
                         Select database tables and other skill histories to feed into this agent version.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="editor-section mt-6 border-t pt-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                      Output Schema Configuration
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsCreateOutputSchemaConfigOpen(true)}
+                    >
+                      Configure Output...
+                    </Button>
+                  </div>
+                  
+                  <div className="p-4 bg-secondary/5 rounded-xl border border-border flex items-center justify-between">
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium text-foreground block">
+                        {describeOutputSchema(newSkillOutputSchema)}
+                      </span>
+                      <span className="text-xs text-muted-foreground block">
+                        Define strict structure boundaries for the AI's response.
                       </span>
                     </div>
                   </div>
@@ -1368,6 +1453,341 @@ export function AdminPage() {
 
             <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
               <Button onClick={() => setIsCreateContextConfigOpen(false)}>Done</Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {isOutputSchemaConfigOpen && editingSkill && createPortal(
+        <div className="admin-config-modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) setIsOutputSchemaConfigOpen(false);
+        }}>
+          <div className="admin-config-modal-content" style={{ maxWidth: "800px" }}>
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Configure Output Schema</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Define strict structure boundaries for the AI's response.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setIsOutputSchemaConfigOpen(false)}>Close</Button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 bg-secondary/5 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { id: "text", title: "Text (Prompt Instructions)", desc: "Free-form text format instructions" },
+                  { id: "table", title: "Database Table", desc: "Select an existing Prisma table schema" },
+                  { id: "custom", title: "Custom Schema", desc: "Provide manual JSON schema structure" }
+                ].map(opt => (
+                  <div 
+                    key={opt.id}
+                    onClick={() => setEditOutputSchema({ type: opt.id as any, value: editOutputSchema?.type === opt.id ? editOutputSchema.value : "" })}
+                    className={`border rounded-xl p-4 cursor-pointer transition-colors ${
+                      editOutputSchema?.type === opt.id 
+                        ? "border-emerald-500 bg-emerald-500/5" 
+                        : "border-border bg-card hover:bg-secondary/10"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                        editOutputSchema?.type === opt.id ? "border-emerald-500" : "border-muted-foreground/30"
+                      }`}>
+                        {editOutputSchema?.type === opt.id && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
+                      </div>
+                      <span className="font-semibold text-sm text-foreground">{opt.title}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground pl-6">{opt.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-border pt-6">
+                {editOutputSchema?.type === "text" && (
+                  <div>
+                    <label className="admin-field-label">Format Instructions</label>
+                    <textarea
+                      className="admin-textarea monospace"
+                      style={{ minHeight: "150px" }}
+                      placeholder="e.g. Return a markdown list of items..."
+                      value={editOutputSchema.value}
+                      onChange={(e) => setEditOutputSchema({ ...editOutputSchema, value: e.target.value })}
+                    />
+                  </div>
+                )}
+                {editOutputSchema?.type === "table" && (() => {
+                  const valObj = typeof editOutputSchema.value === "object" && editOutputSchema.value !== null
+                    ? editOutputSchema.value
+                    : {}; // fallback object
+                  
+                  return (
+                    <div className="border border-border rounded-xl p-4 bg-card flex flex-col space-y-4">
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">Select Output Tables</h4>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Choose one or more target database tables and their optional columns for the AI's output.
+                        </p>
+                        
+                        <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
+                          {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
+                            const isTableSelected = tableName in valObj;
+                            const selectedCols = valObj[tableName] || [];
+
+                            return (
+                              <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${
+                                  isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'
+                                }`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isTableSelected}
+                                    onChange={(e) => {
+                                      const tables = { ...valObj };
+                                      if (e.target.checked) tables[tableName] = [];
+                                      else delete tables[tableName];
+                                      setEditOutputSchema({ ...editOutputSchema, value: tables });
+                                    }}
+                                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                                  />
+                                  <span>{tableName}</span>
+                                </label>
+
+                                {isTableSelected && (
+                                  <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                                      Columns (empty = all columns)
+                                    </span>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {columns.map(col => {
+                                        const isColChecked = selectedCols.includes(col);
+                                        return (
+                                          <label 
+                                            key={col} 
+                                            className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20"
+                                          >
+                                            <input 
+                                              type="checkbox" 
+                                              checked={isColChecked}
+                                              onChange={(e) => {
+                                                const tables = { ...valObj };
+                                                let cols = [...(tables[tableName] || [])];
+                                                if (e.target.checked) cols.push(col);
+                                                else cols = cols.filter(c => c !== col);
+                                                tables[tableName] = cols;
+                                                setEditOutputSchema({ ...editOutputSchema, value: tables });
+                                              }}
+                                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                            />
+                                            <span className="font-mono">{col}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {editOutputSchema?.type === "custom" && (
+                  <div className="flex flex-col flex-1 min-h-[300px]">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="admin-field-label mb-0">Custom JSON Schema</label>
+                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Code Editor</span>
+                    </div>
+                    <div className="flex-1 border border-border rounded-lg overflow-hidden">
+                      <Editor
+                        height="300px"
+                        defaultLanguage="json"
+                        theme="vs-dark"
+                        value={typeof editOutputSchema.value === "string" ? editOutputSchema.value : JSON.stringify(editOutputSchema.value || {}, null, 2)}
+                        onChange={(val) => setEditOutputSchema({ ...editOutputSchema, value: val || "" })}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          tabSize: 2,
+                          wordWrap: "on",
+                          formatOnPaste: true,
+                          scrollBeyondLastLine: false,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
+              <Button onClick={() => setIsOutputSchemaConfigOpen(false)}>Done</Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isCreateOutputSchemaConfigOpen && createPortal(
+        <div className="admin-config-modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) setIsCreateOutputSchemaConfigOpen(false);
+        }}>
+          <div className="admin-config-modal-content" style={{ maxWidth: "800px" }}>
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Configure Output Schema</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Define strict structure boundaries for the AI's response.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setIsCreateOutputSchemaConfigOpen(false)}>Close</Button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 bg-secondary/5 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { id: "text", title: "Text (Prompt Instructions)", desc: "Free-form text format instructions" },
+                  { id: "table", title: "Database Table", desc: "Select an existing Prisma table schema" },
+                  { id: "custom", title: "Custom Schema", desc: "Provide manual JSON schema structure" }
+                ].map(opt => (
+                  <div 
+                    key={opt.id}
+                    onClick={() => setNewSkillOutputSchema({ type: opt.id as any, value: newSkillOutputSchema?.type === opt.id ? newSkillOutputSchema.value : "" })}
+                    className={`border rounded-xl p-4 cursor-pointer transition-colors ${
+                      newSkillOutputSchema?.type === opt.id 
+                        ? "border-emerald-500 bg-emerald-500/5" 
+                        : "border-border bg-card hover:bg-secondary/10"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                        newSkillOutputSchema?.type === opt.id ? "border-emerald-500" : "border-muted-foreground/30"
+                      }`}>
+                        {newSkillOutputSchema?.type === opt.id && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
+                      </div>
+                      <span className="font-semibold text-sm text-foreground">{opt.title}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground pl-6">{opt.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-border pt-6">
+                {newSkillOutputSchema?.type === "text" && (
+                  <div>
+                    <label className="admin-field-label">Format Instructions</label>
+                    <textarea
+                      className="admin-textarea monospace"
+                      style={{ minHeight: "150px" }}
+                      placeholder="e.g. Return a markdown list of items..."
+                      value={newSkillOutputSchema.value}
+                      onChange={(e) => setNewSkillOutputSchema({ ...newSkillOutputSchema, value: e.target.value })}
+                    />
+                  </div>
+                )}
+                {newSkillOutputSchema?.type === "table" && (() => {
+                  const valObj = typeof newSkillOutputSchema.value === "object" && newSkillOutputSchema.value !== null
+                    ? newSkillOutputSchema.value
+                    : {}; // fallback object
+                  
+                  return (
+                    <div className="border border-border rounded-xl p-4 bg-card flex flex-col space-y-4">
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">Select Output Tables</h4>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Choose one or more target database tables and their optional columns for the AI's output.
+                        </p>
+                        
+                        <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
+                          {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
+                            const isTableSelected = tableName in valObj;
+                            const selectedCols = valObj[tableName] || [];
+
+                            return (
+                              <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
+                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${
+                                  isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'
+                                }`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isTableSelected}
+                                    onChange={(e) => {
+                                      const tables = { ...valObj };
+                                      if (e.target.checked) tables[tableName] = [];
+                                      else delete tables[tableName];
+                                      setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
+                                    }}
+                                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                                  />
+                                  <span>{tableName}</span>
+                                </label>
+
+                                {isTableSelected && (
+                                  <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                                      Columns (empty = all columns)
+                                    </span>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {columns.map(col => {
+                                        const isColChecked = selectedCols.includes(col);
+                                        return (
+                                          <label 
+                                            key={col} 
+                                            className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20"
+                                          >
+                                            <input 
+                                              type="checkbox" 
+                                              checked={isColChecked}
+                                              onChange={(e) => {
+                                                const tables = { ...valObj };
+                                                let cols = [...(tables[tableName] || [])];
+                                                if (e.target.checked) cols.push(col);
+                                                else cols = cols.filter(c => c !== col);
+                                                tables[tableName] = cols;
+                                                setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
+                                              }}
+                                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                            />
+                                            <span className="font-mono">{col}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {newSkillOutputSchema?.type === "custom" && (
+                  <div className="flex flex-col flex-1 min-h-[300px]">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="admin-field-label mb-0">Custom JSON Schema</label>
+                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Code Editor</span>
+                    </div>
+                    <div className="flex-1 border border-border rounded-lg overflow-hidden">
+                      <Editor
+                        height="300px"
+                        defaultLanguage="json"
+                        theme="vs-dark"
+                        value={typeof newSkillOutputSchema.value === "string" ? newSkillOutputSchema.value : JSON.stringify(newSkillOutputSchema.value || {}, null, 2)}
+                        onChange={(val) => setNewSkillOutputSchema({ ...newSkillOutputSchema, value: val || "" })}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          tabSize: 2,
+                          wordWrap: "on",
+                          formatOnPaste: true,
+                          scrollBeyondLastLine: false,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
+              <Button onClick={() => setIsCreateOutputSchemaConfigOpen(false)}>Done</Button>
             </div>
           </div>
         </div>,

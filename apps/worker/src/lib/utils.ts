@@ -1,7 +1,9 @@
 export class ResponseParser {
   static extractJson(text: string): unknown {
-    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
-    return JSON.parse(fenced.trim());
+    const dataMatch = text.match(/<output_data>\s*([\s\S]*?)<\/output_data>/i)?.[1];
+    const fenced = dataMatch ?? text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
+    const cleaned = fenced.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(cleaned);
   }
 
   static validate(

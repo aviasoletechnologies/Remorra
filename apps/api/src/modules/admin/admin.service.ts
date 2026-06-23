@@ -123,7 +123,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -131,7 +131,7 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt, inputSourceMap } = body;
+    const { systemPrompt, inputSourceMap, outputSchema } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
@@ -160,6 +160,7 @@ export class AdminService {
           active: true,
           systemPrompt,
           inputSourceMap: inputSourceMap ?? {},
+          outputSchema: outputSchema ?? null,
           constraints: [],
           examples: [],
           retryPolicy: {},
