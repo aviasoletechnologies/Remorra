@@ -731,6 +731,7 @@ export function AdminPage() {
                   setEditSkillName(skill.name ?? "");
                   setEditSkillDesc(skill.description ?? "");
                   setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
+                  setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
                 }}
                 onDelete={(skill) => deleteSkill.mutate(skill.id)}
