@@ -87,8 +87,13 @@ export async function applyOperationsExtract(projectId: string, json: any): Prom
 export async function applyGenericExtractMappings(projectId: string, json: any) {
   if (!json || typeof json !== "object") return;
 
+  const j: Record<string, any> = {};
+  for (const [k, v] of Object.entries(json)) {
+    j[k.toLowerCase()] = v;
+  }
+
   // 1. Project mapping
-  const projectData = json.project;
+  const projectData = j.project || j.projects;
   if (projectData && typeof projectData === "object") {
     const data: any = {};
     if (typeof projectData.summary === "string") data.summary = projectData.summary;
@@ -119,7 +124,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 2. Ambitions mapping
-  const ambitions = json.ambitions || json.ambition;
+  const ambitions = j.ambitions || j.ambition;
   if (Array.isArray(ambitions)) {
     for (const item of ambitions) {
       if (!item || typeof item !== "object" || !item.title) continue;
@@ -139,7 +144,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 3. Personas mapping
-  let personas = json.personas || json.persona;
+  let personas = j.personas || j.persona;
   if (personas && typeof personas === "object" && !Array.isArray(personas)) {
     personas = [personas];
   }
@@ -168,7 +173,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 4. Pain points mapping
-  const painpoints = json.painpoints || json.painPoints || json.pain_points;
+  const painpoints = j.painpoints || j.pain_points || j.painpoint || j.pain_point;
   if (Array.isArray(painpoints)) {
     for (const item of painpoints) {
       if (!item || typeof item !== "object" || !item.statement) continue;
@@ -192,7 +197,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 5. User needs mapping
-  const userNeeds = json.userNeeds || json.user_needs || json.userNeed || json.user_need;
+  const userNeeds = j.userneeds || j.user_needs || j.userneed || j.user_need;
   if (Array.isArray(userNeeds)) {
     for (const item of userNeeds) {
       if (!item || typeof item !== "object" || !item.statement) continue;
@@ -215,12 +220,12 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 6. OKRs mapping
-  const okrs = json.okrs || json.okr;
+  const okrs = j.okrs || j.okr;
   if (Array.isArray(okrs)) {
     for (const item of okrs) {
       if (!item || typeof item !== "object" || !item.objective) continue;
       const objective = String(item.objective);
-      const keyResults = item.keyResults || item.key_results || [];
+      const keyResults = item.keyresults || item.key_results || item.keyResults || [];
       const ambitionFk = String(item.ambition_fk || item.ambitionId || "").toLowerCase();
       let ambitionId = ambitionMap.get(ambitionFk);
       if (!ambitionId && ambitionMap.size === 1) {
@@ -245,13 +250,13 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
   }
 
   // 7. User stories mapping
-  const userStories = json.userStories || json.user_stories || json.userStory || json.user_story;
+  const userStories = j.userstories || j.user_stories || j.userstory || j.user_story;
   if (Array.isArray(userStories)) {
     for (const item of userStories) {
       if (!item || typeof item !== "object" || !item.title) continue;
       const title = String(item.title);
-      const acceptance = item.acceptance || item.acceptance_criteria || [];
-      const needFk = String(item.need_fk || item.userNeedId || "").toLowerCase();
+      const acceptance = item.acceptance || item.acceptance_criteria || item.acceptanceCriteria || [];
+      const needFk = String(item.need_fk || item.userneedid || item.userNeedId || "").toLowerCase();
       let userNeedId = needMap.get(needFk);
       if (!userNeedId && needMap.size === 1) {
         userNeedId = Array.from(needMap.values())[0];
