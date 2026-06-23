@@ -2,12 +2,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { assembleContext } from "./context";
 import { prisma } from "../lib/prisma";
 
-// Mock the prisma client import with dynamic delegate mocks
 vi.mock("../lib/prisma", () => {
   return {
     prisma: {
       conversationMessage: {
+        findFirst: vi.fn(),
         findMany: vi.fn(),
+      },
+      structuredExtract: {
+        findFirst: vi.fn(),
       },
       project: {
         findUniqueOrThrow: vi.fn(),
@@ -24,33 +27,75 @@ describe("assembleContext Service Tests", () => {
     vi.clearAllMocks();
   });
 
-  it("fetches and formats other skills' conversations", async () => {
-    const mockMessages = [
-      { role: "user", content: "Hello from skill A", createdAt: new Date(1000) },
-      { role: "assistant", content: "Response from skill A", createdAt: new Date(2000) },
-    ];
+  it("returns structured JSON output when extract exists for skill", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst)
+      .mockResolvedValueOnce({ conversationId: "conv-1" } as any) // lastMsg
+      .mockResolvedValueOnce(null); // lastAssistant (not reached)
 
-    vi.mocked(prisma.conversationMessage.findMany).mockResolvedValue(mockMessages as any);
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { operations: [{ action: "create", entity: "Persona" }] },
+    } as any);
 
-    const sections = await assembleContext("p1", {
-      skills: ["skill-a"],
-    });
+    const sections = await assembleContext("p1", { skills: ["skill-a"] });
 
-    expect(prisma.conversationMessage.findMany).toHaveBeenCalledWith({
-      where: {
-        conversation: {
-          projectId: "p1",
-        },
-        skillId: "skill-a",
-      },
-      orderBy: { createdAt: "asc" },
+    expect(prisma.structuredExtract.findFirst).toHaveBeenCalledWith({
+      where: { conversationId: "conv-1" },
+      orderBy: { createdAt: "desc" },
     });
 
     expect(sections).toHaveLength(1);
-    expect(sections[0]!.tag).toBe("skill_conversation_history_skill_a");
-    expect(sections[0]!.content).toContain("Conversation history for skill skill-a:");
-    expect(sections[0]!.content).toContain("User: Hello from skill A");
-    expect(sections[0]!.content).toContain("Assistant: Response from skill A");
+    expect(sections[0]!.tag).toBe("skill_output_skill_a");
+    expect(sections[0]!.content).toContain("Output from skill skill-a:");
+    expect(sections[0]!.content).toContain('"entity": "Persona"');
+  });
+
+  it("falls back to last assistant message when no extract exists", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst)
+      .mockResolvedValueOnce({ conversationId: "conv-1" } as any) // lastMsg
+      .mockResolvedValueOnce({ content: "Here is my analysis.", role: "assistant" } as any); // lastAssistant
+
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue(null);
+
+    const sections = await assembleContext("p1", { skills: ["skill-a"] });
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tag).toBe("skill_output_skill_a");
+    expect(sections[0]!.content).toContain("Here is my analysis.");
+  });
+
+  it("returns empty sections when skill has no messages", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst).mockResolvedValue(null);
+
+    const sections = await assembleContext("p1", { skills: ["skill-a"] });
+
+    expect(sections).toHaveLength(0);
+  });
+
+  it("skips current skill to avoid duplicate with conversation_history", async () => {
+    const sections = await assembleContext("p1", { skills: ["skill-a"] }, undefined, "skill-a");
+
+    expect(prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(sections).toHaveLength(0);
+  });
+
+  it("resolves @previous skill from explicit previousSkillId", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst)
+      .mockResolvedValueOnce({ conversationId: "conv-1" } as any)
+      .mockResolvedValueOnce(null);
+
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { result: "extracted data" },
+    } as any);
+
+    const sections = await assembleContext("p1", { skills: ["@previous"] }, "first-skill");
+
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "first-skill" }) }),
+    );
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tag).toBe("skill_output_first_skill");
+    expect(sections[0]!.content).toContain("Output from skill first-skill:");
   });
 
   it("filters project tables and specific columns dynamically", async () => {
@@ -74,65 +119,25 @@ describe("assembleContext Service Tests", () => {
 
     expect(sections).toHaveLength(1);
     expect(sections[0]!.tag).toBe("application_context");
-    
+
     const parsedContent = JSON.parse(sections[0]!.content);
-    expect(parsedContent.Project).toEqual({
-      name: "Test Project",
-      summary: "My summary",
-    });
-    expect(parsedContent.Ambition).toEqual([
-      {
-        id: "ambition-1",
-        title: "Scale to 10k users",
-      },
-    ]);
+    expect(parsedContent.Project).toEqual({ name: "Test Project", summary: "My summary" });
+    expect(parsedContent.Ambition).toEqual([{ id: "ambition-1", title: "Scale to 10k users" }]);
   });
 
-  it("returns all columns if only table is selected with empty columns array dynamically", async () => {
+  it("returns all columns if only table is selected with empty columns array", async () => {
     vi.mocked(prisma.ambition.findMany).mockResolvedValue([
       { id: "ambition-1", title: "Scale to 10k users", detail: "Using SEO" },
     ] as any);
 
-    const sections = await assembleContext("p1", {
-      tables: {
-        Ambition: [], // empty array means "select only table, pass all columns"
-      },
-    });
+    const sections = await assembleContext("p1", { tables: { Ambition: [] } });
 
     expect(sections).toHaveLength(1);
     const parsedContent = JSON.parse(sections[0]!.content);
-    
     expect(parsedContent.Ambition[0]!).toEqual({
       id: "ambition-1",
       title: "Scale to 10k users",
       detail: "Using SEO",
     });
-  });
-
-  it("resolves @previous skill from explicit previousSkillId", async () => {
-    const mockMessages = [
-      { role: "user", content: "Hello from previous skill", createdAt: new Date(1000) },
-      { role: "assistant", content: "Response from previous skill", createdAt: new Date(2000) },
-    ];
-
-    vi.mocked(prisma.conversationMessage.findMany).mockResolvedValue(mockMessages as any);
-
-    const sections = await assembleContext("p1", {
-      skills: ["@previous"],
-    }, "first-skill");
-
-    expect(prisma.conversationMessage.findMany).toHaveBeenCalledWith({
-      where: {
-        conversation: {
-          projectId: "p1",
-        },
-        skillId: "first-skill",
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    expect(sections).toHaveLength(1);
-    expect(sections[0]!.tag).toBe("skill_conversation_history_first_skill");
-    expect(sections[0]!.content).toContain("Conversation history for skill first-skill:");
   });
 });

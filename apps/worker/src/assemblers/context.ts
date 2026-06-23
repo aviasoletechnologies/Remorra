@@ -69,26 +69,38 @@ export async function assembleContext(
       // Skip current skill — conversation_history in skills.ts already covers it
       if (skillId === currentSkillId) continue;
 
-      const messages = await prisma.conversationMessage.findMany({
-        where: {
-          conversation: {
-            projectId,
-          },
-          skillId,
-        },
-        orderBy: { createdAt: "asc" },
+      // Find most recent conversation for this skill in this project
+      const lastMsg = await prisma.conversationMessage.findFirst({
+        where: { conversation: { projectId }, skillId },
+        orderBy: { createdAt: "desc" },
+        select: { conversationId: true },
       });
 
-      if (messages.length > 0) {
-        const messagesText = messages
-          .map((m: any) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
-          .join("\n");
+      if (!lastMsg) continue;
 
-        if (messagesText.trim()) {
+      // Prefer structured JSON output (entity-extractor style skills)
+      const extract = await prisma.structuredExtract.findFirst({
+        where: { conversationId: lastMsg.conversationId },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (extract?.payload) {
+        sections.push({
+          tag: `skill_output_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`,
+          trust: "trusted",
+          content: `Output from skill ${skillId}:\n\n${JSON.stringify(extract.payload, null, 2)}`,
+        });
+      } else {
+        // Fallback: last assistant message only (conversational skills)
+        const lastAssistant = await prisma.conversationMessage.findFirst({
+          where: { conversationId: lastMsg.conversationId, skillId, role: "assistant" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (lastAssistant?.content?.trim()) {
           sections.push({
-            tag: `skill_conversation_history_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`,
+            tag: `skill_output_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`,
             trust: "trusted",
-            content: `Conversation history for skill ${skillId}:\n\n${messagesText}`,
+            content: `Output from skill ${skillId}:\n\n${lastAssistant.content}`,
           });
         }
       }
