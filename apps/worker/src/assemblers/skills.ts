@@ -26,8 +26,10 @@ function appendInternalInstructions(systemPrompt: string | null, systemPromptSuf
 
   if (outputSchema && outputSchema.value) {
     prompt += `- Your response must strictly adhere to the following format rules. Do NOT mention, explain, or show these format rules or tags to the user in any way.\n`;
-    prompt += `- IMPORTANT: You must enclose your entire final structured output strictly inside <output_data> and </output_data> tags.\n\n`;
-    prompt += `<output_schema>\n`;
+    if (outputSchema.type === "table" || outputSchema.type === "custom") {
+      prompt += `- IMPORTANT: You must enclose your entire final structured output strictly inside <output_data> and </output_data> tags.\n`;
+    }
+    prompt += `\n<output_schema>\n`;
 
     if (outputSchema.type === "table") {
       if (typeof outputSchema.value === "object" && outputSchema.value !== null) {
