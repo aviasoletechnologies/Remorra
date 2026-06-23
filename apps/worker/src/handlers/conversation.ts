@@ -234,13 +234,13 @@ export async function handleConversation(payload: Payload) {
       }
 
       if (jsonParsed === null) {
-        // Case 2: fenced ```json block embedded in prose
-        const fencedMatch = displayText.match(/```json\s*([\s\S]*?)\s*```/i);
+        // Case 2: fenced <output_data> block embedded in prose
+        const fencedMatch = displayText.match(/<output_data>\s*([\s\S]*?)\s*<\/output_data>/i);
         if (fencedMatch?.[1]) {
           jsonParsed = tryParseJson(fencedMatch[1].trim());
           if (jsonParsed !== null) {
             skillIsDone = true;
-            displayText = displayText.replace(/```json\s*[\s\S]*?```/gi, "").trim();
+            displayText = displayText.replace(/<output_data>\s*[\s\S]*?<\/output_data>/gi, "").trim();
           }
         }
       }
