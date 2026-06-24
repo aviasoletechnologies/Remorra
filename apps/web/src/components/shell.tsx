@@ -25,6 +25,8 @@ import {
   Trash2,
   ChevronRight,
   Activity,
+  Plus,
+  Loader2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation } from "react-router-dom";
@@ -38,6 +40,8 @@ import { cn } from "../lib/utils";
 import { motionTransition } from "../lib/motion";
 import { Avatar, Badge, Button, Card } from "./ui";
 import { buttonVariants } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
 import { EmptyState } from "./app-ui";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import {
@@ -115,7 +119,8 @@ export function Shell({ children }: { children: ReactNode }) {
 function WorkspaceShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const location = useLocation();
-  const [projectName, setProjectName] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const { data: projects = [], error: projectsError } = useQuery({
@@ -173,6 +178,20 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
     }
   }, [isLogsOpen, activeProjectId, logs.length, streamState, setLogs]);
 
+  const createProject = useMutation({
+    mutationFn: (name: string) =>
+      api<{ id: string }>("/projects", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setActiveProjectId(data.id);
+      setIsCreateModalOpen(false);
+      setNewProjectName("");
+    },
+  });
+
   const consent = useMutation({
     mutationFn: () =>
       api("/auth/consent", {
@@ -180,14 +199,6 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
         body: JSON.stringify({ privacyPolicyVersion: "2026-06-15", termsVersion: "2026-06-15" }),
       }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me"] }),
-  });
-  const createProject = useMutation({
-    mutationFn: () => api<Project>("/projects", { method: "POST", body: JSON.stringify({ name: projectName }) }),
-    onSuccess: (created) => {
-      setActiveProjectId(created.id);
-      setProjectName("");
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
   });
 
   const project = projects.find((item) => item.id === activeProjectId) ?? projects[0];
@@ -278,6 +289,13 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                   {item.id === project?.id ? <Check size={14} className="text-primary" /> : null}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setIsCreateModalOpen(true)} className="min-h-10 gap-3 px-2 text-primary">
+                <span className="grid size-7 place-items-center rounded-md border border-dashed border-primary/40 bg-primary/5 text-[10px] font-bold text-primary">
+                  <Plus size={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">Create new workspace</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarHeader>
@@ -563,12 +581,12 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                 <div className="flex w-full max-w-md flex-col gap-3 sm:flex-row">
                   <input
                     className="h-10 min-w-0 flex-1 rounded-[10px] border border-input bg-card px-3 text-sm outline-none focus:ring-3 focus:ring-ring/15"
-                    value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
+                    value={newProjectName}
+                    onChange={(event) => setNewProjectName(event.target.value)}
                     placeholder="Product name"
                     aria-label="Product name"
                   />
-                  <Button disabled={createProject.isPending || projectName.trim().length < 2} onClick={() => createProject.mutate()}>
+                  <Button disabled={createProject.isPending || newProjectName.trim().length < 2} onClick={() => createProject.mutate(newProjectName)}>
                     {createProject.isPending ? "Creating..." : "Create project"}
                   </Button>
                 </div>
@@ -576,6 +594,32 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             />
           </div>
         ) : children}
+        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create new workspace</DialogTitle>
+              <DialogDescription>Enter a name for your new product workspace. You will be automatically switched to it once created.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Input
+                placeholder="e.g. Acme Co. Beta Platform"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => createProject.mutate(newProjectName)}
+                disabled={!newProjectName.trim() || createProject.isPending}
+              >
+                {createProject.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Create Workspace
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SidebarInset>
     </>
   );

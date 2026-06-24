@@ -86,7 +86,13 @@ function parseOutputSchema(val: any): { type: string; value: any } {
 
 function describeOutputSchema(schema: any): string {
   if (!schema || !schema.value) return "No output schema defined";
-  if (schema.type === "table") return `Table: ${schema.value}`;
+  if (schema.type === "table") {
+    if (typeof schema.value === "object" && schema.value !== null) {
+      const tables = Object.keys(schema.value);
+      return tables.length > 0 ? `Tables: ${tables.join(", ")}` : "No tables configured";
+    }
+    return `Table: ${schema.value}`;
+  }
   if (schema.type === "custom") return `Custom Schema defined`;
   if (schema.type === "text") return `Text rules defined`;
   return "No output schema defined";
@@ -751,6 +757,7 @@ export function AdminPage() {
                   setEditSkillDesc(skill.description ?? "");
                   setEditKbEligible(skill.kbEligible ?? false);
                   setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
+                  setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
                 }}
                 onDelete={(skill) => deleteSkill.mutate(skill.id)}
@@ -855,6 +862,7 @@ export function AdminPage() {
                             versionId: currentVer.id,
                             systemPrompt: editPromptText,
                             inputSourceMap: editInputSourceMap,
+                            outputSchema: editOutputSchema,
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
@@ -870,6 +878,7 @@ export function AdminPage() {
                             skillId: editingSkill.id,
                             systemPrompt: editPromptText,
                             inputSourceMap: editInputSourceMap,
+                            outputSchema: editOutputSchema,
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
