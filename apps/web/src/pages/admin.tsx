@@ -136,12 +136,21 @@ export function AdminPage() {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
 
+  // KB create form state
+  const [isCreateKbOpen, setIsCreateKbOpen] = useState(false);
+  const [newKbId, setNewKbId] = useState("");
+  const [newKbName, setNewKbName] = useState("");
+  const [newKbDesc, setNewKbDesc] = useState("");
+  const [newKbTopic, setNewKbTopic] = useState("");
+  const [newKbMarkdown, setNewKbMarkdown] = useState("");
+
   // Skill Creation States
   const [isCreateSkillOpen, setIsCreateSkillOpen] = useState(false);
   const [newSkillId, setNewSkillId] = useState("");
   const [newSkillName, setNewSkillName] = useState("");
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
+  const [newSkillKbEligible, setNewSkillKbEligible] = useState(false);
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
@@ -153,6 +162,7 @@ export function AdminPage() {
   const [editPromptText, setEditPromptText] = useState("");
   const [editSkillName, setEditSkillName] = useState("");
   const [editSkillDesc, setEditSkillDesc] = useState("");
+  const [editKbEligible, setEditKbEligible] = useState(false);
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
@@ -397,10 +407,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -434,10 +444,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -501,7 +511,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -514,6 +524,7 @@ export function AdminPage() {
       setNewSkillName("");
       setNewSkillDesc("");
       setNewSkillPrompt("");
+      setNewSkillKbEligible(false);
       setNewSkillInputSourceMap({ skills: [], tables: {} });
       setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
@@ -529,6 +540,20 @@ export function AdminPage() {
       setSkillCreateError(err.message || "Failed to create skill.");
       toast.error(err.message || "Failed to create skill.");
     }
+  });
+  const createKnowledgeMutation = useMutation({
+    mutationFn: (data: { id: string; name: string; description: string; markdown: string; topic?: string }) =>
+      api("/admin/knowledge-bases", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: (result: any) => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
+      setIsCreateKbOpen(false);
+      setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbTopic(""); setNewKbMarkdown("");
+      setSelectedKbId(result?.id ?? null);
+      toast.success("Knowledge base created!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to create knowledge base.");
+    },
   });
   const createKnowledgeVersion = useMutation({
     mutationFn: ({ id, markdown }: { id: string; markdown: string }) =>
@@ -724,6 +749,7 @@ export function AdminPage() {
                   setEditPromptText(currentVer?.systemPrompt ?? "");
                   setEditSkillName(skill.name ?? "");
                   setEditSkillDesc(skill.description ?? "");
+                  setEditKbEligible(skill.kbEligible ?? false);
                   setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
                   setSkillEditError(null);
                 }}
@@ -757,6 +783,16 @@ export function AdminPage() {
                 onDraft={setKnowledgeDrafts}
                 onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
                 isLoading={loadingKnowledge}
+                isCreateOpen={isCreateKbOpen}
+                onOpenCreate={() => setIsCreateKbOpen(true)}
+                onCloseCreate={() => { setIsCreateKbOpen(false); setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbTopic(""); setNewKbMarkdown(""); }}
+                newKbId={newKbId} onNewKbId={setNewKbId}
+                newKbName={newKbName} onNewKbName={setNewKbName}
+                newKbDesc={newKbDesc} onNewKbDesc={setNewKbDesc}
+                newKbTopic={newKbTopic} onNewKbTopic={setNewKbTopic}
+                newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
+                onCreateSubmit={() => createKnowledgeMutation.mutate({ id: newKbId, name: newKbName, description: newKbDesc, markdown: newKbMarkdown, topic: newKbTopic || undefined })}
+                isCreating={createKnowledgeMutation.isPending}
               />
             )}
 
@@ -821,6 +857,7 @@ export function AdminPage() {
                             inputSourceMap: editInputSourceMap,
                             name: editSkillName,
                             description: editSkillDesc,
+                            kbEligible: editKbEligible,
                           });
                         }}
                       >
@@ -835,6 +872,7 @@ export function AdminPage() {
                             inputSourceMap: editInputSourceMap,
                             name: editSkillName,
                             description: editSkillDesc,
+                            kbEligible: editKbEligible,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -877,6 +915,17 @@ export function AdminPage() {
                       onChange={(e) => setEditSkillDesc(e.target.value)}
                       disabled={!isAdmin || !currentVer}
                     />
+                  </div>
+                  <div className="flex items-center gap-3 pt-1">
+                    <label className="admin-field-label mb-0">KB Injection Eligible</label>
+                    <input
+                      type="checkbox"
+                      checked={editKbEligible}
+                      onChange={(e) => setEditKbEligible(e.target.checked)}
+                      disabled={!isAdmin || !currentVer}
+                      className="h-4 w-4 cursor-pointer"
+                    />
+                    <span className="text-xs text-muted-foreground">Enable knowledge base injection for this skill</span>
                   </div>
                 </div>
 
@@ -1080,6 +1129,17 @@ export function AdminPage() {
                   />
                 </div>
 
+                <div className="flex items-center gap-3">
+                  <label className="admin-field-label mb-0">KB Injection Eligible</label>
+                  <input
+                    type="checkbox"
+                    checked={newSkillKbEligible}
+                    onChange={(e) => setNewSkillKbEligible(e.target.checked)}
+                    className="h-4 w-4 cursor-pointer"
+                  />
+                  <span className="text-xs text-muted-foreground">Enable knowledge base injection for this skill</span>
+                </div>
+
                 <div>
                   <label className="admin-field-label">Initial System Prompt</label>
                   <textarea
@@ -1155,6 +1215,7 @@ export function AdminPage() {
                         description: newSkillDesc,
                         systemPrompt: newSkillPrompt,
                         inputSourceMap: newSkillInputSourceMap,
+                        kbEligible: newSkillKbEligible,
                       });
                     }}
                     disabled={createSkillMutation.isPending}

@@ -110,8 +110,8 @@ export async function invokeSkill(input: {
 
   const additionalSections: any[] = [];
 
-  // KB injection for evolve/document skills
-  const kbSections = await injectKnowledgeBases(input.content, skillId);
+  // KB injection — skill eligibility and topic detection handled in injectKnowledgeBases
+  const kbSections = await injectKnowledgeBases(input.content, skillId, input.conversationId);
   for (const kb of kbSections) {
     additionalSections.push({
       tag: `expertise_knowledge tag="${kb.tag}"`,

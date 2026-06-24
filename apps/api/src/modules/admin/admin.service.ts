@@ -123,7 +123,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -131,7 +131,7 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt, inputSourceMap, outputSchema } = body;
+    const { systemPrompt, inputSourceMap, outputSchema, kbEligible } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
@@ -149,6 +149,7 @@ export class AdminService {
           id,
           name,
           description,
+          kbEligible: kbEligible ?? false,
         },
       });
 
@@ -203,6 +204,7 @@ export class AdminService {
     const data: Record<string, any> = {};
     if (typeof body.name === "string") data.name = body.name.trim();
     if (typeof body.description === "string") data.description = body.description.trim();
+    if (typeof body.kbEligible === "boolean") data.kbEligible = body.kbEligible;
 
     const skill = await this.prisma.client.skill.update({
       where: { id },
@@ -245,13 +247,18 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    const parsed = skillVersionInputSchema.parse(body);
-    if (parsed.name !== undefined || parsed.description !== undefined) {
+    const parseResult = skillVersionInputSchema.safeParse(body);
+    if (!parseResult.success) {
+      throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(parseResult.error.issues)}`);
+    }
+    const parsed = parseResult.data;
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
+          ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
         },
       });
     }
@@ -296,13 +303,18 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    const parsed = skillVersionInputSchema.parse(body);
-    if (parsed.name !== undefined || parsed.description !== undefined) {
+    const result = skillVersionInputSchema.safeParse(body);
+    if (!result.success) {
+      throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(result.error.issues)}`);
+    }
+    const parsed = result.data;
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
+          ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
         },
       });
     }
@@ -493,6 +505,41 @@ export class AdminService {
         },
       });
       return profile;
+    });
+  }
+
+  async createKnowledge(
+    actor: Actor,
+    body: { id: string; name: string; description: string; markdown: string; topic?: string },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const { id, name, description, markdown, topic } = body;
+    if (!id?.trim() || !name?.trim() || !description?.trim() || !markdown?.trim()) {
+      throw new BadRequestException("id, name, description, and markdown are required.");
+    }
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const kb = await tx.knowledgeBase.create({
+        data: { id: id.trim(), name: name.trim(), description: description.trim(), active: true },
+      });
+      const version = await tx.knowledgeBaseVersion.create({
+        data: { knowledgeBaseId: kb.id, version: 1, markdown, active: true },
+      });
+      if (topic?.trim()) {
+        await tx.knowledgeBaseTopicMapping.create({
+          data: { knowledgeBaseId: kb.id, topic: topic.trim(), priority: 0 },
+        });
+      }
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "knowledge.created",
+          targetType: "knowledge_base",
+          targetId: kb.id,
+          metadata: { name: kb.name },
+        },
+      });
+      return { ...kb, versions: [version], mappings: topic?.trim() ? [{ topic: topic.trim(), priority: 0 }] : [] };
     });
   }
 

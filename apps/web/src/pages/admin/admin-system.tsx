@@ -1,5 +1,6 @@
 import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus, Eye, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Badge, Button, Card, Input, Textarea } from "../../components/ui";
 import { DataTable, FieldGroup, FormActions, FormGrid, TableSkeleton } from "../../components/app-ui";
 import { AdminMasterDetail, AdminShellSection } from "../../components/admin-ui";
@@ -384,6 +385,16 @@ export function AdminKnowledge({
   onDraft,
   onPublish,
   isLoading,
+  isCreateOpen,
+  onOpenCreate,
+  onCloseCreate,
+  newKbId, onNewKbId,
+  newKbName, onNewKbName,
+  newKbDesc, onNewKbDesc,
+  newKbTopic, onNewKbTopic,
+  newKbMarkdown, onNewKbMarkdown,
+  onCreateSubmit,
+  isCreating,
 }: {
   knowledge: any[];
   selectedKbId: string | null;
@@ -393,6 +404,16 @@ export function AdminKnowledge({
   onDraft: (drafts: Record<string, string>) => void;
   onPublish: (id: string, markdown: string) => void;
   isLoading?: boolean;
+  isCreateOpen?: boolean;
+  onOpenCreate?: () => void;
+  onCloseCreate?: () => void;
+  newKbId?: string; onNewKbId?: (v: string) => void;
+  newKbName?: string; onNewKbName?: (v: string) => void;
+  newKbDesc?: string; onNewKbDesc?: (v: string) => void;
+  newKbTopic?: string; onNewKbTopic?: (v: string) => void;
+  newKbMarkdown?: string; onNewKbMarkdown?: (v: string) => void;
+  onCreateSubmit?: () => void;
+  isCreating?: boolean;
 }) {
   const activeKb = knowledge.find((base) => base.id === (selectedKbId || knowledge[0]?.id));
   const activeVer = activeKb?.versions.find((item: any) => item.active) ?? activeKb?.versions[0];
@@ -447,6 +468,7 @@ export function AdminKnowledge({
   }
 
   return (
+    <>
     <AdminMasterDetail
       master={
         <Card className="admin-master-pane flow-builder">
@@ -460,16 +482,24 @@ export function AdminKnowledge({
                 Select a knowledge base to inspect or update.
               </p>
             </div>
+            {isAdmin && onOpenCreate && (
+              <Button size="sm" onClick={onOpenCreate}>+ New KB</Button>
+            )}
           </div>
+
           <div className="admin-template-list">
+            {knowledge.length === 0 && (
+              <p className="text-sm text-muted-foreground px-1">No knowledge bases yet. Click "+ New KB" to create one.</p>
+            )}
             {knowledge.map((base) => {
               const active = base.versions.find((item: any) => item.active) ?? base.versions[0];
               const selected = (selectedKbId || knowledge[0]?.id) === base.id;
+              const firstTopic = base.mappings?.[0]?.topic ?? "";
               return (
                 <button key={base.id} className={`admin-list-item ${selected ? "active" : ""}`} onClick={() => onSelectKnowledge(base.id)} type="button">
                   <strong>{base.name}</strong>
                   <div className="item-meta">
-                    <span>{base.topic}</span>
+                    <span>{firstTopic}</span>
                     {active ? <Badge tone="green">v{active.version}</Badge> : null}
                   </div>
                 </button>
@@ -488,7 +518,7 @@ export function AdminKnowledge({
                   {activeKb.name}
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Topic: <span className="font-semibold">{activeKb.topic}</span>
+                  Topics: <span className="font-semibold">{activeKb.mappings?.map((m: any) => m.topic).join(", ") || "none"}</span>
                 </p>
               </div>
               <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
@@ -512,5 +542,48 @@ export function AdminKnowledge({
         )
       }
     />
+
+    {isCreateOpen && createPortal(
+      <div className="admin-drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) onCloseCreate?.(); }}>
+        <div className="admin-drawer-content">
+          <div className="admin-drawer-header">
+            <h2>Create Knowledge Base</h2>
+            <Button variant="ghost" onClick={onCloseCreate}>Close</Button>
+          </div>
+          <div className="admin-drawer-body">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="admin-field-label">ID (slug)</label>
+                  <input className="admin-input" placeholder="e.g. pricing-kb" value={newKbId ?? ""} onChange={(e) => onNewKbId?.(e.target.value)} />
+                </div>
+                <div>
+                  <label className="admin-field-label">Name</label>
+                  <input className="admin-input" placeholder="e.g. Pricing Strategy" value={newKbName ?? ""} onChange={(e) => onNewKbName?.(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="admin-field-label">Description</label>
+                <input className="admin-input" placeholder="What this KB covers" value={newKbDesc ?? ""} onChange={(e) => onNewKbDesc?.(e.target.value)} />
+              </div>
+              <div>
+                <label className="admin-field-label">Initial Topic Keyword</label>
+                <input className="admin-input" placeholder="e.g. pricing (used for keyword detection)" value={newKbTopic ?? ""} onChange={(e) => onNewKbTopic?.(e.target.value)} />
+                <p className="text-xs text-muted-foreground mt-1">Keyword matched against user messages to trigger this KB injection.</p>
+              </div>
+              <div>
+                <label className="admin-field-label">Initial Markdown Content</label>
+                <textarea className="admin-textarea monospace" placeholder="# Knowledge base content..." rows={12} value={newKbMarkdown ?? ""} onChange={(e) => onNewKbMarkdown?.(e.target.value)} />
+              </div>
+              <div className="form-actions pt-2">
+                <Button onClick={onCreateSubmit} disabled={isCreating}>{isCreating ? "Creating..." : "Create Knowledge Base"}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )}
+    </>
   );
 }

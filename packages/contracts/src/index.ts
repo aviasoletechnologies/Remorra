@@ -190,6 +190,7 @@ export const cursorPageSchema = <T extends z.ZodType>(item: T) =>
 export const skillVersionInputSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
+  kbEligible: z.boolean().optional(),
   systemPrompt: z.string().optional(),
   inputSourceMap: z.object({
     skills: z.array(z.string()).optional(),
