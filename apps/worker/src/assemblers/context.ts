@@ -1,4 +1,6 @@
+import { Prisma } from "@remorra/database/generated/client";
 import { prisma } from "../lib/prisma";
+import { generateEmbedding } from "../services/embedding";
 
 export async function projectContext(projectId: string) {
   return prisma.project.findUniqueOrThrow({
@@ -15,68 +17,82 @@ export async function projectContext(projectId: string) {
   });
 }
 
+const KB_THRESHOLDS = {
+  veryShort: 0.50, // 1-6 words
+  short: 0.55,     // 7-15 words
+  medium: 0.62,    // 16-40 words
+  long: 0.70,      // 40+ words
+};
+
+function getKbThreshold(text: string): number {
+  const words = text.trim().split(/\s+/).length;
+  if (words <= 6) return KB_THRESHOLDS.veryShort;
+  if (words <= 15) return KB_THRESHOLDS.short;
+  if (words <= 40) return KB_THRESHOLDS.medium;
+  return KB_THRESHOLDS.long;
+}
+type KnowledgeBaseMatch = { id: string; similarity: number };
+
 export async function injectKnowledgeBases(
   userContent: string,
   skillId: string,
   conversationId?: string,
+  onLog?: (msg: string, metadata?: any) => void,
 ) {
   try {
+    // Stage 1: skill gate
     const skill = await prisma.skill.findUnique({ where: { id: skillId }, select: { kbEligible: true } });
     if (!skill?.kbEligible) return [];
 
-    const historyTexts: string[] = [];
+    // Stage 2: build query text (current message + recent history for better context)
+    let queryText = userContent;
     if (conversationId) {
       const recent = await prisma.conversationMessage.findMany({
         where: { conversationId },
         orderBy: { createdAt: "desc" },
-        take: 6,
+        take: 3,
         select: { content: true },
       });
-      historyTexts.push(...recent.map((m: { content: string }) => m.content.toLowerCase()));
+      if (recent.length > 0) {
+        queryText = recent.map((m: { content: string }) => m.content).reverse().join(" ") + " " + userContent;
+      }
     }
 
-    const mappings = await prisma.knowledgeBaseTopicMapping.findMany({
-      orderBy: { priority: "desc" },
-      include: { knowledgeBase: { include: { versions: { where: { active: true }, take: 1 } } } },
+    // Stage 3: embed query text
+    const embedding = await generateEmbedding(queryText);
+    const vecLiteral = Prisma.raw(`'[${embedding.join(",")}]'::vector`);
+
+    // Stage 4: pgvector cosine similarity search
+    const matches: KnowledgeBaseMatch[] = await prisma.$queryRaw<KnowledgeBaseMatch[]>(
+      Prisma.sql`
+        SELECT id, 1 - (embedding <=> ${vecLiteral}) AS similarity
+        FROM "KnowledgeBase"
+        WHERE active = true AND embedding IS NOT NULL
+        ORDER BY embedding <=> ${vecLiteral}
+        LIMIT 5
+      `,
+    );
+
+    const threshold = getKbThreshold(userContent);
+    const scores = Object.fromEntries(matches.map((m) => [m.id, Number(m.similarity).toFixed(4)]));
+    onLog?.("KB similarity scores", { stage: "kb_similarity", threshold, scores, queryDims: embedding.length });
+
+    const relevant = matches.filter((m) => m.similarity >= threshold);
+    onLog?.(`KB injection: ${relevant.length} matched`, { stage: "kb_injection", injected: relevant.map((m) => m.id) });
+    if (relevant.length === 0) return [];
+
+    // Stage 5: fetch active version markdown for matched KBs
+    const kbIds = relevant.map((m) => m.id);
+    const versions = await prisma.knowledgeBaseVersion.findMany({
+      where: { knowledgeBaseId: { in: kbIds }, active: true },
+      select: { knowledgeBaseId: true, markdown: true },
     });
 
-    const currentLower = userContent.toLowerCase();
-    const scored: { tag: string; markdown: string; score: number; priority: number }[] = [];
+    const markdownMap = new Map(versions.map((v: { knowledgeBaseId: string; markdown: string }) => [v.knowledgeBaseId, v.markdown]));
 
-    for (const mapping of mappings) {
-      if (!mapping.knowledgeBase.active) continue;
-      const version = mapping.knowledgeBase.versions[0];
-      if (!version) continue;
-
-      const topic = mapping.topic.toLowerCase();
-
-      // Current message match is required (2pts) — history alone never triggers
-      if (!currentLower.includes(topic)) continue;
-
-      let score = 2;
-      let historyHits = 0;
-      for (const text of historyTexts) {
-        if (historyHits >= 2) break;
-        if (text.includes(topic)) {
-          score += 1;
-          historyHits++;
-        }
-      }
-
-      scored.push({ tag: mapping.knowledgeBase.id, markdown: version.markdown, score, priority: mapping.priority });
-    }
-
-    // Sort: score desc, then priority desc as tiebreaker
-    scored.sort((a, b) => b.score - a.score || b.priority - a.priority);
-
-    const seen = new Set<string>();
-    return scored
-      .filter((m) => {
-        if (seen.has(m.tag)) return false;
-        seen.add(m.tag);
-        return true;
-      })
-      .map(({ tag, markdown }) => ({ tag, markdown }));
+    return relevant
+      .filter((m) => markdownMap.has(m.id))
+      .map((m) => ({ tag: m.id, markdown: markdownMap.get(m.id)! }));
   } catch (err) {
     console.warn("[injectKnowledgeBases] failed:", err);
     return [];

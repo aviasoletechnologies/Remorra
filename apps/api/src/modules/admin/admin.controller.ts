@@ -207,6 +207,34 @@ export class AdminController {
     return this.admin.createReportVersion(actor, id, body);
   }
 
+  @Delete("knowledge-bases/:id")
+  deleteKnowledge(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.deleteKnowledge(actor, id);
+  }
+
+  @Post("knowledge-bases/:id/embed")
+  embedKnowledge(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.embedKnowledge(actor, id);
+  }
+
+  @Post("knowledge-bases/:id/versions/:versionId/activate")
+  activateKnowledgeVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Param("versionId") versionId: string,
+  ) {
+    return this.admin.activateKnowledgeVersion(actor, id, versionId);
+  }
+
+  @Delete("knowledge-bases/:id/versions/:versionId")
+  deleteKnowledgeVersion(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Param("versionId") versionId: string,
+  ) {
+    return this.admin.deleteKnowledgeVersion(actor, id, versionId);
+  }
+
   @Get("knowledge-bases")
   knowledge(@CurrentActor() actor: Actor) {
     return this.admin.knowledge(actor);

@@ -5,6 +5,26 @@ import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 import { skillVersionInputSchema } from "@remorra/contracts";
 
+async function generateKbEmbedding(text: string): Promise<number[]> {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !apiToken) throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set");
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-m3`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+      body: JSON.stringify({ text: [text.slice(0, 8192)] }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Cloudflare AI error ${res.status}: ${body}`);
+  }
+  const json = (await res.json()) as { result: { data: number[][] } };
+  return json.result.data[0]!;
+}
+
 // Safe local micro-template engine helpers
 function renderTemplateLocal(template: string, data: any): string {
   let result = template;
@@ -218,7 +238,7 @@ export class AdminService {
   async activateSkill(actor: Actor, skillId: string, versionId: string) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       await tx.skillVersion.updateMany({
         where: { skillId },
         data: { active: false },
@@ -462,7 +482,7 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       const policy = await tx.retentionPolicy.update({
         where: { id },
         data: {
@@ -518,7 +538,7 @@ export class AdminService {
     if (!id?.trim() || !name?.trim() || !description?.trim() || !markdown?.trim()) {
       throw new BadRequestException("id, name, description, and markdown are required.");
     }
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       const kb = await tx.knowledgeBase.create({
         data: { id: id.trim(), name: name.trim(), description: description.trim(), active: true },
       });
@@ -541,6 +561,66 @@ export class AdminService {
       });
       return { ...kb, versions: [version], mappings: topic?.trim() ? [{ topic: topic.trim(), priority: 0 }] : [] };
     });
+
+    // Embed KB content asynchronously — don't block response
+    void this.storeKbEmbedding(result.id, markdown).catch((err) => console.warn("[KB embed] background embed failed:", err?.message));
+
+    return result;
+  }
+
+  private async storeKbEmbedding(kbId: string, markdown: string): Promise<void> {
+    const embedding = await generateKbEmbedding(markdown);
+    await this.prisma.client.$executeRawUnsafe(
+      `UPDATE "KnowledgeBase" SET embedding = $1::vector WHERE id = $2`,
+      `[${embedding.join(",")}]`,
+      kbId,
+    );
+    console.log(`[KB embed] stored embedding for ${kbId} (${embedding.length} dims)`);
+  }
+
+  async deleteKnowledge(actor: Actor, id: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    await this.prisma.client.knowledgeBase.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async embedKnowledge(actor: Actor, id: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const version = await this.prisma.client.knowledgeBaseVersion.findFirst({
+      where: { knowledgeBaseId: id, active: true },
+    });
+    if (!version) throw new BadRequestException("No active version found for this knowledge base.");
+    try {
+      await this.storeKbEmbedding(id, version.markdown);
+      return { ok: true };
+    } catch (err: any) {
+      throw new BadRequestException(`Embedding failed: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  async activateKnowledgeVersion(actor: Actor, kbId: string, versionId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const version = await this.prisma.client.knowledgeBaseVersion.findUniqueOrThrow({ where: { id: versionId } });
+    if (version.knowledgeBaseId !== kbId) throw new BadRequestException("Version does not belong to this knowledge base.");
+    await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.knowledgeBaseVersion.updateMany({ where: { knowledgeBaseId: kbId }, data: { active: false } });
+      await tx.knowledgeBaseVersion.update({ where: { id: versionId }, data: { active: true } });
+    });
+    void this.storeKbEmbedding(kbId, version.markdown).catch((err) => console.warn("[KB embed] background embed failed:", err?.message));
+    return { ok: true };
+  }
+
+  async deleteKnowledgeVersion(actor: Actor, kbId: string, versionId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const version = await this.prisma.client.knowledgeBaseVersion.findUniqueOrThrow({ where: { id: versionId } });
+    if (version.knowledgeBaseId !== kbId) throw new BadRequestException("Version does not belong to this knowledge base.");
+    if (version.active) throw new BadRequestException("Cannot delete the active version. Activate another version first.");
+    await this.prisma.client.knowledgeBaseVersion.delete({ where: { id: versionId } });
+    return { ok: true };
   }
 
   async createKnowledgeVersion(
@@ -550,7 +630,7 @@ export class AdminService {
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const version = await this.prisma.client.$transaction(async (tx: any) => {
       const latest = await tx.knowledgeBaseVersion.findFirst({
         where: { knowledgeBaseId: id },
         orderBy: { version: "desc" },
@@ -561,7 +641,7 @@ export class AdminService {
           data: { active: false },
         });
       }
-      const version = await tx.knowledgeBaseVersion.create({
+      const v = await tx.knowledgeBaseVersion.create({
         data: {
           knowledgeBaseId: id,
           version: (latest?.version ?? 0) + 1,
@@ -574,12 +654,18 @@ export class AdminService {
           actorId: actor.userId,
           eventType: "knowledge.version.created",
           targetType: "knowledge_base_version",
-          targetId: version.id,
-          metadata: { knowledgeBaseId: id, version: version.version },
+          targetId: v.id,
+          metadata: { knowledgeBaseId: id, version: v.version },
         },
       });
-      return version;
+      return v;
     });
+
+    if (body.activate) {
+      void this.storeKbEmbedding(id, body.markdown).catch((err) => console.warn("[KB embed] background embed failed:", err?.message));
+    }
+
+    return version;
   }
 
   reports(actor: Actor) {
