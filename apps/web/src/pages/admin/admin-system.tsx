@@ -1,4 +1,4 @@
-import { Activity, BrainCircuit, BookOpen, Clock, FileText, Plus, Eye, Trash2 } from "lucide-react";
+import { Activity, BrainCircuit, BookOpen, CheckCircle2, Clock, FileText, Plus, Eye, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Badge, Button, Card, Input, Textarea } from "../../components/ui";
@@ -378,12 +378,9 @@ export function AdminReports({
 
 export function AdminKnowledge({
   knowledge,
-  selectedKbId,
-  knowledgeDrafts,
   isAdmin,
-  onSelectKnowledge,
-  onDraft,
-  onPublish,
+  onEdit,
+  onDelete,
   isLoading,
   isCreateOpen,
   onOpenCreate,
@@ -391,18 +388,14 @@ export function AdminKnowledge({
   newKbId, onNewKbId,
   newKbName, onNewKbName,
   newKbDesc, onNewKbDesc,
-  newKbTopic, onNewKbTopic,
   newKbMarkdown, onNewKbMarkdown,
   onCreateSubmit,
   isCreating,
 }: {
   knowledge: any[];
-  selectedKbId: string | null;
-  knowledgeDrafts: Record<string, string>;
   isAdmin: boolean;
-  onSelectKnowledge: (id: string) => void;
-  onDraft: (drafts: Record<string, string>) => void;
-  onPublish: (id: string, markdown: string) => void;
+  onEdit: (kb: any) => void;
+  onDelete: (kb: any) => void;
   isLoading?: boolean;
   isCreateOpen?: boolean;
   onOpenCreate?: () => void;
@@ -410,138 +403,70 @@ export function AdminKnowledge({
   newKbId?: string; onNewKbId?: (v: string) => void;
   newKbName?: string; onNewKbName?: (v: string) => void;
   newKbDesc?: string; onNewKbDesc?: (v: string) => void;
-  newKbTopic?: string; onNewKbTopic?: (v: string) => void;
   newKbMarkdown?: string; onNewKbMarkdown?: (v: string) => void;
   onCreateSubmit?: () => void;
   isCreating?: boolean;
 }) {
-  const activeKb = knowledge.find((base) => base.id === (selectedKbId || knowledge[0]?.id));
-  const activeVer = activeKb?.versions.find((item: any) => item.active) ?? activeKb?.versions[0];
-  const draft = activeKb ? knowledgeDrafts[activeKb.id] ?? activeVer?.markdown ?? "" : "";
-
-  if (isLoading) {
-    return (
-      <AdminMasterDetail
-        master={
-          <Card className="admin-master-pane flow-builder animate-pulse">
-            <div className="flow-builder__header flex justify-between items-center mb-6">
-              <div>
-                <h2 className="flex items-center gap-2 text-xl font-semibold">
-                  <BookOpen className="text-emerald-500" size={20} />
-                  Knowledge Bases
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Select a knowledge base to inspect or update.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2.5 mt-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="p-4 border border-border/50 rounded-xl flex flex-col gap-2 bg-secondary/10">
-                  <Skeleton className="h-4 w-3/4" />
-                  <div className="flex gap-2 mt-1">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-4 w-8" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        }
-        detail={
-          <Card className="detail-card flow-builder animate-pulse">
-            <div className="flow-builder__header flex justify-between items-center mb-6">
-              <div className="flex flex-col gap-2 w-1/2">
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-3.5 w-full mt-1" />
-              </div>
-              <Skeleton className="h-6 w-12 rounded-full" />
-            </div>
-            <div className="field-group flex flex-col gap-2 mt-4">
-              <Skeleton className="h-4 w-48" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          </Card>
-        }
-      />
-    );
-  }
-
   return (
     <>
-    <AdminMasterDetail
-      master={
-        <Card className="admin-master-pane flow-builder">
-          <div className="flow-builder__header flex justify-between items-center mb-6">
-            <div>
-              <h2 className="flex items-center gap-2 text-xl font-semibold">
-                <BookOpen className="text-emerald-500" size={20} />
-                Knowledge Bases
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Select a knowledge base to inspect or update.
-              </p>
-            </div>
-            {isAdmin && onOpenCreate && (
-              <Button size="sm" onClick={onOpenCreate}>+ New KB</Button>
-            )}
-          </div>
+    <Card className="flow-builder">
+      <div className="flow-builder__header flex justify-between items-center mb-6">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <BookOpen className="text-emerald-500" size={20} />
+            Knowledge Bases
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage knowledge bases injected into AI skills.
+          </p>
+        </div>
+        {isAdmin && onOpenCreate && (
+          <Button onClick={onOpenCreate} className="flex items-center gap-2" disabled={isLoading}>
+            <Plus size={15} /> New KB
+          </Button>
+        )}
+      </div>
 
-          <div className="admin-template-list">
-            {knowledge.length === 0 && (
-              <p className="text-sm text-muted-foreground px-1">No knowledge bases yet. Click "+ New KB" to create one.</p>
-            )}
-            {knowledge.map((base) => {
-              const active = base.versions.find((item: any) => item.active) ?? base.versions[0];
-              const selected = (selectedKbId || knowledge[0]?.id) === base.id;
-              const firstTopic = base.mappings?.[0]?.topic ?? "";
-              return (
-                <button key={base.id} className={`admin-list-item ${selected ? "active" : ""}`} onClick={() => onSelectKnowledge(base.id)} type="button">
-                  <strong>{base.name}</strong>
-                  <div className="item-meta">
-                    <span>{firstTopic}</span>
-                    {active ? <Badge tone="green">v{active.version}</Badge> : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-      }
-      detail={
-        activeKb ? (
-          <Card className="detail-card flow-builder">
-            <div className="flow-builder__header flex justify-between items-center mb-6">
-              <div>
-                <h2 className="flex items-center gap-2 text-xl font-semibold">
-                  <BookOpen className="text-emerald-500" size={20} />
-                  {activeKb.name}
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Topics: <span className="font-semibold">{activeKb.mappings?.map((m: any) => m.topic).join(", ") || "none"}</span>
-                </p>
-              </div>
-              <Badge tone="green">v{activeVer?.version ?? "1"}</Badge>
-            </div>
-            <FieldGroup label="Knowledge base markdown content">
-              <Textarea
-                className="admin-textarea monospace"
-                value={draft}
-                onChange={(event) => onDraft({ ...knowledgeDrafts, [activeKb.id]: event.target.value })}
-                disabled={!isAdmin}
-              />
-            </FieldGroup>
-            {isAdmin ? (
-              <FormActions>
-                <Button onClick={() => onPublish(activeKb.id, draft)}>Publish and activate content version</Button>
-              </FormActions>
-            ) : null}
-          </Card>
-        ) : (
-          <div className="placeholder-detail">Select a knowledge base to view and edit details.</div>
-        )
-      }
-    />
+      {isLoading ? (
+        <TableSkeleton rows={4} columns={4} />
+      ) : (
+        <DataTable
+          rows={knowledge}
+          getRowKey={(row: any) => row.id}
+          minWidth={600}
+          emptyTitle="No knowledge bases"
+          emptyDescription="Click '+ New KB' to create one."
+          columns={[
+            { key: "id", header: "ID", cell: (row: any) => <code>{row.id}</code> },
+            { key: "name", header: "Name", cell: (row: any) => <strong>{row.name}</strong> },
+            {
+              key: "active",
+              header: "Active version",
+              cell: (row: any) => {
+                const active = row.versions.find((v: any) => v.active);
+                return active ? <Badge tone="green">v{active.version}</Badge> : <Badge tone="amber">No active</Badge>;
+              },
+            },
+            {
+              key: "actions",
+              header: "Actions",
+              cell: (row: any) => (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" title="Manage versions" onClick={() => onEdit(row)}>
+                    <Eye size={16} />
+                  </Button>
+                  {isAdmin && (
+                    <Button variant="outline" size="icon" title="Delete knowledge base" onClick={() => onDelete(row)}>
+                      <Trash2 size={16} />
+                    </Button>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
+      )}
+    </Card>
 
     {isCreateOpen && createPortal(
       <div className="admin-drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) onCloseCreate?.(); }}>
@@ -565,11 +490,6 @@ export function AdminKnowledge({
               <div>
                 <label className="admin-field-label">Description</label>
                 <input className="admin-input" placeholder="What this KB covers" value={newKbDesc ?? ""} onChange={(e) => onNewKbDesc?.(e.target.value)} />
-              </div>
-              <div>
-                <label className="admin-field-label">Initial Topic Keyword</label>
-                <input className="admin-input" placeholder="e.g. pricing (used for keyword detection)" value={newKbTopic ?? ""} onChange={(e) => onNewKbTopic?.(e.target.value)} />
-                <p className="text-xs text-muted-foreground mt-1">Keyword matched against user messages to trigger this KB injection.</p>
               </div>
               <div>
                 <label className="admin-field-label">Initial Markdown Content</label>

@@ -118,7 +118,8 @@ describe("LLM Service - Context Formatting to YAML", () => {
         }
       ];
 
-      const messages = buildSkillMessages(sections);
+      const result = buildSkillMessages(sections);
+      const { messages } = result;
 
       expect(messages).toHaveLength(1);
       expect(messages[0]!.role).toBe("user");
@@ -144,8 +145,8 @@ describe("LLM Service - Context Formatting to YAML", () => {
         }
       ];
 
-      const messages = buildSkillMessages(sections);
-      expect(messages[0]!.content).toContain("invalid json string");
+      const result = buildSkillMessages(sections);
+      expect(result.messages[0]!.content).toContain("invalid json string");
     });
   });
 });

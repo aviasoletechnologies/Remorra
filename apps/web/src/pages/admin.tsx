@@ -141,13 +141,15 @@ export function AdminPage() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  const [editingKbId, setEditingKbId] = useState<string | null>(null);
+  const [editingKbVersionId, setEditingKbVersionId] = useState<string | null>(null);
+  const [editKbDraft, setEditKbDraft] = useState("");
 
   // KB create form state
   const [isCreateKbOpen, setIsCreateKbOpen] = useState(false);
   const [newKbId, setNewKbId] = useState("");
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");
-  const [newKbTopic, setNewKbTopic] = useState("");
   const [newKbMarkdown, setNewKbMarkdown] = useState("");
 
   // Skill Creation States
@@ -335,6 +337,7 @@ export function AdminPage() {
   const totalPages = usersData?.totalPages ?? 1;
   const { data: reports = [], isLoading: loadingReports } = useQuery<any[]>({ queryKey: ["admin-reports"], queryFn: () => api("/admin/reports"), enabled: activeTab === "system" });
   const { data: knowledge = [], isLoading: loadingKnowledge } = useQuery<any[]>({ queryKey: ["admin-knowledge"], queryFn: () => api("/admin/knowledge-bases"), enabled: activeTab === "system" });
+  const editingKb = editingKbId ? (knowledge as any[]).find((kb: any) => kb.id === editingKbId) ?? null : null;
 
   const isAdmin = actor?.platformRole === "admin";
 
@@ -493,10 +496,10 @@ export function AdminPage() {
       setEditingSkill((current: any) => {
         if (current?.id !== variables.skillId) return current;
         const nextVersions = current.versions.filter((item: any) => item.id !== variables.versionId);
-        setEditingSkillVersionId(nextVersions[0]?.id ?? null);
         if (nextVersions.length === 0) return null;
         return { ...current, versions: nextVersions };
       });
+      setEditingSkillVersionId((cur: string | null) => (cur === variables.versionId ? null : cur));
       toast.success("Skill version deleted successfully!");
     },
     onError: (err: any) => {
@@ -553,7 +556,7 @@ export function AdminPage() {
     onSuccess: (result: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
       setIsCreateKbOpen(false);
-      setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbTopic(""); setNewKbMarkdown("");
+      setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbMarkdown("");
       setSelectedKbId(result?.id ?? null);
       toast.success("Knowledge base created!");
     },
@@ -571,6 +574,45 @@ export function AdminPage() {
     onError: (err: any) => {
       toast.error(err.message || "Failed to update knowledge base.");
     },
+  });
+
+  const activateKbVersion = useMutation({
+    mutationFn: ({ kbId, versionId }: { kbId: string; versionId: string }) =>
+      api(`/admin/knowledge-bases/${kbId}/versions/${versionId}/activate`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
+      toast.success("Version activated!");
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to activate version."),
+  });
+
+  const embedKbMutation = useMutation({
+    mutationFn: (kbId: string) =>
+      api(`/admin/knowledge-bases/${kbId}/embed`, { method: "POST" }),
+    onSuccess: () => toast.success("Embedding generated!"),
+    onError: (err: any) => toast.error(err.message || "Failed to generate embedding."),
+  });
+
+  const deleteKbMutation = useMutation({
+    mutationFn: (kbId: string) =>
+      api(`/admin/knowledge-bases/${kbId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
+      setEditingKbId(null);
+      toast.success("Knowledge base deleted.");
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to delete knowledge base."),
+  });
+
+  const deleteKbVersionMutation = useMutation({
+    mutationFn: ({ kbId, versionId }: { kbId: string; versionId: string }) =>
+      api(`/admin/knowledge-bases/${kbId}/versions/${versionId}`, { method: "DELETE" }),
+    onSuccess: (_, { versionId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-knowledge"] });
+      setEditingKbVersionId((cur: string | null) => (cur === versionId ? null : cur));
+      toast.success("Version deleted.");
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to delete version."),
   });
   const createReportVersion = useMutation({
     mutationFn: ({ id, templateKey }: { id: string; templateKey: string }) =>
@@ -783,22 +825,26 @@ export function AdminPage() {
             {systemSubTab === "knowledge" && (
               <AdminKnowledge
                 knowledge={knowledge}
-                selectedKbId={selectedKbId}
-                knowledgeDrafts={knowledgeDrafts}
                 isAdmin={isAdmin}
-                onSelectKnowledge={setSelectedKbId}
-                onDraft={setKnowledgeDrafts}
-                onPublish={(id, markdown) => createKnowledgeVersion.mutate({ id, markdown })}
+                onEdit={(kb) => {
+                  const activeVer = kb.versions.find((v: any) => v.active) ?? kb.versions[0];
+                  setEditingKbId(kb.id);
+                  setEditingKbVersionId(activeVer?.id ?? null);
+                  setEditKbDraft(activeVer?.markdown ?? "");
+                }}
+                onDelete={async (kb) => {
+                  const confirmed = await confirm({ title: "Delete Knowledge Base", description: `Delete "${kb.name}"? Removes all versions and topic mappings.`, confirmText: "Delete", variant: "destructive" });
+                  if (confirmed) deleteKbMutation.mutate(kb.id);
+                }}
                 isLoading={loadingKnowledge}
                 isCreateOpen={isCreateKbOpen}
                 onOpenCreate={() => setIsCreateKbOpen(true)}
-                onCloseCreate={() => { setIsCreateKbOpen(false); setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbTopic(""); setNewKbMarkdown(""); }}
+                onCloseCreate={() => { setIsCreateKbOpen(false); setNewKbId(""); setNewKbName(""); setNewKbDesc(""); setNewKbMarkdown(""); }}
                 newKbId={newKbId} onNewKbId={setNewKbId}
                 newKbName={newKbName} onNewKbName={setNewKbName}
                 newKbDesc={newKbDesc} onNewKbDesc={setNewKbDesc}
-                newKbTopic={newKbTopic} onNewKbTopic={setNewKbTopic}
-                newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
-                onCreateSubmit={() => createKnowledgeMutation.mutate({ id: newKbId, name: newKbName, description: newKbDesc, markdown: newKbMarkdown, topic: newKbTopic || undefined })}
+newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
+                onCreateSubmit={() => createKnowledgeMutation.mutate({ id: newKbId, name: newKbName, description: newKbDesc, markdown: newKbMarkdown })}
                 isCreating={createKnowledgeMutation.isPending}
               />
             )}
@@ -1074,6 +1120,102 @@ export function AdminPage() {
             </div>
           </div>,
           document.body
+        );
+      })()}
+
+      {/* KB Edit Drawer */}
+      {editingKb && (() => {
+        const activeVer = editingKb.versions.find((v: any) => v.active);
+        const currentVer = editingKb.versions.find((v: any) => v.id === editingKbVersionId) ?? activeVer ?? editingKb.versions[0];
+        const selectKbVersion = (ver: any) => {
+          setEditingKbVersionId(ver.id);
+          setEditKbDraft(ver.markdown ?? "");
+        };
+        return createPortal(
+          <div className="admin-drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingKbId(null); }}>
+            <div className="admin-drawer-content">
+              <div className="admin-drawer-header">
+                <div>
+                  <h2>Manage Knowledge Base: {editingKb.name}</h2>
+                  <code>{editingKb.id}</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Button variant="outline" size="sm" disabled={embedKbMutation.isPending}
+                      onClick={() => embedKbMutation.mutate(editingKb.id)}>
+                      {embedKbMutation.isPending ? "Embedding..." : "Re-embed"}
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button variant="destructive" size="sm" disabled={deleteKbMutation.isPending}
+                      onClick={async () => {
+                        const confirmed = await confirm({ title: "Delete Knowledge Base", description: `Delete "${editingKb.name}"? This removes all versions and topic mappings.`, confirmText: "Delete", variant: "destructive" });
+                        if (confirmed) deleteKbMutation.mutate(editingKb.id);
+                      }}>
+                      <Trash2 size={14} /> Delete KB
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => setEditingKbId(null)}>Close</Button>
+                </div>
+              </div>
+              <div className="admin-drawer-body">
+                <div className="skill-version-manager">
+                  <aside className="skill-version-list">
+                    <div className="flex items-center h-8 mb-2">
+                      <span className="text-sm font-medium text-muted-foreground">
+                        Active: {activeVer ? <Badge tone="green">v{activeVer.version}</Badge> : <Badge tone="amber">None</Badge>}
+                      </span>
+                    </div>
+                    {[...(editingKb.versions ?? [])].sort((a: any, b: any) => b.version - a.version).map((ver: any) => (
+                      <div key={ver.id} className={`skill-version-item ${currentVer?.id === ver.id ? "active" : ""}`}
+                        style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <button type="button" style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                          onClick={() => selectKbVersion(ver)}>
+                          <span>v{ver.version}</span>
+                          <div>{ver.active ? <Badge tone="green">Active</Badge> : <Badge tone="neutral">Draft</Badge>}</div>
+                        </button>
+                        {isAdmin && !ver.active && (
+                          <Button variant="ghost" size="icon" style={{ flexShrink: 0, width: 24, height: 24 }}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const confirmed = await confirm({ title: "Delete version", description: `Delete v${ver.version}? This cannot be undone.`, confirmText: "Delete", variant: "destructive" });
+                              if (confirmed) deleteKbVersionMutation.mutate({ kbId: editingKb.id, versionId: ver.id });
+                            }}>
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </aside>
+                  <section className="skill-version-editor">
+                    <div className="flex justify-between items-center h-8 mb-2">
+                      <label className="text-sm font-medium text-muted-foreground">Markdown Content</label>
+                      {currentVer && !currentVer.active && isAdmin && (
+                        <Button variant="secondary" size="sm" onClick={() => activateKbVersion.mutate({ kbId: editingKb.id, versionId: currentVer.id })}>
+                          <CheckCircle2 size={14} /> Activate
+                        </Button>
+                      )}
+                    </div>
+                    <textarea
+                      className="admin-textarea monospace w-full"
+                      value={currentVer?.active || !editingKbVersionId ? editKbDraft : currentVer?.markdown ?? ""}
+                      onChange={(e) => { if (currentVer?.active || !editingKbVersionId) setEditKbDraft(e.target.value); }}
+                      disabled={!isAdmin || (!!currentVer && !currentVer.active && !!editingKbVersionId)}
+                      rows={20}
+                    />
+                    {isAdmin && (currentVer?.active || !editingKbVersionId) && (
+                      <div className="flex justify-end mt-4">
+                        <Button onClick={() => createKnowledgeVersion.mutate({ id: editingKb.id, markdown: editKbDraft })}>
+                          Save as New Version
+                        </Button>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
         );
       })()}
 

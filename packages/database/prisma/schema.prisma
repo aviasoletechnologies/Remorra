@@ -566,6 +566,7 @@ model KnowledgeBase {
   name        String
   description String
   active      Boolean                @default(true)
+  embedding   Unsupported("vector(1024)")?
   versions    KnowledgeBaseVersion[]
   mappings    KnowledgeBaseTopicMapping[]
 }
