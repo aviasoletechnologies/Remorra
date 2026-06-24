@@ -596,6 +596,7 @@ model Skill {
   id                  String                @id
   name                String
   description         String
+  kbEligible          Boolean               @default(false)
   versions            SkillVersion[]
   mappings            SkillEventMapping[]
   flowSteps           FlowStep[]
@@ -615,7 +616,7 @@ model SkillVersion {
   examples            Json
   retryPolicy         Json
   createdAt           DateTime       @default(now())
-  skill               Skill          @relation(fields: [skillId], references: [id])
+  skill               Skill          @relation(fields: [skillId], references: [id], onDelete: Cascade)
   tokenUsage          TokenUsage[]
   aiInvocations       AiInvocation[]
   flowStepRuns        FlowStepRun[]
@@ -963,7 +964,7 @@ model AiInvocation {
   completedAt    DateTime?
   user           Profile       @relation(fields: [userId], references: [id])
   project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  skillVersion   SkillVersion  @relation(fields: [skillVersionId], references: [id])
+  skillVersion   SkillVersion  @relation(fields: [skillVersionId], references: [id], onDelete: Cascade)
   failures       AiFailure[]
 }
 

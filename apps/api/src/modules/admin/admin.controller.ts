@@ -36,9 +36,18 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
   ) {
     return this.admin.createSkill(actor, body);
+  }
+
+  @Patch("skills/:skillId")
+  updateSkill(
+    @CurrentActor() actor: Actor,
+    @Param("skillId") skillId: string,
+    @Body() body: { name?: string; description?: string; kbEligible?: boolean },
+  ) {
+    return this.admin.updateSkill(actor, skillId, body);
   }
 
   @Post("skills/:skillId/versions/:versionId/activate")
@@ -165,6 +174,14 @@ export class AdminController {
     @Body() body: { platformRole: "user" | "admin" | "support" },
   ) {
     return this.admin.updatePlatformRole(actor, id, body.platformRole);
+  }
+
+  @Post("knowledge-bases")
+  createKnowledge(
+    @CurrentActor() actor: Actor,
+    @Body() body: { id: string; name: string; description: string; markdown: string; topic?: string },
+  ) {
+    return this.admin.createKnowledge(actor, body);
   }
 
   @Post("knowledge-bases/:id/versions")

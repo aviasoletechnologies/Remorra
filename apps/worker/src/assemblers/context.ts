@@ -15,29 +15,72 @@ export async function projectContext(projectId: string) {
   });
 }
 
-export async function injectKnowledgeBases(userContent: string, skillId: string) {
-  const kbSkills = ["evolve-facilitator", "document-drafter"];
-  if (!kbSkills.includes(skillId)) return [];
-  const mappings = await prisma.knowledgeBaseTopicMapping.findMany({
-    include: { knowledgeBase: { include: { versions: { where: { active: true }, take: 1 } } } },
-  });
-  const contentLower = userContent.toLowerCase();
-  const matched: { tag: string; markdown: string }[] = [];
-  for (const mapping of mappings) {
-    if (contentLower.includes(mapping.topic.toLowerCase())) {
-      const version = mapping.knowledgeBase.versions[0];
-      if (version && mapping.knowledgeBase.active) {
-        matched.push({ tag: mapping.knowledgeBase.id, markdown: version.markdown });
-      }
+export async function injectKnowledgeBases(
+  userContent: string,
+  skillId: string,
+  conversationId?: string,
+) {
+  try {
+    const skill = await prisma.skill.findUnique({ where: { id: skillId }, select: { kbEligible: true } });
+    if (!skill?.kbEligible) return [];
+
+    const historyTexts: string[] = [];
+    if (conversationId) {
+      const recent = await prisma.conversationMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: "desc" },
+        take: 6,
+        select: { content: true },
+      });
+      historyTexts.push(...recent.map((m: { content: string }) => m.content.toLowerCase()));
     }
+
+    const mappings = await prisma.knowledgeBaseTopicMapping.findMany({
+      orderBy: { priority: "desc" },
+      include: { knowledgeBase: { include: { versions: { where: { active: true }, take: 1 } } } },
+    });
+
+    const currentLower = userContent.toLowerCase();
+    const scored: { tag: string; markdown: string; score: number; priority: number }[] = [];
+
+    for (const mapping of mappings) {
+      if (!mapping.knowledgeBase.active) continue;
+      const version = mapping.knowledgeBase.versions[0];
+      if (!version) continue;
+
+      const topic = mapping.topic.toLowerCase();
+
+      // Current message match is required (2pts) — history alone never triggers
+      if (!currentLower.includes(topic)) continue;
+
+      let score = 2;
+      let historyHits = 0;
+      for (const text of historyTexts) {
+        if (historyHits >= 2) break;
+        if (text.includes(topic)) {
+          score += 1;
+          historyHits++;
+        }
+      }
+
+      scored.push({ tag: mapping.knowledgeBase.id, markdown: version.markdown, score, priority: mapping.priority });
+    }
+
+    // Sort: score desc, then priority desc as tiebreaker
+    scored.sort((a, b) => b.score - a.score || b.priority - a.priority);
+
+    const seen = new Set<string>();
+    return scored
+      .filter((m) => {
+        if (seen.has(m.tag)) return false;
+        seen.add(m.tag);
+        return true;
+      })
+      .map(({ tag, markdown }) => ({ tag, markdown }));
+  } catch (err) {
+    console.warn("[injectKnowledgeBases] failed:", err);
+    return [];
   }
-  // Sort by priority (higher first) and deduplicate by KB id
-  const seen = new Set<string>();
-  return matched.filter((m) => {
-    if (seen.has(m.tag)) return false;
-    seen.add(m.tag);
-    return true;
-  });
 }
 
 export async function assembleContext(
