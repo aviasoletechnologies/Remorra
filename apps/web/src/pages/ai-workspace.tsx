@@ -308,34 +308,17 @@ export function AiWorkspacePage() {
     <Page className="h-[calc(100vh-64px)] !p-0 flex overflow-hidden">
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
-        {/* Header with show/hide toggle */}
-        <div className="flex justify-between items-center mb-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold text-foreground">AI Product Guide</h1>
-            {conversation.activeSkill && (
-              <Badge tone="green">Active Skill: {conversation.activeSkill.name}</Badge>
-            )}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowProductPack(prev => !prev)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            {showProductPack ? (
-              <>
-                <EyeOff size={14} />
-                <span>Hide Product Pack</span>
-              </>
-            ) : (
-              <>
-                <Eye size={14} />
-                <span>Show Product Pack</span>
-              </>
-            )}
-          </Button>
-        </div>
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
+          {/* Floating toggle for Product Pack */}
+          <button
+            type="button"
+            onClick={() => setShowProductPack(p => !p)}
+            className="absolute top-4 right-4 z-20 p-2 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer"
+            title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
+          >
+            {showProductPack ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
             <div
               className="max-w-4xl mx-auto w-full flex flex-col gap-3 px-4"
