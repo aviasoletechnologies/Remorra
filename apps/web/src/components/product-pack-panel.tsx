@@ -12,15 +12,17 @@ import {
   HelpCircle, 
   MessageSquare,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  PanelRightClose
 } from "lucide-react";
 
 interface ProductPackPanelProps {
   projectId: string;
   externalPack?: ProductPackDto | null;
+  onCollapse?: () => void;
 }
 
-export function ProductPackPanel({ projectId, externalPack }: ProductPackPanelProps) {
+export function ProductPackPanel({ projectId, externalPack, onCollapse }: ProductPackPanelProps) {
   const queryClient = useQueryClient();
 
   const { data: pack, isLoading } = useQuery({
@@ -59,12 +61,24 @@ export function ProductPackPanel({ projectId, externalPack }: ProductPackPanelPr
           </div>
           <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">Product Pack</h2>
         </div>
-        {pack?.passThread && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/10 shadow-sm animate-bounce">
-            <ShieldCheck size={11} />
-            Ready
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {pack?.passThread && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/10 shadow-sm">
+              <ShieldCheck size={11} />
+              Ready
+            </span>
+          )}
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="p-1 rounded hover:bg-secondary/15 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Collapse Panel"
+            >
+              <PanelRightClose size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-5 p-4">
