@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X, Eye, EyeOff } from "lucide-react";
+import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X, PanelRightOpen, PanelRightClose } from "lucide-react";
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
@@ -7,7 +7,7 @@ import { ProductPackPanel } from "../components/product-pack-panel";
 import type { ProductPackDto } from "@remorra/contracts";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -308,16 +308,30 @@ export function AiWorkspacePage() {
     <Page className="h-[calc(100vh-64px)] !p-0 flex overflow-hidden">
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
-        <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
-          {/* Floating toggle for Product Pack */}
-          <button
-            type="button"
-            onClick={() => setShowProductPack(p => !p)}
-            className="absolute top-4 right-4 z-20 p-2 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer"
-            title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
-          >
-            {showProductPack ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
+        <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border border-border/60 bg-white/40 shadow-xs">
+          {/* Unified Chat Header */}
+          <div className="flex items-center justify-end px-6 py-2.5 border-b border-border/50 bg-white/80 backdrop-blur-md shrink-0">
+            {projectId && (
+              <button
+                type="button"
+                onClick={() => setShowProductPack(prev => !prev)}
+                className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border/80 bg-white hover:bg-zinc-50 text-muted-foreground hover:text-foreground text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
+              >
+                {showProductPack ? (
+                  <>
+                    <span>Hide Pack</span>
+                    <PanelRightClose size={13} />
+                  </>
+                ) : (
+                  <>
+                    <span>Show Pack</span>
+                    <PanelRightOpen size={13} />
+                  </>
+                )}
+              </button>
+            )}
+          </div>
 
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
             <div
@@ -502,15 +516,24 @@ export function AiWorkspacePage() {
           </div>
         </Card>
       </div>
-      {/* Product Pack panel */}
-      {projectId && showProductPack && (
-        <div className="hidden lg:flex w-[320px] shrink-0 border-l border-border bg-background flex-col overflow-hidden">
-          <ProductPackPanel
-            projectId={projectId}
-            externalPack={liveProductPack}
-          />
-        </div>
-      )}
+      {/* Product Pack panel with Smooth Slide Transition */}
+      <AnimatePresence>
+        {projectId && showProductPack && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
+          >
+            <ProductPackPanel
+              projectId={projectId}
+              externalPack={liveProductPack}
+              onCollapse={() => setShowProductPack(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Page>
   );
 }
