@@ -13,8 +13,11 @@ vi.mock("../lib/api", () => ({
 }));
 
 const mockSchema = {
-  table_a: ["id", "name"],
-  table_b: ["id", "created_at"]
+  tables: {
+    Project: ["id", "name"],
+    Persona: ["id", "description"]
+  },
+  relations: {}
 };
 
 const mockSkill = {
@@ -29,7 +32,7 @@ const mockSkill = {
       inputSourceMap: {
         skills: [],
         tables: {
-          table_a: []
+          Project: []
         }
       }
     }
@@ -130,26 +133,26 @@ describe("AdminPage - Select All Tables", () => {
     const configureContextButton = await screen.findByRole("button", { name: /Configure Context\.\.\./i });
     fireEvent.click(configureContextButton);
 
-    // 4. Modal is now open. Verify that "Select All Tables" is unchecked because only table_a is selected by default
+    // 4. Modal is now open. Verify that "Select All Tables" is unchecked because only Project is selected by default
     const selectAllCheckbox = (await screen.findByLabelText("Select All Tables")) as HTMLInputElement;
     expect(selectAllCheckbox).toBeInTheDocument();
     expect(selectAllCheckbox.checked).toBe(false);
 
-    const tableACheckbox = screen.getByLabelText("table_a") as HTMLInputElement;
-    const tableBCheckbox = screen.getByLabelText("table_b") as HTMLInputElement;
-    expect(tableACheckbox.checked).toBe(true);
-    expect(tableBCheckbox.checked).toBe(false);
+    const projectCheckbox = screen.getByLabelText("Project") as HTMLInputElement;
+    const personaCheckbox = screen.getByLabelText("Persona") as HTMLInputElement;
+    expect(projectCheckbox.checked).toBe(true);
+    expect(personaCheckbox.checked).toBe(false);
 
     // 5. Click "Select All Tables" checkbox to check all tables
     fireEvent.click(selectAllCheckbox);
     expect(selectAllCheckbox.checked).toBe(true);
-    expect(tableACheckbox.checked).toBe(true);
-    expect(tableBCheckbox.checked).toBe(true);
+    expect(projectCheckbox.checked).toBe(true);
+    expect(personaCheckbox.checked).toBe(true);
 
     // 6. Click "Select All Tables" checkbox again to uncheck all tables
     fireEvent.click(selectAllCheckbox);
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(tableACheckbox.checked).toBe(false);
-    expect(tableBCheckbox.checked).toBe(false);
+    expect(projectCheckbox.checked).toBe(false);
+    expect(personaCheckbox.checked).toBe(false);
   });
 });

@@ -414,6 +414,7 @@ describe("Admin & Support Ops Console Tests", () => {
           id: "test-skill",
           name: "Test Skill",
           description: "Test Desc",
+          kbEligible: false,
         },
       });
       expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
@@ -426,6 +427,7 @@ describe("Admin & Support Ops Console Tests", () => {
           constraints: [],
           examples: [],
           retryPolicy: {},
+          outputSchema: null,
         },
       });
       expect(prismaMock.client.platformAuditEvent.create).toHaveBeenCalledWith({
@@ -625,19 +627,28 @@ describe("Admin & Support Ops Console Tests", () => {
     });
 
     it("returns project-related tables and columns dynamically", async () => {
-      prismaMock.client.$queryRaw.mockResolvedValue([
-        { table_name: "Project", column_name: "name" },
-        { table_name: "Project", column_name: "summary" },
-        { table_name: "Ambition", column_name: "projectId" },
-        { table_name: "Ambition", column_name: "title" },
-        { table_name: "IgnoredTable", column_name: "someCol" },
-      ]);
+      prismaMock.client.$queryRaw
+        .mockResolvedValueOnce([
+          { table_name: "Project", column_name: "name" },
+          { table_name: "Project", column_name: "summary" },
+          { table_name: "Ambition", column_name: "projectId" },
+          { table_name: "Ambition", column_name: "title" },
+          { table_name: "IgnoredTable", column_name: "someCol" },
+        ])
+        .mockResolvedValueOnce([
+          { table_name: "Ambition", column_name: "projectId", referenced_table: "Project" },
+        ]);
 
       const res = await adminService.getDbSchema({ platformRole: "admin" } as any);
 
       expect(res).toEqual({
-        Project: ["name", "summary"],
-        Ambition: ["projectId", "title"],
+        tables: {
+          Project: ["name", "summary"],
+          Ambition: ["projectId", "title"],
+        },
+        relations: {
+          Ambition: [{ column: "projectId", referencedTable: "Project" }],
+        },
       });
     });
 
