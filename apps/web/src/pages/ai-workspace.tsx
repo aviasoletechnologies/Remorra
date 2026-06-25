@@ -3,6 +3,8 @@ import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowU
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
+import { ProductPackPanel } from "../components/product-pack-panel";
+import type { ProductPackDto } from "@remorra/contracts";
 import { api, streamTextJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion } from "framer-motion";
@@ -89,6 +91,7 @@ export function AiWorkspacePage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
+  const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -220,6 +223,9 @@ export function AiWorkspacePage() {
                       };
                     });
                   }
+                  if (event.type === "product_pack_update" && event.metadata?.productPack) {
+                    setLiveProductPack(event.metadata.productPack as ProductPackDto);
+                  }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
                       sequence: event.sequence,
@@ -298,8 +304,9 @@ export function AiWorkspacePage() {
     : "Describe your product idea or ask a normal question...";
 
   return (
-    <Page className="h-[calc(100vh-64px)] !p-4 md:!p-6 flex flex-col overflow-hidden">
-      <div className="w-full flex-1 flex flex-col min-h-0">
+    <Page className="h-[calc(100vh-64px)] !p-0 flex overflow-hidden">
+      {/* Chat column */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
             <div
@@ -484,6 +491,15 @@ export function AiWorkspacePage() {
           </div>
         </Card>
       </div>
+      {/* Product Pack panel */}
+      {projectId && (
+        <div className="hidden lg:flex w-[320px] shrink-0 border-l border-border bg-background flex-col overflow-hidden">
+          <ProductPackPanel
+            projectId={projectId}
+            externalPack={liveProductPack}
+          />
+        </div>
+      )}
     </Page>
   );
 }
