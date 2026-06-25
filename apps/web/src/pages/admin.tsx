@@ -71,6 +71,14 @@ function describeSkillInputRequirement(version: any): string {
   return "";
 }
 
+const ALL_ACTIONS = ["create", "update", "delete"] as const;
+
+function normalizeTableEntry(entry: any): { columns: string[]; actions: string[] } {
+  if (Array.isArray(entry)) return { columns: entry, actions: [...ALL_ACTIONS] };
+  if (entry && typeof entry === "object" && "columns" in entry) return { columns: entry.columns ?? [], actions: entry.actions ?? [...ALL_ACTIONS] };
+  return { columns: [], actions: [...ALL_ACTIONS] };
+}
+
 function parseOutputSchema(val: any): { type: string; value: any } {
   if (!val) return { type: "text", value: "" };
   if (typeof val === "string") {
@@ -81,7 +89,15 @@ function parseOutputSchema(val: any): { type: string; value: any } {
       return { type: "text", value: val };
     }
   }
-  return { type: val.type || "text", value: val.value || "" };
+  const result = { type: val.type || "text", value: val.value ?? "" };
+  if (result.type === "table" && typeof result.value === "object" && result.value !== null) {
+    const migrated: Record<string, { columns: string[]; actions: string[] }> = {};
+    for (const [k, v] of Object.entries(result.value as Record<string, any>)) {
+      migrated[k] = normalizeTableEntry(v);
+    }
+    result.value = migrated;
+  }
+  return result;
 }
 
 function describeOutputSchema(schema: any): string {
@@ -161,6 +177,7 @@ export function AdminPage() {
   const [newSkillKbEligible, setNewSkillKbEligible] = useState(false);
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
+  const [newSkillCustomSchemaError, setNewSkillCustomSchemaError] = useState<string | null>(null);
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
   const [isCreateContextConfigOpen, setIsCreateContextConfigOpen] = useState(false);
   const [isCreateOutputSchemaConfigOpen, setIsCreateOutputSchemaConfigOpen] = useState(false);
@@ -173,6 +190,7 @@ export function AdminPage() {
   const [editKbEligible, setEditKbEligible] = useState(false);
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
+  const [editCustomSchemaError, setEditCustomSchemaError] = useState<string | null>(null);
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
   const [isContextConfigOpen, setIsContextConfigOpen] = useState(false);
   const [isOutputSchemaConfigOpen, setIsOutputSchemaConfigOpen] = useState(false);
@@ -316,15 +334,25 @@ export function AdminPage() {
   });
   const allSkills = allSkillsData?.items ?? [];
 
-  const { data: dbSchema = {} } = useQuery<Record<string, string[]>>({
+  const { data: dbSchemaData = { tables: {}, relations: {} } } = useQuery<{ tables: Record<string, string[]>; relations: Record<string, { column: string; referencedTable: string }[]> }>({
     queryKey: ["admin-db-schema"],
     queryFn: () => api("/admin/db-schema"),
     enabled: activeTab === "system",
   });
 
   const ALLOWED_TABLES = ["Project", "Persona", "PainPoint", "UserNeed", "Ambition", "Okr", "UserStory", "Task"];
+  const ALWAYS_SENSITIVE = ["id", "projectId", "createdAt", "updatedAt", "embedding", "version", "position"];
+  // FK columns pointing to tables NOT in ALLOWED_TABLES are system-managed (e.g. ownerId→Profile, cycleId→Cycle)
+  const systemFkCols = new Set<string>(
+    Object.values(dbSchemaData.relations).flat()
+      .filter(fk => !ALLOWED_TABLES.includes(fk.referencedTable))
+      .map(fk => fk.column)
+  );
+  const isSensitive = (col: string) => ALWAYS_SENSITIVE.includes(col) || systemFkCols.has(col);
   const filteredDbSchema = Object.fromEntries(
-    Object.entries(dbSchema).filter(([tableName]) => ALLOWED_TABLES.includes(tableName))
+    Object.entries(dbSchemaData.tables)
+      .filter(([tableName]) => ALLOWED_TABLES.includes(tableName))
+      .map(([tableName, cols]) => [tableName, (cols as string[]).filter(c => !isSensitive(c))])
   );
 
   const { data: retention = [], isLoading: loadingRetention } = useQuery<any[]>({ queryKey: ["admin-retention"], queryFn: () => api("/admin/retention"), enabled: activeTab === "system" });
@@ -1366,6 +1394,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         description: newSkillDesc,
                         systemPrompt: newSkillPrompt,
                         inputSourceMap: newSkillInputSourceMap,
+                        outputSchema: newSkillOutputSchema,
                         kbEligible: newSkillKbEligible,
                       });
                     }}
@@ -1726,34 +1755,37 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                   </div>
                 )}
                 {editOutputSchema?.type === "table" && (() => {
-                  const valObj = typeof editOutputSchema.value === "object" && editOutputSchema.value !== null
-                    ? editOutputSchema.value
-                    : {}; // fallback object
-                  
+                  const valObj: Record<string, { columns: string[]; actions: string[] }> = typeof editOutputSchema.value === "object" && editOutputSchema.value !== null ? editOutputSchema.value : {};
                   return (
                     <div className="border border-border rounded-xl p-4 bg-card flex flex-col space-y-4">
                       <div>
-                        <h4 className="text-sm font-semibold mb-1">Select Output Tables</h4>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Choose one or more target database tables and their optional columns for the AI's output.
-                        </p>
-                        
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold">Select Output Tables</h4>
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer text-emerald-600 font-medium">
+                            <input type="checkbox"
+                              checked={Object.keys(filteredDbSchema).length > 0 && Object.keys(filteredDbSchema).every(t => t in valObj)}
+                              onChange={(e) => {
+                                const tables: Record<string, { columns: string[]; actions: string[] }> = {};
+                                if (e.target.checked) Object.entries(filteredDbSchema).forEach(([t, cols]) => { tables[t] = { columns: [...cols], actions: [...ALL_ACTIONS] }; });
+                                setEditOutputSchema({ ...editOutputSchema, value: tables });
+                              }}
+                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                            />
+                            Select all tables
+                          </label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">Choose tables, columns, and allowed actions. LLM decides values and action per operation.</p>
                         <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
                           {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
                             const isTableSelected = tableName in valObj;
-                            const selectedCols = valObj[tableName] || [];
-
+                            const entry = normalizeTableEntry(valObj[tableName]);
                             return (
                               <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
-                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${
-                                  isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'
-                                }`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isTableSelected}
+                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'}`}>
+                                  <input type="checkbox" checked={isTableSelected}
                                     onChange={(e) => {
                                       const tables = { ...valObj };
-                                      if (e.target.checked) tables[tableName] = [];
+                                      if (e.target.checked) tables[tableName] = { columns: [], actions: [...ALL_ACTIONS] };
                                       else delete tables[tableName];
                                       setEditOutputSchema({ ...editOutputSchema, value: tables });
                                     }}
@@ -1761,37 +1793,59 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                                   />
                                   <span>{tableName}</span>
                                 </label>
-
                                 {isTableSelected && (
-                                  <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
-                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                                      Columns (empty = all columns)
-                                    </span>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      {columns.map(col => {
-                                        const isColChecked = selectedCols.includes(col);
-                                        return (
-                                          <label 
-                                            key={col} 
-                                            className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20"
-                                          >
-                                            <input 
-                                              type="checkbox" 
-                                              checked={isColChecked}
+                                  <div className="pl-6 pt-2 flex flex-col gap-3 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Columns</span>
+                                        <label className="flex items-center gap-1 text-xs cursor-pointer text-emerald-600">
+                                          <input type="checkbox" checked={entry.columns.length === columns.length}
+                                            onChange={(e) => {
+                                              const tables = { ...valObj };
+                                              const cur = normalizeTableEntry(tables[tableName]);
+                                              tables[tableName] = { ...cur, columns: e.target.checked ? [...columns] : [] };
+                                              setEditOutputSchema({ ...editOutputSchema, value: tables });
+                                            }}
+                                            className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                          />
+                                          Select all
+                                        </label>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {columns.map(col => (
+                                          <label key={col} className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20">
+                                            <input type="checkbox" checked={entry.columns.includes(col)}
                                               onChange={(e) => {
                                                 const tables = { ...valObj };
-                                                let cols = [...(tables[tableName] || [])];
-                                                if (e.target.checked) cols.push(col);
-                                                else cols = cols.filter(c => c !== col);
-                                                tables[tableName] = cols;
+                                                const cur = normalizeTableEntry(tables[tableName]);
+                                                tables[tableName] = { ...cur, columns: e.target.checked ? [...cur.columns, col] : cur.columns.filter(c => c !== col) };
                                                 setEditOutputSchema({ ...editOutputSchema, value: tables });
                                               }}
                                               className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
                                             />
                                             <span className="font-mono">{col}</span>
                                           </label>
-                                        );
-                                      })}
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Allowed Actions</span>
+                                      <div className="flex gap-3">
+                                        {ALL_ACTIONS.map(action => (
+                                          <label key={action} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                            <input type="checkbox" checked={entry.actions.includes(action)}
+                                              onChange={(e) => {
+                                                const tables = { ...valObj };
+                                                const cur = normalizeTableEntry(tables[tableName]);
+                                                tables[tableName] = { ...cur, actions: e.target.checked ? [...cur.actions, action] : cur.actions.filter(a => a !== action) };
+                                                setEditOutputSchema({ ...editOutputSchema, value: tables });
+                                              }}
+                                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                            />
+                                            <span className={`font-mono capitalize ${action === 'delete' ? 'text-red-500' : action === 'create' ? 'text-emerald-600' : 'text-blue-500'}`}>{action}</span>
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -1807,7 +1861,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                   <div className="flex flex-col flex-1 min-h-[300px]">
                     <div className="flex justify-between items-center mb-2">
                       <label className="admin-field-label mb-0">Custom JSON Schema</label>
-                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Code Editor</span>
+                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Editor</span>
                     </div>
                     <div className="flex-1 border border-border rounded-lg overflow-hidden">
                       <Editor
@@ -1815,7 +1869,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         defaultLanguage="json"
                         theme="vs-dark"
                         value={typeof editOutputSchema.value === "string" ? editOutputSchema.value : JSON.stringify(editOutputSchema.value || {}, null, 2)}
-                        onChange={(val) => setEditOutputSchema({ ...editOutputSchema, value: val || "" })}
+                        onChange={(val) => { setEditOutputSchema({ ...editOutputSchema, value: val || "" }); setEditCustomSchemaError(null); }}
                         options={{
                           minimap: { enabled: false },
                           fontSize: 13,
@@ -1826,12 +1880,24 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         }}
                       />
                     </div>
+                    {editCustomSchemaError && (
+                      <p className="text-xs text-destructive mt-1">{editCustomSchemaError}</p>
+                    )}
                   </div>
                 )}
               </div>
             </div>
             <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
-              <Button onClick={() => setIsOutputSchemaConfigOpen(false)}>Done</Button>
+              <Button onClick={() => {
+                if (editOutputSchema?.type === "custom" && typeof editOutputSchema.value === "string" && editOutputSchema.value.trim()) {
+                  try { JSON.parse(editOutputSchema.value); } catch (e: any) {
+                    setEditCustomSchemaError(`Invalid JSON: ${e.message}`);
+                    return;
+                  }
+                }
+                setEditCustomSchemaError(null);
+                setIsOutputSchemaConfigOpen(false);
+              }}>Done</Button>
             </div>
           </div>
         </div>,
@@ -1894,34 +1960,37 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                   </div>
                 )}
                 {newSkillOutputSchema?.type === "table" && (() => {
-                  const valObj = typeof newSkillOutputSchema.value === "object" && newSkillOutputSchema.value !== null
-                    ? newSkillOutputSchema.value
-                    : {}; // fallback object
-                  
+                  const valObj: Record<string, { columns: string[]; actions: string[] }> = typeof newSkillOutputSchema.value === "object" && newSkillOutputSchema.value !== null ? newSkillOutputSchema.value : {};
                   return (
                     <div className="border border-border rounded-xl p-4 bg-card flex flex-col space-y-4">
                       <div>
-                        <h4 className="text-sm font-semibold mb-1">Select Output Tables</h4>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Choose one or more target database tables and their optional columns for the AI's output.
-                        </p>
-                        
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold">Select Output Tables</h4>
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer text-emerald-600 font-medium">
+                            <input type="checkbox"
+                              checked={Object.keys(filteredDbSchema).length > 0 && Object.keys(filteredDbSchema).every(t => t in valObj)}
+                              onChange={(e) => {
+                                const tables: Record<string, { columns: string[]; actions: string[] }> = {};
+                                if (e.target.checked) Object.entries(filteredDbSchema).forEach(([t, cols]) => { tables[t] = { columns: [...cols], actions: [...ALL_ACTIONS] }; });
+                                setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
+                              }}
+                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                            />
+                            Select all tables
+                          </label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">Choose tables, columns, and allowed actions. LLM decides values and action per operation.</p>
                         <div className="flex flex-col gap-4 max-h-96 overflow-y-auto pr-1">
                           {Object.entries(filteredDbSchema).map(([tableName, columns]) => {
                             const isTableSelected = tableName in valObj;
-                            const selectedCols = valObj[tableName] || [];
-
+                            const entry = normalizeTableEntry(valObj[tableName]);
                             return (
                               <div key={tableName} className="border-b border-border/50 pb-3 last:border-b-0 last:pb-0">
-                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${
-                                  isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'
-                                }`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isTableSelected}
+                                <label className={`flex items-center gap-2 text-sm font-medium p-1 rounded cursor-pointer transition-colors ${isTableSelected ? 'text-emerald-600' : 'text-foreground hover:bg-secondary/10'}`}>
+                                  <input type="checkbox" checked={isTableSelected}
                                     onChange={(e) => {
                                       const tables = { ...valObj };
-                                      if (e.target.checked) tables[tableName] = [];
+                                      if (e.target.checked) tables[tableName] = { columns: [], actions: [...ALL_ACTIONS] };
                                       else delete tables[tableName];
                                       setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
                                     }}
@@ -1929,37 +1998,59 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                                   />
                                   <span>{tableName}</span>
                                 </label>
-
                                 {isTableSelected && (
-                                  <div className="pl-6 pt-2 flex flex-col gap-2 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
-                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
-                                      Columns (empty = all columns)
-                                    </span>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      {columns.map(col => {
-                                        const isColChecked = selectedCols.includes(col);
-                                        return (
-                                          <label 
-                                            key={col} 
-                                            className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20"
-                                          >
-                                            <input 
-                                              type="checkbox" 
-                                              checked={isColChecked}
+                                  <div className="pl-6 pt-2 flex flex-col gap-3 bg-secondary/5 p-2 rounded mt-1 border border-dashed border-border/60">
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Columns</span>
+                                        <label className="flex items-center gap-1 text-xs cursor-pointer text-emerald-600">
+                                          <input type="checkbox" checked={entry.columns.length === columns.length}
+                                            onChange={(e) => {
+                                              const tables = { ...valObj };
+                                              const cur = normalizeTableEntry(tables[tableName]);
+                                              tables[tableName] = { ...cur, columns: e.target.checked ? [...columns] : [] };
+                                              setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
+                                            }}
+                                            className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                          />
+                                          Select all
+                                        </label>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {columns.map(col => (
+                                          <label key={col} className="flex items-center gap-2 text-xs p-1 rounded text-foreground cursor-pointer hover:bg-secondary/20">
+                                            <input type="checkbox" checked={entry.columns.includes(col)}
                                               onChange={(e) => {
                                                 const tables = { ...valObj };
-                                                let cols = [...(tables[tableName] || [])];
-                                                if (e.target.checked) cols.push(col);
-                                                else cols = cols.filter(c => c !== col);
-                                                tables[tableName] = cols;
+                                                const cur = normalizeTableEntry(tables[tableName]);
+                                                tables[tableName] = { ...cur, columns: e.target.checked ? [...cur.columns, col] : cur.columns.filter(c => c !== col) };
                                                 setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
                                               }}
                                               className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
                                             />
                                             <span className="font-mono">{col}</span>
                                           </label>
-                                        );
-                                      })}
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Allowed Actions</span>
+                                      <div className="flex gap-3">
+                                        {ALL_ACTIONS.map(action => (
+                                          <label key={action} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                            <input type="checkbox" checked={entry.actions.includes(action)}
+                                              onChange={(e) => {
+                                                const tables = { ...valObj };
+                                                const cur = normalizeTableEntry(tables[tableName]);
+                                                tables[tableName] = { ...cur, actions: e.target.checked ? [...cur.actions, action] : cur.actions.filter(a => a !== action) };
+                                                setNewSkillOutputSchema({ ...newSkillOutputSchema, value: tables });
+                                              }}
+                                              className="rounded border-input text-emerald-500 focus:ring-emerald-500 scale-90"
+                                            />
+                                            <span className={`font-mono capitalize ${action === 'delete' ? 'text-red-500' : action === 'create' ? 'text-emerald-600' : 'text-blue-500'}`}>{action}</span>
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -1975,7 +2066,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                   <div className="flex flex-col flex-1 min-h-[300px]">
                     <div className="flex justify-between items-center mb-2">
                       <label className="admin-field-label mb-0">Custom JSON Schema</label>
-                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Code Editor</span>
+                      <span className="text-xs text-muted-foreground bg-secondary/20 px-2 py-0.5 rounded">JSON Editor</span>
                     </div>
                     <div className="flex-1 border border-border rounded-lg overflow-hidden">
                       <Editor
@@ -1983,7 +2074,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         defaultLanguage="json"
                         theme="vs-dark"
                         value={typeof newSkillOutputSchema.value === "string" ? newSkillOutputSchema.value : JSON.stringify(newSkillOutputSchema.value || {}, null, 2)}
-                        onChange={(val) => setNewSkillOutputSchema({ ...newSkillOutputSchema, value: val || "" })}
+                        onChange={(val) => { setNewSkillOutputSchema({ ...newSkillOutputSchema, value: val || "" }); setNewSkillCustomSchemaError(null); }}
                         options={{
                           minimap: { enabled: false },
                           fontSize: 13,
@@ -1994,12 +2085,24 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         }}
                       />
                     </div>
+                    {newSkillCustomSchemaError && (
+                      <p className="text-xs text-destructive mt-1">{newSkillCustomSchemaError}</p>
+                    )}
                   </div>
                 )}
               </div>
             </div>
             <div className="p-4 border-t border-border flex justify-end bg-secondary/5">
-              <Button onClick={() => setIsCreateOutputSchemaConfigOpen(false)}>Done</Button>
+              <Button onClick={() => {
+                if (newSkillOutputSchema?.type === "custom" && typeof newSkillOutputSchema.value === "string" && newSkillOutputSchema.value.trim()) {
+                  try { JSON.parse(newSkillOutputSchema.value); } catch (e: any) {
+                    setNewSkillCustomSchemaError(`Invalid JSON: ${e.message}`);
+                    return;
+                  }
+                }
+                setNewSkillCustomSchemaError(null);
+                setIsCreateOutputSchemaConfigOpen(false);
+              }}>Done</Button>
             </div>
           </div>
         </div>,

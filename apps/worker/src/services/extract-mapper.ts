@@ -7,7 +7,7 @@ function toSnakeCase(str: string): string {
 
 // Returns list of DB events fired (e.g. ["persona.create", "user_need.create"])
 // Event name = snake_case(delegateName) + "." + action — matches SkillEventMapping format
-export async function applyOperationsExtract(projectId: string, json: any): Promise<string[]> {
+export async function applyOperationsExtract(projectId: string, json: any, allowedActionsMap?: Record<string, string[]>): Promise<string[]> {
   if (!Array.isArray(json.operations)) return [];
 
   const refMap: Record<string, string> = {};
@@ -17,6 +17,14 @@ export async function applyOperationsExtract(projectId: string, json: any): Prom
     const entityRaw = String(op.entity ?? "");
     if (!entityRaw) continue;
     const delegateName = entityRaw.charAt(0).toLowerCase() + entityRaw.slice(1);
+
+    if (allowedActionsMap) {
+      const allowed = allowedActionsMap[entityRaw];
+      if (allowed && !allowed.includes(op.action)) {
+        console.warn(`[applyOperationsExtract] action "${op.action}" blocked for entity "${entityRaw}" — allowed: [${allowed.join(", ")}]`);
+        continue;
+      }
+    }
 
     // Project: only update allowed (never create/delete), restricted to safe fields, uses projectId
     if (delegateName === "project") {
