@@ -50,4 +50,9 @@ export class ProjectsController {
       body.phase,
     );
   }
+
+  @Get(":id/product-pack")
+  getProductPack(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.projects.getProductPack(id, actor.userId);
+  }
 }
