@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X } from "lucide-react";
+import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X, Eye, EyeOff } from "lucide-react";
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
@@ -93,6 +93,7 @@ export function AiWorkspacePage() {
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
+  const [showProductPack, setShowProductPack] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -307,6 +308,33 @@ export function AiWorkspacePage() {
     <Page className="h-[calc(100vh-64px)] !p-0 flex overflow-hidden">
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
+        {/* Header with show/hide toggle */}
+        <div className="flex justify-between items-center mb-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold text-foreground">AI Product Guide</h1>
+            {conversation.activeSkill && (
+              <Badge tone="green">Active Skill: {conversation.activeSkill.name}</Badge>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowProductPack(prev => !prev)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {showProductPack ? (
+              <>
+                <EyeOff size={14} />
+                <span>Hide Product Pack</span>
+              </>
+            ) : (
+              <>
+                <Eye size={14} />
+                <span>Show Product Pack</span>
+              </>
+            )}
+          </Button>
+        </div>
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
             <div
@@ -492,7 +520,7 @@ export function AiWorkspacePage() {
         </Card>
       </div>
       {/* Product Pack panel */}
-      {projectId && (
+      {projectId && showProductPack && (
         <div className="hidden lg:flex w-[320px] shrink-0 border-l border-border bg-background flex-col overflow-hidden">
           <ProductPackPanel
             projectId={projectId}
