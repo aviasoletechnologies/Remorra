@@ -439,7 +439,15 @@ export async function handleConversation(payload: Payload) {
               void flush();
 
               if ((jsonParsed as any)?.operations !== undefined) {
-                const ops = await applyOperationsExtract(projectId, jsonParsed);
+                const rawSchema = (result.skill as any).outputSchema;
+                let allowedActionsMap: Record<string, string[]> | undefined;
+                if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+                  allowedActionsMap = {};
+                  for (const [entity, entry] of Object.entries(rawSchema.value as Record<string, any>)) {
+                    allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
+                  }
+                }
+                const ops = await applyOperationsExtract(projectId, jsonParsed, allowedActionsMap);
                 dbFiredEvents.push(...ops);
               } else {
                 await applyGenericExtractMappings(projectId, jsonParsed);

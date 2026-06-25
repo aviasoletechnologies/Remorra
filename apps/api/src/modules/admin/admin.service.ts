@@ -403,21 +403,34 @@ export class AdminService {
 
   async getDbSchema(actor: Actor) {
     this.requireAdmin(actor);
-    const columns: Array<{ table_name: string; column_name: string }> = await this.prisma.client.$queryRaw`
-      SELECT table_name, column_name 
-      FROM information_schema.columns 
-      WHERE table_schema = 'public'
-      AND table_name NOT IN ('_prisma_migrations', 'CostConfig', 'PlatformAuditEvent', 'PlatformAuditPayload', 'JobRecord', 'JobAttempt', 'OutboxEvent', 'JobStreamEvent', 'PlatformRole')
-      ORDER BY table_name, column_name;
-    `;
+    const [columns, fkRows] = await Promise.all([
+      this.prisma.client.$queryRaw<Array<{ table_name: string; column_name: string }>>`
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+        AND table_name NOT IN ('_prisma_migrations', 'CostConfig', 'PlatformAuditEvent', 'PlatformAuditPayload', 'JobRecord', 'JobAttempt', 'OutboxEvent', 'JobStreamEvent', 'PlatformRole')
+        ORDER BY table_name, column_name;
+      `,
+      this.prisma.client.$queryRaw<Array<{ table_name: string; column_name: string; referenced_table: string }>>`
+        SELECT kcu.table_name, kcu.column_name, ccu.table_name AS referenced_table
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+        ORDER BY kcu.table_name, kcu.column_name;
+      `,
+    ]);
 
     const tableMap: Record<string, string[]> = {};
     for (const col of columns) {
-      const tbl = col.table_name;
-      if (!tableMap[tbl]) {
-        tableMap[tbl] = [];
-      }
-      tableMap[tbl].push(col.column_name);
+      (tableMap[col.table_name] ??= []).push(col.column_name);
+    }
+
+    const relations: Record<string, { column: string; referencedTable: string }[]> = {};
+    for (const fk of fkRows) {
+      (relations[fk.table_name] ??= []).push({ column: fk.column_name, referencedTable: fk.referenced_table });
     }
 
     const projectTables: Record<string, string[]> = {};
@@ -427,7 +440,7 @@ export class AdminService {
       }
     }
 
-    return projectTables;
+    return { tables: projectTables, relations };
   }
 
 
