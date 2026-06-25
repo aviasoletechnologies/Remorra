@@ -73,15 +73,10 @@ export class ProjectsService {
 
   async developerExport(projectId: string, userId: string) {
     await this.access.require(projectId, userId, ["founder", "team"]);
-    const [project, productPack] = await Promise.all([
-      this.repository.find(projectId),
-      this.prisma.client.productPack.findFirst({
-        where: { projectId },
-        orderBy: { version: "desc" },
-      }),
-    ]);
-
+    const project = await this.repository.find(projectId);
     if (!project) notFound("Project", projectId);
+
+    const productPackData = await this.getProductPack(projectId, userId);
 
     return {
       project: {
@@ -92,10 +87,66 @@ export class ProjectsService {
         version: project.version,
         updatedAt: project.updatedAt,
       },
-      productPack: productPack?.content ?? null,
-      coveragePercent: productPack?.coveragePercent ?? null,
-      linkageValid: productPack?.linkageValid ?? null,
+      productPack: productPackData,
+      coveragePercent: productPackData.coveragePercent,
+      linkageValid: productPackData.linkageValid,
       exportedAt: new Date().toISOString(),
+    };
+  }
+
+  async getProductPack(projectId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+    const project = await this.repository.find(projectId);
+    if (!project) notFound("Project", projectId);
+
+    const ambitions = await this.prisma.client.ambition.findMany({
+      where: { projectId },
+      include: { okrs: { include: { personaLinks: true } } },
+    });
+    const personas = await this.prisma.client.persona.findMany({
+      where: { projectId },
+      include: { painPoints: true, userNeeds: true },
+    });
+
+    const completeThread = ambitions.some((a: any) =>
+      a.okrs.some((okr: any) =>
+        okr.personaLinks.some((link: any) => {
+          const persona = personas.find((p: any) => p.id === link.personaId);
+          return persona?.painPoints.length && persona.userNeeds.length;
+        }),
+      ),
+    );
+
+    const total = ambitions.length + personas.length;
+    const covered =
+      ambitions.filter((a: any) => a.okrs.length > 0).length +
+      personas.filter((p: any) => p.painPoints.length > 0 && p.userNeeds.length > 0).length;
+    const coveragePercent = total ? Math.round((covered / total) * 100) : 0;
+
+    return {
+      projectName: project.name,
+      coveragePercent,
+      linkageValid: Boolean(completeThread),
+      passThread: Boolean(completeThread),
+      ambitions: ambitions.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        detail: a.detail,
+        okrs: a.okrs.map((okr: any) => ({
+          id: okr.id,
+          objective: okr.objective,
+          keyResults: okr.keyResults,
+          personaIds: okr.personaLinks.map((link: any) => link.personaId),
+        })),
+      })),
+      personas: personas.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        painPoints: p.painPoints.map((pt: any) => ({ id: pt.id, statement: pt.statement })),
+        userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
+      })),
+      assembledAt: new Date().toISOString(),
     };
   }
 
