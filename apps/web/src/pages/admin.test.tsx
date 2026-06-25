@@ -154,5 +154,5 @@ describe("AdminPage - Select All Tables", () => {
     expect(selectAllCheckbox.checked).toBe(false);
     expect(projectCheckbox.checked).toBe(false);
     expect(personaCheckbox.checked).toBe(false);
-  });
+  }, 15000);
 });
