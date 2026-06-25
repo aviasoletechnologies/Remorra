@@ -40,16 +40,28 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
 
   return {
     projectName: project.name,
-    coveragePercent: coveragePercent,
+    coveragePercent,
     linkageValid: Boolean(completeThread),
-    ambitions: ambitions.map((a: any) => ({ id: a.id, title: a.title, detail: a.detail })),
+    passThread: Boolean(completeThread),
+    ambitions: ambitions.map((a: any) => ({
+      id: a.id,
+      title: a.title,
+      detail: a.detail,
+      okrs: a.okrs.map((okr: any) => ({
+        id: okr.id,
+        objective: okr.objective,
+        keyResults: okr.keyResults,
+        personaIds: okr.personaLinks.map((link: any) => link.personaId),
+      })),
+    })),
     personas: personas.map((p: any) => ({
       id: p.id,
       name: p.name,
       description: p.description,
-      userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
       painPoints: p.painPoints.map((pt: any) => ({ id: pt.id, statement: pt.statement })),
+      userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
     })),
+    assembledAt: new Date().toISOString(),
   };
 }
 
