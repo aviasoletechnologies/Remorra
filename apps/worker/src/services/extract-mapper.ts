@@ -5,12 +5,52 @@ function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 
+function normalizeRefKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function registerRef(
+  refMap: Map<string, string>,
+  normalizedRefMap: Map<string, string | null>,
+  key: unknown,
+  id: unknown,
+) {
+  if (typeof key !== "string" || !key.trim() || typeof id !== "string" || !id) return;
+
+  refMap.set(key, id);
+
+  const normalized = normalizeRefKey(key);
+  if (!normalized) return;
+
+  const existing = normalizedRefMap.get(normalized);
+  if (existing === undefined || existing === id) {
+    normalizedRefMap.set(normalized, id);
+  } else {
+    normalizedRefMap.set(normalized, null);
+  }
+}
+
+function resolveRef(
+  refMap: Map<string, string>,
+  normalizedRefMap: Map<string, string | null>,
+  key: string,
+): string | undefined {
+  const exact = refMap.get(key);
+  if (exact) return exact;
+
+  const normalized = normalizeRefKey(key);
+  if (!normalized) return undefined;
+
+  return normalizedRefMap.get(normalized) ?? undefined;
+}
+
 // Returns list of DB events fired (e.g. ["persona.create", "user_need.create"])
 // Event name = snake_case(delegateName) + "." + action — matches SkillEventMapping format
 export async function applyOperationsExtract(projectId: string, json: any, allowedActionsMap?: Record<string, string[]>): Promise<string[]> {
   if (!Array.isArray(json.operations)) return [];
 
-  const refMap: Record<string, string> = {};
+  const refMap = new Map<string, string>();
+  const normalizedRefMap = new Map<string, string | null>();
   const firedEvents: string[] = [];
 
   for (const op of json.operations) {
@@ -56,7 +96,7 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
         for (const [key, val] of Object.entries(op.data as Record<string, any>)) {
           if (typeof val === "string" && val.startsWith("$")) {
             const refKey = val.slice(1);
-            const resolved = refMap[refKey];
+            const resolved = resolveRef(refMap, normalizedRefMap, refKey);
             if (!resolved) {
               console.warn(`[applyOperationsExtract] unresolved ref "${val}" on entity=${entityRaw} field=${key} — skipping op`);
               refFailed = true;
@@ -72,16 +112,59 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
         const created = await delegate.create({ data: { projectId, ...resolvedData } });
 
         // Store generated id in refMap if op has a ref label
-        if (op.ref && typeof op.ref === "string" && created?.id) {
-          refMap[op.ref] = created.id;
+        registerRef(refMap, normalizedRefMap, op.ref, created?.id);
+        // Fallback: also store by name/title/objective to handle AI referencing by name/title
+        if (created?.id) {
+          registerRef(refMap, normalizedRefMap, created.name, created.id);
+          registerRef(refMap, normalizedRefMap, created.title, created.id);
+          registerRef(refMap, normalizedRefMap, created.objective, created.id);
         }
 
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "update" && op.id && op.data && typeof op.data === "object") {
-        await delegate.update({ where: { id: op.id }, data: op.data });
+        let targetId = op.id;
+        if (typeof targetId === "string" && targetId.startsWith("$")) {
+          const refKey = targetId.slice(1);
+          const resolved = resolveRef(refMap, normalizedRefMap, refKey);
+          if (!resolved) {
+            console.warn(`[applyOperationsExtract] unresolved update ref target "${targetId}" on entity=${entityRaw} — skipping op`);
+            continue;
+          }
+          targetId = resolved;
+        }
+
+        const resolvedData: Record<string, any> = {};
+        let refFailed = false;
+        for (const [key, val] of Object.entries(op.data as Record<string, any>)) {
+          if (typeof val === "string" && val.startsWith("$")) {
+            const refKey = val.slice(1);
+            const resolved = resolveRef(refMap, normalizedRefMap, refKey);
+            if (!resolved) {
+              console.warn(`[applyOperationsExtract] unresolved ref "${val}" on update entity=${entityRaw} field=${key} — skipping op`);
+              refFailed = true;
+              break;
+            }
+            resolvedData[key] = resolved;
+          } else {
+            resolvedData[key] = val;
+          }
+        }
+        if (refFailed) continue;
+
+        await delegate.update({ where: { id: targetId }, data: resolvedData });
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "delete" && op.id) {
-        await delegate.delete({ where: { id: op.id } });
+        let targetId = op.id;
+        if (typeof targetId === "string" && targetId.startsWith("$")) {
+          const refKey = targetId.slice(1);
+          const resolved = resolveRef(refMap, normalizedRefMap, refKey);
+          if (!resolved) {
+            console.warn(`[applyOperationsExtract] unresolved delete ref target "${targetId}" on entity=${entityRaw} — skipping op`);
+            continue;
+          }
+          targetId = resolved;
+        }
+        await delegate.delete({ where: { id: targetId } });
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       }
     } catch (err) {
