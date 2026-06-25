@@ -328,25 +328,85 @@ export async function handleConversation(payload: Payload) {
     // Query SkillEventMapping for every event that fired this turn.
     // Admin controls which event triggers the next skill — no hardcoded priority.
     // First matching mapping (by id ASC = creation order) wins.
-    if (skillIsDone && !isGeneralChat && conversationId && firedEvents.length > 0) {
+    const dbFiredEvents: string[] = [];
+
+    if (jsonParsed !== null) {
+      try {
+        queue.push({
+          type: "log",
+          delta: `[Mapper] Running DB mapper...`,
+          metadata: { stage: "mapper_start" },
+        });
+        void flush();
+
+        if ((jsonParsed as any)?.operations !== undefined) {
+          const rawSchema = (result.skill as any).outputSchema;
+          let allowedActionsMap: Record<string, string[]> | undefined;
+          if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+            allowedActionsMap = {};
+            for (const [entity, entry] of Object.entries(rawSchema.value as Record<string, any>)) {
+              allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
+            }
+          }
+          const ops = await applyOperationsExtract(projectId, jsonParsed, allowedActionsMap);
+          dbFiredEvents.push(...ops);
+        } else {
+          await applyGenericExtractMappings(projectId, jsonParsed);
+          // generic mapper does not return granular events — use structured_extract.create
+          dbFiredEvents.push("structured_extract.create");
+        }
+
+        queue.push({
+          type: "log",
+          delta: `[Mapper] DB operations complete. DB events: [${dbFiredEvents.join(", ")}]`,
+          metadata: { stage: "mapper_success", dbFiredEvents },
+        });
+        void flush();
+        // Push live Product Pack snapshot to SSE stream after entity DB writes
+        try {
+          const freshPack = await assembleProductPackData(projectId);
+          queue.push({
+            type: "product_pack_update",
+            snapshot: "",
+            metadata: { productPack: freshPack },
+          });
+          void flush();
+        } catch (packErr) {
+          console.warn(
+            `[worker:conversation] product_pack_update assembly failed project=${projectId}:`,
+            packErr instanceof Error ? packErr.message : String(packErr),
+          );
+        }
+      } catch (mapErr) {
+        console.warn(`[worker:conversation] mapper error:`, mapErr);
+        queue.push({
+          type: "log",
+          delta: `[Mapper] Warning: DB mapper failed: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
+        });
+        void flush();
+      }
+    }
+
+    const allFiredEvents = [...firedEvents, ...dbFiredEvents];
+
+    if (skillIsDone && !isGeneralChat && conversationId && allFiredEvents.length > 0) {
       try {
         console.info(
-          `[worker:conversation] checking skill completion firedEvents=[${firedEvents.join(", ")}] conversation=${conversationId}`,
+          `[worker:conversation] checking skill completion allFiredEvents=[${allFiredEvents.join(", ")}] conversation=${conversationId}`,
         );
 
         queue.push({
           type: "log",
-          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings...`,
-          metadata: { stage: "event", firedEvents },
+          delta: `[Events] Fired events: [${allFiredEvents.join(", ")}]. Checking SkillEventMappings...`,
+          metadata: { stage: "event", firedEvents: allFiredEvents },
         });
         void flush();
 
         const matchedMappings = await prisma.skillEventMapping.findMany({
-          where: { eventType: { in: firedEvents }, active: true },
+          where: { eventType: { in: allFiredEvents }, active: true },
           orderBy: { id: "asc" }, // admin's creation order = priority
         });
 
-        // First match wins — fully admin-driven, no static priority in code
         const nextMapping = matchedMappings[0] ?? null;
 
         if (nextMapping) {
@@ -378,7 +438,7 @@ export async function handleConversation(payload: Payload) {
                   skillId: nextMapping.skillId,
                   skillVersionId: nextVersion.id,
                   previousSkillId: result.skill.id,
-                  content: displayText,
+                  content: firedEvents.includes(nextMapping.eventType) ? displayText : "",
                 }),
               },
             });
@@ -389,7 +449,7 @@ export async function handleConversation(payload: Payload) {
               skillId: nextMapping.skillId,
               skillVersionId: nextVersion.id,
               previousSkillId: result.skill.id,
-              content: displayText,
+              content: firedEvents.includes(nextMapping.eventType) ? displayText : "",
               jobRecordId: nextJobRecord.id,
             });
             await prisma.jobRecord.update({
@@ -425,151 +485,7 @@ export async function handleConversation(payload: Payload) {
               `[worker:conversation] next skill auto-enqueued triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId} jobId=${nextBossJobId}`,
             );
           }
-
         } else {
-          // ── NO SKILL-TO-SKILL MATCH → run DB mapper, fire DB events, check again ──
-          const dbFiredEvents: string[] = [];
-
-          if (jsonParsed !== null) {
-            try {
-              queue.push({
-                type: "log",
-                delta: `[Mapper] No skill-to-skill mapping. Running DB mapper...`,
-                metadata: { stage: "mapper_start" },
-              });
-              void flush();
-
-              if ((jsonParsed as any)?.operations !== undefined) {
-                const rawSchema = (result.skill as any).outputSchema;
-                let allowedActionsMap: Record<string, string[]> | undefined;
-                if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
-                  allowedActionsMap = {};
-                  for (const [entity, entry] of Object.entries(rawSchema.value as Record<string, any>)) {
-                    allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
-                  }
-                }
-                const ops = await applyOperationsExtract(projectId, jsonParsed, allowedActionsMap);
-                dbFiredEvents.push(...ops);
-              } else {
-                await applyGenericExtractMappings(projectId, jsonParsed);
-                // generic mapper does not return granular events — use structured_extract.create
-                dbFiredEvents.push("structured_extract.create");
-              }
-
-              queue.push({
-                type: "log",
-                delta: `[Mapper] DB operations complete. DB events: [${dbFiredEvents.join(", ")}]`,
-                metadata: { stage: "mapper_success", dbFiredEvents },
-              });
-              void flush();
-              // Push live Product Pack snapshot to SSE stream after entity DB writes
-              try {
-                const freshPack = await assembleProductPackData(projectId);
-                queue.push({
-                  type: "product_pack_update",
-                  snapshot: "",
-                  metadata: { productPack: freshPack },
-                });
-                void flush();
-              } catch (packErr) {
-                console.warn(
-                  `[worker:conversation] product_pack_update assembly failed project=${projectId}:`,
-                  packErr instanceof Error ? packErr.message : String(packErr),
-                );
-              }
-            } catch (mapErr) {
-              console.warn(`[worker:conversation] mapper error:`, mapErr);
-              queue.push({
-                type: "log",
-                delta: `[Mapper] Warning: DB mapper failed: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
-              });
-              void flush();
-            }
-          }
-
-          // Check DB-level events against SkillEventMapping
-          const dbMapping = dbFiredEvents.length > 0
-            ? (await prisma.skillEventMapping.findFirst({
-                where: { eventType: { in: dbFiredEvents }, active: true },
-                orderBy: { id: "asc" },
-              }))
-            : null;
-
-          if (dbMapping) {
-            // ── DB EVENT MATCH → activate next skill ─────────────────────────
-            const dbNextVersion = await prisma.skillVersion.findFirst({
-              where: { skillId: dbMapping.skillId, active: true },
-              orderBy: { version: "desc" },
-            });
-
-            if (dbNextVersion) {
-              const pinnedAt = new Date();
-              await prisma.conversation.update({
-                where: { id: conversationId },
-                data: {
-                  activeSkillId:        dbMapping.skillId,
-                  activeSkillVersionId: dbNextVersion.id,
-                  activeSkillPinnedAt:  pinnedAt,
-                },
-              });
-
-              const dbNextJobRecord = await prisma.jobRecord.create({
-                data: {
-                  projectId,
-                  userId,
-                  queue: "ai.conversation",
-                  payload: jsonValue({
-                    conversationId,
-                    skillId: dbMapping.skillId,
-                    skillVersionId: dbNextVersion.id,
-                    previousSkillId: result.skill.id,
-                    content: "",
-                  }),
-                },
-              });
-              const dbNextBossJobId = await boss.send("ai.conversation", {
-                conversationId,
-                projectId,
-                userId,
-                skillId: dbMapping.skillId,
-                skillVersionId: dbNextVersion.id,
-                previousSkillId: result.skill.id,
-                content: "",
-                jobRecordId: dbNextJobRecord.id,
-              });
-              await prisma.jobRecord.update({
-                where: { id: dbNextJobRecord.id },
-                data: { bossJobId: dbNextBossJobId ?? undefined },
-              });
-
-              queue.push({
-                type: "skill_transition",
-                snapshot: "",
-                metadata: {
-                  completedSkillId: result.skill.id,
-                  nextSkillId:      dbMapping.skillId,
-                  triggeredByEvent: dbMapping.eventType,
-                  nextJobId:        dbNextJobRecord.id,
-                },
-              });
-              queue.push({
-                type: "log",
-                delta: `[Transition] DB event "${dbMapping.eventType}" matched! Auto-starting skill: "${dbMapping.skillId}".`,
-                metadata: {
-                  stage: "transition",
-                  completedSkillId: result.skill.id,
-                  nextSkillId:      dbMapping.skillId,
-                  triggeredByEvent: dbMapping.eventType,
-                  nextJobId:        dbNextJobRecord.id,
-                },
-              });
-              void flush();
-
-              console.info(
-                `[worker:conversation] next skill auto-enqueued via DB event triggeredBy=${dbMapping.eventType} nextSkill=${dbMapping.skillId} conversation=${conversationId}`,
-              );
-            }
-          } else {
             // ── NOTHING MATCHED → unpin + close session gracefully ───────────
             await prisma.conversation.update({
               where: { id: conversationId },
@@ -609,9 +525,7 @@ export async function handleConversation(payload: Payload) {
             console.info(
               `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] dbFiredEvents=[${dbFiredEvents.join(", ")}] skillId=${result.skill.id}`,
             );
-          }
         }
-
       } catch (chainErr) {
         // Non-fatal — skill turn is already saved, transition failure should not break it
         console.warn(
