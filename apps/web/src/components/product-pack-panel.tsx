@@ -62,12 +62,6 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
           <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">Product Pack</h2>
         </div>
         <div className="flex items-center gap-2">
-          {pack?.passThread && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/10 shadow-sm">
-              <ShieldCheck size={11} />
-              Ready
-            </span>
-          )}
           {onCollapse && (
             <button
               type="button"
@@ -82,22 +76,28 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-5 p-4">
-        {/* Coverage Progress Card */}
+        {/* Coverage Progress Card (Centered Pill Badge) */}
         {pack && (
-          <div className="relative overflow-hidden rounded-xl border border-border/80 bg-gradient-to-br from-card to-secondary/10 p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sync Coverage</span>
-              <span className="text-sm font-bold text-foreground font-mono">{pack.coveragePercent}%</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700 ease-out"
-                style={{ width: `${pack.coveragePercent}%` }}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
-              Calculates structural alignment across Ambitions, OKRs, and Personas.
-            </p>
+          <div className="mx-auto w-fit flex items-center gap-3.5 px-4.5 py-2.5 rounded-full border border-border/60 bg-card shadow-sm transition-all duration-300 hover:shadow-md">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+              Sync Coverage
+            </span>
+            {pack.coveragePercent === 100 ? (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 rounded-full border border-emerald-500/10 shadow-sm animate-pulse">
+                <CheckCircle2 size={11} />
+                Ready
+              </span>
+            ) : (
+              <div className="w-16 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 ease-out"
+                  style={{ width: `${pack.coveragePercent}%` }}
+                />
+              </div>
+            )}
+            <span className="text-xs font-bold text-foreground font-mono">
+              {pack.coveragePercent}%
+            </span>
           </div>
         )}
 

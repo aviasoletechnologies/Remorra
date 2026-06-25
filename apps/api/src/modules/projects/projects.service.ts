@@ -117,11 +117,20 @@ export class ProjectsService {
       ),
     );
 
-    const total = ambitions.length + personas.length;
-    const covered =
-      ambitions.filter((a: any) => a.okrs.length > 0).length +
-      personas.filter((p: any) => p.painPoints.length > 0 && p.userNeeds.length > 0).length;
-    const coveragePercent = total ? Math.round((covered / total) * 100) : 0;
+    const ambitionScore = ambitions.length > 0 ? 100 : 0;
+    const ambitionsWithOkrs = ambitions.filter((a: any) => a.okrs.length > 0).length;
+    const okrScore = ambitions.length > 0 ? (ambitionsWithOkrs / ambitions.length) * 100 : 0;
+
+    const personaScore = personas.length > 0 ? 100 : 0;
+    const personasWithPainPoints = personas.filter((p: any) => p.painPoints.length > 0).length;
+    const painPointScore = personas.length > 0 ? (personasWithPainPoints / personas.length) * 100 : 0;
+
+    const personasWithUserNeeds = personas.filter((p: any) => p.userNeeds.length > 0).length;
+    const userNeedScore = personas.length > 0 ? (personasWithUserNeeds / personas.length) * 100 : 0;
+
+    const coveragePercent = Math.round(
+      (ambitionScore + okrScore + personaScore + painPointScore + userNeedScore) / 5
+    );
 
     return {
       projectName: project.name,
