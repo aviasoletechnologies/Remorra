@@ -3,6 +3,7 @@ import { boss } from "../lib/boss";
 import { jsonValue, parseJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
+import { assembleProductPackData } from "../assemblers/index.js";
 import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper.js";
 import { triggerChatReportPdf } from "../services/pdf.js";
 
@@ -461,6 +462,21 @@ export async function handleConversation(payload: Payload) {
                 metadata: { stage: "mapper_success", dbFiredEvents },
               });
               void flush();
+              // Push live Product Pack snapshot to SSE stream after entity DB writes
+              try {
+                const freshPack = await assembleProductPackData(projectId);
+                queue.push({
+                  type: "product_pack_update",
+                  snapshot: "",
+                  metadata: { productPack: freshPack },
+                });
+                void flush();
+              } catch (packErr) {
+                console.warn(
+                  `[worker:conversation] product_pack_update assembly failed project=${projectId}:`,
+                  packErr instanceof Error ? packErr.message : String(packErr),
+                );
+              }
             } catch (mapErr) {
               console.warn(`[worker:conversation] mapper error:`, mapErr);
               queue.push({
