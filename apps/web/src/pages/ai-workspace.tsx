@@ -133,7 +133,10 @@ export function AiWorkspacePage() {
       const cleanStreamed = streamedReply.replace(/<skill_done\/>/g, "").trim();
       const cleanDb = lastMsg?.content?.trim() ?? "";
 
-      if (lastMsg?.role === "assistant" && cleanDb === cleanStreamed) {
+      if (
+        lastMsg?.role === "assistant" &&
+        (cleanDb === cleanStreamed || cleanStreamed.startsWith(cleanDb))
+      ) {
         setStreamedReply("");
       }
     }
@@ -223,6 +226,7 @@ export function AiWorkspacePage() {
                         messages: [...oldData.messages, ...newMessages],
                       };
                     });
+                    setStreamedReply("");
                   }
                   if (event.type === "product_pack_update" && event.metadata?.productPack) {
                     setLiveProductPack(event.metadata.productPack as ProductPackDto);
