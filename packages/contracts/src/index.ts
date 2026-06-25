@@ -128,6 +128,33 @@ export const refineProposalSchema = z.object({
   status: z.enum(["pending", "confirmed", "rejected"]),
 });
 
+export const productPackDtoSchema = z.object({
+  projectName: z.string(),
+  coveragePercent: z.number().int().min(0).max(100),
+  linkageValid: z.boolean(),
+  passThread: z.boolean(),
+  ambitions: z.array(z.object({
+    id: z.string().uuid(),
+    title: z.string(),
+    detail: z.string(),
+    okrs: z.array(z.object({
+      id: z.string().uuid(),
+      objective: z.string(),
+      keyResults: z.unknown(),
+      personaIds: z.array(z.string().uuid()),
+    })),
+  })),
+  personas: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    description: z.string(),
+    painPoints: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
+    userNeeds: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
+  })),
+  assembledAt: z.iso.datetime(),
+});
+export type ProductPackDto = z.infer<typeof productPackDtoSchema>;
+
 export const cycleInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   startsAt: z.iso.datetime(),
