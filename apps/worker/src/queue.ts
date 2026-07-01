@@ -16,6 +16,7 @@ import {
   handleBuildSyncExport,
   handleHealthScoreCalculate,
   handleEvolveMessage,
+  handleContextReview,
   type Payload,
 } from "./handlers";
 
@@ -32,6 +33,7 @@ export const queues = [
   "build-sync.export",
   "health-score.calculate",
   "evolve.message",
+  "context.review",
 ] as const;
 
 export async function startQueue() {
@@ -80,6 +82,15 @@ export async function startQueue() {
   }
   if (enabled.includes("evolve.message")) {
     await boss.work<Payload>("evolve.message", handleJobs("evolve.message", handleEvolveMessage));
+  }
+  if (enabled.includes("context.review")) {
+    await boss.work<Payload>("context.review", handleJobs("context.review", handleContextReview));
+    // RemoraDocument §20 — review frequency is founder Configuration, read
+    // from ContextReviewConfig at boot (changes take effect on restart).
+    const reviewConfig = await prisma.contextReviewConfig.findFirst({ where: { active: true } });
+    if (reviewConfig) {
+      await boss.schedule("context.review", reviewConfig.cronExpression, {});
+    }
   }
 
   console.info(

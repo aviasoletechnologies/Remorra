@@ -20,6 +20,7 @@ import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichT
 import { AdminOverview } from "./admin/admin-overview";
 import { AdminSupport } from "./admin/admin-support";
 import { AdminCosts, AdminHealthScoreWeights } from "./admin/admin-costs";
+import { AdminContextAutomation } from "./admin/admin-context";
 import { AdminUsers } from "./admin/admin-users";
 import { AdminTemplates } from "./admin/admin-templates";
 import Editor from "@monaco-editor/react";
@@ -449,6 +450,54 @@ export function AdminPage() {
     },
   });
 
+  const { data: contextAutoCaptureRules = [], isLoading: loadingContextRules } = useQuery<any[]>({
+    queryKey: ["admin-context-auto-capture-rules"],
+    queryFn: () => api("/admin/context-auto-capture-rules"),
+    enabled: activeTab === "costs",
+  });
+
+  const { data: contextReviewConfig } = useQuery<any>({
+    queryKey: ["admin-context-review-config"],
+    queryFn: () => api("/admin/context-review-config"),
+    enabled: activeTab === "costs",
+  });
+
+  const createContextRule = useMutation({
+    mutationFn: (data: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences: number }) =>
+      api("/admin/context-auto-capture-rules", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] });
+      toast.success("Auto-capture rule added.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to add rule."),
+  });
+
+  const updateContextRule = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api(`/admin/context-auto-capture-rules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] }),
+    onError: (err: any) => toast.error(err?.message || "Failed to update rule."),
+  });
+
+  const deleteContextRule = useMutation({
+    mutationFn: (id: string) => api(`/admin/context-auto-capture-rules/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] });
+      toast.success("Rule deleted.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to delete rule."),
+  });
+
+  const updateContextReviewConfig = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api(`/admin/context-review-config/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-review-config"] });
+      toast.success("Review schedule updated.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to update schedule."),
+  });
+
   const activate = useMutation({
     mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}/activate`, { method: "POST" }),
@@ -840,6 +889,16 @@ export function AdminPage() {
             setDrafts={setHealthScoreWeightDrafts}
             onSave={(component, weight) => updateHealthScoreWeight.mutate({ component, weight })}
             isLoading={loadingHealthScoreWeights}
+          />
+          <AdminContextAutomation
+            rules={contextAutoCaptureRules}
+            reviewConfig={contextReviewConfig}
+            isAdmin={isAdmin}
+            isLoading={loadingContextRules}
+            onCreateRule={(data) => createContextRule.mutate(data)}
+            onUpdateRule={(id, data) => updateContextRule.mutate({ id, data })}
+            onDeleteRule={(id) => deleteContextRule.mutate(id)}
+            onUpdateReviewConfig={(id, data) => updateContextReviewConfig.mutate({ id, data })}
           />
         </>
       )}

@@ -471,20 +471,53 @@ model EvolveImpactItem {
 
 // RemoraDocument §10 Layer 2 — AI-proposed project.context updates surfaced
 // inline during Evolve conversations, confirmed or rejected by the founder.
+// RemoraDocument §10 — three automation layers all feed this same table,
+// distinguished by `source`. Layer 2 (Evolve inline proposals) sets
+// evolveSessionId; Layer 1 (entity-pattern/roster auto-capture) and Layer 3
+// (periodic drift review) run independently of any Evolve session.
+enum ContextProposalSource {
+  layer1
+  layer2
+  layer3
+}
+
 model ContextProposal {
-  id              String         @id @default(uuid()) @db.Uuid
-  evolveSessionId String         @db.Uuid
-  projectId       String         @db.Uuid
+  id              String                @id @default(uuid()) @db.Uuid
+  evolveSessionId String?               @db.Uuid
+  projectId       String                @db.Uuid
   proposedText    String
-  status          ProposalStatus @default(pending)
-  createdAt       DateTime       @default(now())
+  source          ContextProposalSource @default(layer2)
+  status          ProposalStatus        @default(pending)
+  createdAt       DateTime              @default(now())
   decidedAt       DateTime?
-  decidedByUserId String?        @db.Uuid
-  evolveSession   EvolveSession  @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
-  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  decidedByUserId String?               @db.Uuid
+  evolveSession   EvolveSession?        @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([evolveSessionId, status])
   @@index([projectId, status])
+}
+
+// Founder-defined pattern → context-text rules (RemoraDocument §20:
+// "Project context auto-capture rules" must be Configuration, not code).
+model ContextAutoCaptureRule {
+  id             String   @id @default(uuid()) @db.Uuid
+  pattern        String
+  entityTypes    String[]
+  contextText    String
+  minOccurrences Int      @default(2)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Singleton-style config row for Layer 3's scheduled drift-review Skill
+// (RemoraDocument §20: "Project context review frequency" is Configuration).
+model ContextReviewConfig {
+  id             String   @id @default(uuid()) @db.Uuid
+  cronExpression String   @default("0 3 * * 1")
+  active         Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
 }
 
 model BuildPhase {
