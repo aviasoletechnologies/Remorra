@@ -120,6 +120,14 @@ export function AdminSkills({
               },
             },
             {
+              key: "modelTier",
+              header: "Model Tier",
+              cell: (row: any) => {
+                const active = row.versions.find((version: any) => version.active);
+                return active ? <Badge tone="neutral" className="capitalize">{active.modelTier}</Badge> : "-";
+              },
+            },
+            {
               key: "actions",
               header: "Actions",
               cell: (row: any) => (

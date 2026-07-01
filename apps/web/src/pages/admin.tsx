@@ -19,7 +19,7 @@ import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
 import { AdminOverview } from "./admin/admin-overview";
 import { AdminSupport } from "./admin/admin-support";
-import { AdminCosts } from "./admin/admin-costs";
+import { AdminCosts, AdminHealthScoreWeights } from "./admin/admin-costs";
 import { AdminUsers } from "./admin/admin-users";
 import { AdminTemplates } from "./admin/admin-templates";
 import Editor from "@monaco-editor/react";
@@ -430,6 +430,25 @@ export function AdminPage() {
     },
   });
 
+  const { data: healthScoreWeights = [], isLoading: loadingHealthScoreWeights } = useQuery<any[]>({
+    queryKey: ["admin-health-score-weights"],
+    queryFn: () => api("/admin/health-score-weights"),
+    enabled: activeTab === "costs",
+  });
+  const [healthScoreWeightDrafts, setHealthScoreWeightDrafts] = useState<Record<string, number>>({});
+
+  const updateHealthScoreWeight = useMutation({
+    mutationFn: ({ component, weight }: { component: string; weight: number }) =>
+      api(`/admin/health-score-weights/${component}`, {
+        method: "PUT",
+        body: JSON.stringify({ weight }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-health-score-weights"] });
+      toast.success("Health Score weight updated successfully!");
+    },
+  });
+
   const activate = useMutation({
     mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}/activate`, { method: "POST" }),
@@ -569,6 +588,7 @@ export function AdminPage() {
       setNewSkillPrompt("");
       setNewSkillKbEligible(false);
       setNewSkillPhase("discover");
+      setNewSkillModelTier("standard");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
       setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
@@ -804,14 +824,24 @@ export function AdminPage() {
       )}
 
       {activeTab === "costs" && (
-        <AdminCosts
-          configs={costConfigs}
-          drafts={costDrafts}
-          isAdmin={isAdmin}
-          setDrafts={setCostDrafts}
-          onSave={(key, data) => updateCostConfig.mutate({ key, data })}
-          isLoading={loadingCosts}
-        />
+        <>
+          <AdminCosts
+            configs={costConfigs}
+            drafts={costDrafts}
+            isAdmin={isAdmin}
+            setDrafts={setCostDrafts}
+            onSave={(key, data) => updateCostConfig.mutate({ key, data })}
+            isLoading={loadingCosts}
+          />
+          <AdminHealthScoreWeights
+            weights={healthScoreWeights}
+            drafts={healthScoreWeightDrafts}
+            isAdmin={isAdmin}
+            setDrafts={setHealthScoreWeightDrafts}
+            onSave={(component, weight) => updateHealthScoreWeight.mutate({ component, weight })}
+            isLoading={loadingHealthScoreWeights}
+          />
+        </>
       )}
 
       {/* Tab Content 5: System Settings (Sub-nav Layout) */}

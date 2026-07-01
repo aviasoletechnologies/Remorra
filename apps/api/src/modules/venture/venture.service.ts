@@ -16,7 +16,7 @@ export class VentureService {
       this.prisma.client.story.findMany({
         where: { projectId },
         orderBy: [{ status: "asc" }, { position: "asc" }],
-        include: { epic: { select: { title: true } } },
+        include: { epic: { select: { title: true } }, buildPhase: { select: { name: true } } },
       }),
       this.prisma.client.raidItem.findMany({ where: { projectId } }),
     ]);

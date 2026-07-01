@@ -825,6 +825,14 @@ model CostConfig {
   updatedAt       DateTime @updatedAt
 }
 
+model HealthScoreWeightConfig {
+  id        String   @id @default(uuid()) @db.Uuid
+  component String   @unique
+  weight    Int
+  updatedBy String?  @db.Uuid
+  updatedAt DateTime @updatedAt
+}
+
 model StorageObject {
   id          String              @id @default(uuid()) @db.Uuid
   projectId   String?             @db.Uuid
