@@ -296,6 +296,22 @@ export class AdminController {
     return this.admin.updateCostConfig(actor, key, body);
   }
 
+  // --- Health Score weight configuration ---
+
+  @Get("health-score-weights")
+  getHealthScoreWeights(@CurrentActor() actor: Actor) {
+    return this.admin.getHealthScoreWeights(actor);
+  }
+
+  @Put("health-score-weights/:component")
+  updateHealthScoreWeight(
+    @CurrentActor() actor: Actor,
+    @Param("component") component: string,
+    @Body() body: { weight: number },
+  ) {
+    return this.admin.updateHealthScoreWeight(actor, component, body);
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   @Get("metrics/overview")
