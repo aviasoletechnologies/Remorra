@@ -111,10 +111,11 @@ export class AdminController {
     @CurrentActor() actor: Actor,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("phase") phase?: string,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.admin.eventMappings(actor, pageNum, limitNum);
+    return this.admin.eventMappings(actor, pageNum, limitNum, phase);
   }
 
   @Post("event-mappings")

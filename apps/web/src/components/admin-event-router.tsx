@@ -29,10 +29,11 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+  const [activePhase, setActivePhase] = useState<string>("discover");
 
   const { data: mappingsData, isLoading } = useQuery<any>({
-    queryKey: ["admin-event-mappings", page],
-    queryFn: () => api(`/admin/event-mappings?page=${page}&limit=${PAGE_SIZE}`),
+    queryKey: ["admin-event-mappings", page, activePhase],
+    queryFn: () => api(`/admin/event-mappings?page=${page}&limit=${PAGE_SIZE}&phase=${activePhase}`),
   });
   const mappings = (mappingsData?.items ?? []) as EventMapping[];
   const totalPages = mappingsData?.totalPages ?? 1;
@@ -42,6 +43,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
     queryFn: () => api("/admin/skills?limit=100"),
   });
   const skills = skillsData?.items ?? [];
+  const filteredSkills = skills.filter((s: any) => s.phase === activePhase);
 
   const { data: eventTypesData } = useQuery<{ items: Array<{ eventType: string; table: string; operation: string; group: string }> }>({
     queryKey: ["admin-event-types"],
@@ -159,6 +161,26 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
         )}
       </div>
 
+      <div className="flex border-b border-zinc-200/80 dark:border-zinc-800/80 mb-6 gap-2">
+        {(["discover", "refine", "initiate", "venture", "evolve"] as const).map((phase) => (
+          <button
+            key={phase}
+            type="button"
+            onClick={() => {
+              setActivePhase(phase);
+              setPage(1);
+            }}
+            className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all capitalize border-b-2 cursor-pointer ${
+              activePhase === phase
+                ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-400 font-bold"
+                : "border-transparent text-muted-foreground hover:text-zinc-800 dark:hover:text-zinc-200"
+            }`}
+          >
+            {phase}
+          </button>
+        ))}
+      </div>
+
       {showAddForm && (
         <div className="admin-modal-overlay">
           <Card className="admin-modal-content">
@@ -211,9 +233,9 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                       <SelectValue placeholder="Select a skill..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {skills.map((skill: any) => (
+                      {filteredSkills.map((skill: any) => (
                         <SelectItem key={skill.id} value={skill.id}>
-                          {skill.name} [{skill.phase}] ({skill.id})
+                          {skill.name} ({skill.id})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -339,21 +361,16 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {skills.map((skill: any) => (
+                      {filteredSkills.map((skill: any) => (
                         <SelectItem key={skill.id} value={skill.id}>
-                          {skill.name} [{skill.phase}]
+                          {skill.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
-                      {row.skill?.phase && (
-                        <Badge tone="neutral" className="capitalize text-[10px] py-0 px-1.5">{row.skill.phase}</Badge>
-                      )}
-                    </div>
+                  <div>
+                    <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
                     <span className="text-xs text-muted-foreground">{row.skill?.description}</span>
                   </div>
                 );

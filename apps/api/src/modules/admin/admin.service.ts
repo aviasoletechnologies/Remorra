@@ -1288,19 +1288,25 @@ export class AdminService {
     return { items: [...tableItems, ...skillItems] };
   }
 
-  async eventMappings(actor: Actor, page: number = 1, limit: number = 10) {
+  async eventMappings(actor: Actor, page: number = 1, limit: number = 10, phase?: string) {
     this.requireAdmin(actor);
     const skip = (page - 1) * limit;
     const take = limit;
 
+    const where: any = {};
+    if (phase) {
+      where.skill = { phase };
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.client.skillEventMapping.findMany({
+        where,
         orderBy: { eventType: "asc" },
         include: { skill: true },
         skip,
         take,
       }),
-      this.prisma.client.skillEventMapping.count(),
+      this.prisma.client.skillEventMapping.count({ where }),
     ]);
 
     return {
