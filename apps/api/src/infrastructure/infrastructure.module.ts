@@ -9,6 +9,7 @@ import { StorageService } from "./storage.service.js";
 import { ProjectAccessService } from "./project-access.service.js";
 import { PhaseGuard } from "../shared/phase.guard.js";
 import { PhaseCompletionService } from "../shared/phase-completion.service.js";
+import { ContextAutomationService } from "../shared/context-automation.service.js";
 
 @Global()
 @Module({
@@ -20,6 +21,7 @@ import { PhaseCompletionService } from "../shared/phase-completion.service.js";
     ProjectAccessService,
     PhaseGuard,
     PhaseCompletionService,
+    ContextAutomationService,
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
@@ -31,6 +33,7 @@ import { PhaseCompletionService } from "../shared/phase-completion.service.js";
     ProjectAccessService,
     PhaseGuard,
     PhaseCompletionService,
+    ContextAutomationService,
   ],
 })
 export class InfrastructureModule {}
