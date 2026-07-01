@@ -133,3 +133,55 @@ function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
 }
+
+// Deterministic raw counts/coverage for the Health Score Calculator Skill —
+// per HARDIK doc Q13, the server computes raw signal, the Skill interprets
+// it in project context and writes the qualitative rationale/actions layer.
+export async function assembleHealthScoreRawData(projectId: string): Promise<any> {
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const goals = await prisma.goal.findMany({
+    where: { projectId },
+    include: { epics: { include: { stories: true } } },
+  });
+  const personas = await prisma.persona.findMany({
+    where: { projectId },
+    include: { painPoints: true, stories: true },
+  });
+
+  const epics = goals.flatMap((g: any) => g.epics);
+  const stories = epics.flatMap((e: any) => e.stories);
+  const storiesWithAC = stories.filter((s: any) => Array.isArray(s.acceptance) && s.acceptance.length > 0);
+
+  const orphanEpics = epics.filter((e: any) => e.stories.length === 0).length;
+  const completeThreads = epics.filter((e: any) => e.stories.length > 0).length;
+
+  return {
+    projectName: project.name,
+    goals: {
+      count: goals.length,
+      withDetail: goals.filter((g: any) => (g.detail ?? "").trim().length > 20).length,
+      titles: goals.map((g: any) => g.title),
+    },
+    epics: {
+      count: epics.length,
+      withStories: epics.length - orphanEpics,
+      orphanCount: orphanEpics,
+    },
+    stories: {
+      count: stories.length,
+      withAcceptanceCriteria: storiesWithAC.length,
+      coveragePercent: stories.length > 0 ? Math.round((storiesWithAC.length / stories.length) * 100) : 0,
+    },
+    personas: {
+      count: personas.length,
+      withPainPoints: personas.filter((p: any) => p.painPoints.length > 0).length,
+      withLinkedStories: personas.filter((p: any) => p.stories.length > 0).length,
+    },
+    linkage: {
+      completeGoalEpicStoryThreads: completeThreads,
+      orphanEpicCount: orphanEpics,
+      totalGoals: goals.length,
+      totalEpics: epics.length,
+    },
+  };
+}

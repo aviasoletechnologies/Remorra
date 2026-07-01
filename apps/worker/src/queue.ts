@@ -14,6 +14,7 @@ import {
   handleBuildPackGenerate,
   handleBuildSyncIngest,
   handleBuildSyncExport,
+  handleHealthScoreCalculate,
   type Payload,
 } from "./handlers";
 
@@ -28,6 +29,7 @@ export const queues = [
   "build-pack.generate",
   "build-sync.ingest",
   "build-sync.export",
+  "health-score.calculate",
 ] as const;
 
 export async function startQueue() {
@@ -70,6 +72,9 @@ export async function startQueue() {
   }
   if (enabled.includes("build-sync.export")) {
     await boss.work<Payload>("build-sync.export", handleJobs("build-sync.export", handleBuildSyncExport));
+  }
+  if (enabled.includes("health-score.calculate")) {
+    await boss.work<Payload>("health-score.calculate", handleJobs("health-score.calculate", handleHealthScoreCalculate));
   }
 
   console.info(

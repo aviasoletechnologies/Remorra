@@ -12,9 +12,9 @@ export function OverviewPage() {
     queryFn: () => api<any>(`/projects/${projectId}/venture`),
     enabled: Boolean(projectId),
   });
-  const { data: viability } = useQuery({
-    queryKey: ["viability", projectId],
-    queryFn: () => api<any>(`/viability/projects/${projectId}/current`),
+  const { data: healthScore } = useQuery({
+    queryKey: ["health-score", projectId],
+    queryFn: () => api<any>(`/projects/${projectId}/health-score`),
     enabled: Boolean(projectId),
   });
 
@@ -30,12 +30,13 @@ export function OverviewPage() {
     );
   }
 
-  const tasks = data?.tasks ?? [];
-  const done = tasks.filter((task: any) => task.status === "done").length;
+  const stories = data?.stories ?? [];
+  const done = stories.filter((story: any) => story.status === "done").length;
   const blockers = data?.raid?.filter((item: any) => item.status !== "closed") ?? [];
-  const completion = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
-  const score = viability?.overall ?? 0;
-  const components = Object.entries(viability?.components ?? {}).slice(0, 3);
+  const completion = stories.length ? Math.round((done / stories.length) * 100) : 0;
+  const score = healthScore?.overallScore ?? 0;
+  const components = (healthScore?.components ?? []).slice(0, 3);
+  const topAction = (healthScore?.components ?? []).flatMap((c: any) => c.actions ?? [])[0];
 
   return (
     <Page>
@@ -52,39 +53,39 @@ export function OverviewPage() {
       />
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Overall viability" value={viability?.overall ?? "Not scored"} detail="Evidence-based readiness" icon={Gauge} />
-        <MetricCard label="Cycle completion" value={`${completion}%`} detail={`${done} of ${tasks.length} tasks complete`} icon={ListChecks} tone="blue" />
+        <MetricCard label="Health Score" value={healthScore?.overallScore ?? "Not scored"} detail="Evidence-based readiness" icon={Gauge} />
+        <MetricCard label="Backlog completion" value={`${completion}%`} detail={`${done} of ${stories.length} stories done`} icon={ListChecks} tone="blue" />
         <MetricCard label="Open risks" value={blockers.length} detail="Risks and dependencies needing review" icon={CircleAlert} tone="amber" />
-        <MetricCard label="Delivery evidence" value={tasks.length} detail="Connected tasks in the workspace" icon={Activity} />
+        <MetricCard label="Delivery evidence" value={stories.length} detail="Stories in the backlog" icon={Activity} />
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_.65fr]">
         <SectionCard
-          title="Product viability"
-          description={viability?.rationale ? "Current evidence-based assessment" : "Complete Discover and Refine to create the first score."}
-          action={<Badge tone={viability ? "green" : "neutral"}>{viability ? "Current" : "Not calculated"}</Badge>}
+          title="Health Score"
+          description={healthScore?.readinessAssessment ?? "Complete Discover and Refine to create the first score."}
+          action={<Badge tone={healthScore ? "green" : "neutral"}>{healthScore ? "Current" : "Not calculated"}</Badge>}
         >
           <div className="grid gap-6 lg:grid-cols-[150px_1fr] lg:items-center">
             <div className="relative mx-auto grid size-32 place-items-center rounded-full" style={{ background: `conic-gradient(var(--color-primary) 0 ${score}%, var(--color-muted) ${score}% 100%)` }}>
               <div className="absolute inset-2 grid place-items-center rounded-full bg-card shadow-inner">
                 <div className="text-center">
-                  <strong className="block text-3xl tracking-[-.05em]">{viability?.overall ?? "—"}</strong>
+                  <strong className="block text-3xl tracking-[-.05em]">{healthScore?.overallScore ?? "—"}</strong>
                   <span className="text-[10px] font-semibold text-muted-foreground">out of 100</span>
                 </div>
               </div>
             </div>
             <div>
               <p className="m-0 text-sm leading-6 text-muted-foreground">
-                {viability?.rationale ?? "Remorra will explain the score and its source evidence after the first Initiate calculation."}
+                {healthScore?.readinessAssessment ?? "Remorra will explain the score and its source evidence after the first Initiate calculation."}
               </p>
               <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                {components.map(([label, value]) => (
-                  <div key={label}>
+                {components.map((c: any) => (
+                  <div key={c.component}>
                     <div className="mb-2 flex justify-between gap-3 text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">
-                      <span className="truncate">{label.replaceAll("_", " ")}</span>
-                      <span className="text-foreground">{String(value)}</span>
+                      <span className="truncate">{c.component.replaceAll("_", " ")}</span>
+                      <span className="text-foreground">{c.score}</span>
                     </div>
-                    <Progress value={Number(value)} label={`${label} score`} />
+                    <Progress value={c.score} label={`${c.component} score`} />
                   </div>
                 ))}
               </div>
@@ -92,14 +93,14 @@ export function OverviewPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Current cycle" description="Delivery progress and work still in motion">
+        <SectionCard title="Backlog" description="Delivery progress and work still in motion">
           <div className="grid gap-5">
             <div>
               <div className="mb-2 flex items-end justify-between">
                 <strong className="text-3xl tracking-[-.05em]">{completion}%</strong>
-                <span className="text-xs text-muted-foreground">{tasks.length - done} open</span>
+                <span className="text-xs text-muted-foreground">{stories.length - done} open</span>
               </div>
-              <Progress value={completion} label="Cycle completion" />
+              <Progress value={completion} label="Backlog completion" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-accent-soft/55 p-4">
@@ -121,7 +122,7 @@ export function OverviewPage() {
         <div className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground"><Sparkles size={19} /></div>
         <div>
           <span className="text-[10px] font-bold uppercase tracking-[.1em] text-primary">Remorra intelligence</span>
-          <h2 className="mb-1 mt-1 text-sm font-bold">{viability?.actions?.[0]?.title ?? "Build evidence before expanding scope."}</h2>
+          <h2 className="mb-1 mt-1 text-sm font-bold">{topAction ?? "Build evidence before expanding scope."}</h2>
           <p className="m-0 text-xs leading-5 text-muted-foreground">Recommendations remain grounded in confirmed records and subject to founder approval.</p>
         </div>
         <ActionLink to="/initiate" variant="outline">Review actions</ActionLink>

@@ -295,19 +295,20 @@ export function AdminPage() {
         goals: [{ id: "goal-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
         personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", linkedStories: [{ id: "story-1", statement: "Clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
       }, null, 2));
-    } else {
+    } else if (template.id === "health-score" || template.id === "build-pack") {
       setSampleJsonText(JSON.stringify({
         projectName: "Greenfield Analytics",
-        viabilityScore: 78,
-        viabilityRationale: "Healthy delivery linkage and clear customer pain statement.",
-        productCoveragePercent: 88,
-        deliveryLinkageValid: true,
-        activeSprintCompletedTasks: 6,
-        activeSprintTotalTasks: 8,
-        totalBudgetSpentMinor: 12000,
-        totalBudgetAllocatedMinor: 25000,
-        risksCount: 4,
-        criticalRisksCount: 0
+        overallScore: 78,
+        readinessAssessment: "Solid foundation — minor refinement needed.",
+        components: [
+          { component: "problem_top", weight: 15, score: 85, rationale: "Goals are specific and measurable.", actions: ["Add a third measurable Goal."] },
+        ],
+      }, null, 2));
+    } else {
+      setSampleJsonText(JSON.stringify({
+        title: "Sample Report",
+        generatedAt: new Date().toISOString(),
+        summary: "Generic placeholder for report-definition-driven templates — actual shape comes from the report's own outputSchema.",
       }, null, 2));
     }
   };

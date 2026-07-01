@@ -21,9 +21,14 @@ export class PhaseGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.get<string[]>(
+    // @RequirePhase is applied at the controller-class level everywhere it's
+    // used — reflector.get(key, context.getHandler()) alone only sees
+    // method-level metadata and silently never matches, so the guard would
+    // always pass. getAllAndOverride checks the handler first, then falls
+    // back to the class, which is what class-level SetMetadata needs.
+    const required = this.reflector.getAllAndOverride<string[]>(
       REQUIRE_PHASE_KEY,
-      context.getHandler(),
+      [context.getHandler(), context.getClass()],
     );
     if (!required || required.length === 0) return true;
 
