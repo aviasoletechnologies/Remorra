@@ -11,6 +11,7 @@ type Skill = {
   id: string;
   name: string;
   description: string;
+  phase: string;
 };
 
 type EventMapping = {
@@ -212,7 +213,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                     <SelectContent>
                       {skills.map((skill: any) => (
                         <SelectItem key={skill.id} value={skill.id}>
-                          {skill.name} ({skill.id})
+                          {skill.name} [{skill.phase}] ({skill.id})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -340,14 +341,19 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                     <SelectContent>
                       {skills.map((skill: any) => (
                         <SelectItem key={skill.id} value={skill.id}>
-                          {skill.name}
+                          {skill.name} [{skill.phase}]
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div>
-                    <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold block">{row.skill?.name ?? row.skillId}</span>
+                      {row.skill?.phase && (
+                        <Badge tone="neutral" className="capitalize text-[10px] py-0 px-1.5">{row.skill.phase}</Badge>
+                      )}
+                    </div>
                     <span className="text-xs text-muted-foreground">{row.skill?.description}</span>
                   </div>
                 );
