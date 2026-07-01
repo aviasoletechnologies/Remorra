@@ -431,63 +431,7 @@ async function main() {
     });
   }
 
-  // ── Core Skills: set DRIVE phase ──────────────────────────────────────────
-  const coreSkills: Array<{ id: string; name: string; description: string; phase: "discover" | "refine" | "initiate" | "venture" | "evolve" }> = [
-    {
-      id: "discover-facilitator",
-      name: "Discover Facilitator",
-      description: "Guides the founder through the three Discover questions: problem, idea, and user.",
-      phase: "discover",
-    },
-    {
-      id: "refine-facilitator",
-      name: "Refine Facilitator",
-      description: "Drills into Discover output to build detailed Goals, Epics, Stories, and Personas with Pain Points.",
-      phase: "refine",
-    },
-    {
-      id: "health-score-calculator",
-      name: "Health Score Calculator",
-      description: "One-time AI calculation at Initiate covering 7 weighted components of product readiness.",
-      phase: "initiate",
-    },
-    {
-      id: "evolve-facilitator",
-      name: "Evolve Facilitator",
-      description: "Persistent AI side panel that guides product strategy discussions and proposed changes from Venture onwards.",
-      phase: "venture",
-    },
-    {
-      id: "document-generator",
-      name: "Document Generator",
-      description: "Generates PRDs, stakeholder summaries, and other project documents via Evolve conversation.",
-      phase: "venture",
-    },
-    {
-      id: "impact-screener",
-      name: "Impact Screener",
-      description: "Assesses cascade impact of proposed Goal changes across linked entities during Evolve sessions.",
-      phase: "venture",
-    },
-  ];
 
-  for (const skill of coreSkills) {
-    await prisma.skill.upsert({
-      where: { id: skill.id },
-      create: {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        phase: skill.phase,
-        kbEligible: false,
-      },
-      update: {
-        name: skill.name,
-        description: skill.description,
-        phase: skill.phase,
-      },
-    });
-  }
 }
 
 main()

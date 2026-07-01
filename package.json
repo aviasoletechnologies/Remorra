@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @remorra/database generate",
     "db:validate": "pnpm --filter @remorra/database validate",
     "db:seed": "node --env-file=apps/api/.env --import tsx packages/database/prisma/seed.ts",
+    "db:seed:prod-skills": "node --env-file=apps/api/.env --import tsx packages/database/prisma/seed-prod-skills.ts",
     "db:migrate:deploy": "node --env-file=apps/api/.env packages/database/node_modules/prisma/build/index.js migrate deploy --config packages/database/prisma.config.ts"
   },
   "devDependencies": {
