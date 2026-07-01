@@ -17,7 +17,10 @@ export class HealthScoreService {
     return this.prisma.client.healthScore.findFirst({
       where: { projectId },
       orderBy: { calculatedAt: "desc" },
-      include: { components: true },
+      // createMany doesn't preserve insertion order on read — order
+      // deterministically by weight (Cohesion is the only 10%-weighted
+      // component, so it always sorts last, matching the doc's example).
+      include: { components: { orderBy: [{ weight: "desc" }, { component: "asc" }] } },
     });
   }
 

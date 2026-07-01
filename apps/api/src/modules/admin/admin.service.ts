@@ -884,6 +884,40 @@ export class AdminService {
     });
   }
 
+  // --- Health Score weight configuration (RemoraDocument §20) ---
+
+  async getHealthScoreWeights(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.healthScoreWeightConfig.findMany({
+      orderBy: [{ weight: "desc" }, { component: "asc" }],
+    });
+  }
+
+  async updateHealthScoreWeight(actor: Actor, component: string, body: { weight: number }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    if (!Number.isInteger(body.weight) || body.weight < 0 || body.weight > 100) {
+      throw new BadRequestException("weight must be an integer between 0 and 100.");
+    }
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const config = await tx.healthScoreWeightConfig.findUniqueOrThrow({ where: { component } });
+      const updated = await tx.healthScoreWeightConfig.update({
+        where: { component },
+        data: { weight: body.weight, updatedBy: actor.userId },
+      });
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "health_score_weight.updated",
+          targetType: "health_score_weight_config",
+          targetId: updated.id,
+          metadata: { component, from: config.weight, to: body.weight },
+        },
+      });
+      return updated;
+    });
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   async getOverviewMetrics(actor: Actor, from?: Date, to?: Date) {
@@ -1238,7 +1272,7 @@ export class AdminService {
     const healthScore = await this.prisma.client.healthScore.findFirst({
       where: { projectId },
       orderBy: { calculatedAt: "desc" },
-      include: { components: true },
+      include: { components: { orderBy: [{ weight: "desc" }, { component: "asc" }] } },
     });
 
     return {
