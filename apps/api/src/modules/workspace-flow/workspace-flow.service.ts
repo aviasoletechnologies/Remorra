@@ -5,6 +5,7 @@ import mammoth from "mammoth";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { PhaseCompletionService } from "../../shared/phase-completion.service.js";
 import { IntentRouterService } from "./intent-router.service.js";
 
 const MAX_DOCUMENT_CHARS = 20_000;
@@ -64,12 +65,15 @@ export class WorkspaceFlowService {
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
     private readonly intentRouter: IntentRouterService,
+    private readonly phaseCompletion: PhaseCompletionService,
   ) {}
 
   async getOrCreate(projectId: string, userId: string) {
     await this.access.require(projectId, userId, ["founder", "team"]);
-    const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);
-    return this.serialize(conversation);
+    const kind = await this.resolveSessionKind(projectId);
+    const conversation = await this.loadConversation(projectId, kind) ?? await this.createConversation(projectId, kind);
+    const phaseComplete = await this.phaseCompletion.isComplete(projectId, kind);
+    return { ...this.serialize(conversation), phaseComplete };
   }
 
   async message(projectId: string, userId: string, rawContent: string, file?: Express.Multer.File) {
@@ -105,7 +109,8 @@ export class WorkspaceFlowService {
       }
     }
 
-    const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);
+    const kind = await this.resolveSessionKind(projectId);
+    const conversation = await this.loadConversation(projectId, kind) ?? await this.createConversation(projectId, kind);
     this.logger.debug(
       `Incoming workspace message project=${projectId} conversation=${conversation.id} user=${userId} activeSkill=${conversation.activeSkill?.id ?? "none"} contentPreview=${content.slice(0, 120)}`,
     );
@@ -229,9 +234,26 @@ export class WorkspaceFlowService {
     });
   }
 
-  private async loadConversation(projectId: string) {
+  // One resumable active session per DRIVE phase per project (Discover/Refine).
+  // Conversation.kind mirrors the project's current phase — Discover and
+  // Refine each get their own session, satisfying "one active session per
+  // phase per project, resumed on return" without a separate table.
+  private async resolveSessionKind(projectId: string): Promise<"discover" | "refine"> {
+    const project = await this.prisma.client.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { phase: true },
+    });
+    if (project.phase !== "discover" && project.phase !== "refine") {
+      throw new BadRequestException(
+        `The AI product guide is only available during Discover and Refine. Current phase: ${project.phase}.`,
+      );
+    }
+    return project.phase;
+  }
+
+  private async loadConversation(projectId: string, kind: "discover" | "refine") {
     const conversation = await this.prisma.client.conversation.findFirst({
-      where: { projectId, kind: "workspace", status: "active" },
+      where: { projectId, kind, status: "active" },
       orderBy: { updatedAt: "desc" },
       include: {
         activeSkill: true,
@@ -242,11 +264,11 @@ export class WorkspaceFlowService {
     return conversation ? this.normalizeConversation(conversation) : null;
   }
 
-  private async createConversation(projectId: string) {
+  private async createConversation(projectId: string, kind: "discover" | "refine") {
     const conversation = await this.prisma.client.conversation.create({
       data: {
         projectId,
-        kind: "workspace",
+        kind,
         retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
       },
       include: {

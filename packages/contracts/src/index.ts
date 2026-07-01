@@ -12,6 +12,10 @@ export type DrivePhase = z.infer<typeof drivePhaseSchema>;
 export const projectRoleSchema = z.enum(["founder", "team"]);
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
 
+export const modelTierSchema = z.enum(["fast", "standard", "reasoning"]);
+export type ModelTier = z.infer<typeof modelTierSchema>;
+export const MODEL_TIERS = modelTierSchema.options;
+
 export const projectSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2).max(120),
@@ -35,14 +39,16 @@ export const sessionStatusSchema = z.enum([
   "draft",
   "screening",
   "completed",
+  "nav_away",
 ]);
 
 export const createEvolveSessionSchema = z.object({
-  projectId: z.string().uuid(),
-  mode: sessionModeSchema,
-  topic: z.string().trim().min(3).max(180),
-  launchedFrom: z.string().trim().max(160),
-  continuedFromSessionId: z.string().uuid().optional(),
+  launchedFrom: z.string().trim().min(1).max(160),
+  topic: z.string().trim().min(3).max(180).optional(),
+});
+
+export const updateEvolveSessionStatusSchema = z.object({
+  status: z.enum(["draft", "completed", "nav_away"]),
 });
 
 export const impactItemSchema = z.object({
@@ -220,6 +226,7 @@ export const skillVersionInputSchema = z.object({
   phase: drivePhaseSchema.optional(),
   kbEligible: z.boolean().optional(),
   systemPrompt: z.string().optional(),
+  modelTier: modelTierSchema.optional(),
   inputSourceMap: z.object({
     skills: z.array(z.string()).optional(),
     tables: z.record(z.string(), z.array(z.string())).optional(),

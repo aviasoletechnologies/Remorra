@@ -8,6 +8,7 @@ import { QueueService } from "./queue.service.js";
 import { StorageService } from "./storage.service.js";
 import { ProjectAccessService } from "./project-access.service.js";
 import { PhaseGuard } from "../shared/phase.guard.js";
+import { PhaseCompletionService } from "../shared/phase-completion.service.js";
 
 @Global()
 @Module({
@@ -18,6 +19,7 @@ import { PhaseGuard } from "../shared/phase.guard.js";
     AnthropicService,
     ProjectAccessService,
     PhaseGuard,
+    PhaseCompletionService,
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
@@ -28,6 +30,7 @@ import { PhaseGuard } from "../shared/phase.guard.js";
     AnthropicService,
     ProjectAccessService,
     PhaseGuard,
+    PhaseCompletionService,
   ],
 })
 export class InfrastructureModule {}
