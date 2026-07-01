@@ -8,6 +8,7 @@ import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
 import { forbidden, notFound } from "../../shared/http-errors.js";
+import { ContextAutomationService } from "../../shared/context-automation.service.js";
 
 const ENTITY_DELEGATES = new Set(["Goal", "Epic", "Story", "Persona", "RaidItem"]);
 
@@ -17,6 +18,7 @@ export class EvolveService {
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
+    private readonly contextAutomation: ContextAutomationService,
   ) {}
 
   async createSession(projectId: string, userId: string, body: unknown) {
@@ -213,6 +215,10 @@ export class EvolveService {
       where: { id: actionId },
       data: { status: "confirmed", decidedAt: new Date(), decidedByUserId: userId },
     });
+
+    if (action!.actionType === "create") {
+      await this.contextAutomation.runLayer1AutoCapture(projectId).catch(() => undefined);
+    }
 
     await this.logAudit(
       projectId,

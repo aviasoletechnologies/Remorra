@@ -47,8 +47,15 @@ type EvolveAction = {
 type ContextProposal = {
   id: string;
   proposedText: string;
+  source: "layer1" | "layer2" | "layer3";
   status: "pending" | "confirmed" | "rejected";
   createdAt: string;
+};
+
+const sourceLabel: Record<ContextProposal["source"], string> = {
+  layer1: "Auto-detected",
+  layer2: "From Evolve",
+  layer3: "Drift review",
 };
 
 const severityTone: Record<string, "red" | "amber" | "green"> = { red: "red", amber: "amber", green: "green" };
@@ -195,6 +202,9 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
         <div className="border-b border-border/70 bg-accent-soft/40 p-3 space-y-2">
           {contextProposals.map((proposal) => (
             <div key={proposal.id} className="rounded-lg border border-border bg-card p-2 text-xs">
+              <div className="mb-1 flex items-center gap-2">
+                <Badge tone="blue">{sourceLabel[proposal.source]}</Badge>
+              </div>
               <p className="mb-2">Add to project context: <strong>{proposal.proposedText}</strong></p>
               <div className="flex gap-2">
                 <Button size="sm" onClick={() => decideContextProposal.mutate({ id: proposal.id, decision: "approve" })}>

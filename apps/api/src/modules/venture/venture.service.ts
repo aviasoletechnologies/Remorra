@@ -2,12 +2,14 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { versionConflict } from "../../shared/http-errors.js";
+import { ContextAutomationService } from "../../shared/context-automation.service.js";
 
 @Injectable()
 export class VentureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
+    private readonly contextAutomation: ContextAutomationService,
   ) {}
 
   async overview(projectId: string, userId: string) {
@@ -40,7 +42,7 @@ export class VentureService {
 
   async createRaid(projectId: string, userId: string, body: any) {
     await this.access.require(projectId, userId, ["founder", "team"]);
-    return this.prisma.client.raidItem.create({
+    const created = await this.prisma.client.raidItem.create({
       data: {
         projectId,
         type: String(body.type),
@@ -51,6 +53,8 @@ export class VentureService {
         dueAt: body.dueAt ? new Date(body.dueAt) : null,
       },
     });
+    await this.contextAutomation.runLayer1AutoCapture(projectId).catch(() => undefined);
+    return created;
   }
 
   async updateRaid(
