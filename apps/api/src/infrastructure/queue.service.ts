@@ -11,6 +11,9 @@ export const QUEUES = {
   gdprDelete: "gdpr.delete",
   retentionCleanup: "retention.cleanup",
   storageExpire: "storage.expire",
+  buildPackGenerate: "build-pack.generate",
+  buildSyncIngest: "build-sync.ingest",
+  buildSyncExport: "build-sync.export",
 } as const;
 
 @Injectable()

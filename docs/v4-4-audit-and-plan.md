@@ -143,20 +143,33 @@ While Phase 0 was in progress, 9 commits landed on `origin/Dev` implementing DRI
 
 ### Phase 2 — Build Phase + Build Sync
 
+Revised after Phase 0/4a landed real conventions to reuse: `PhaseGuard`/`@RequirePhase` (gate to venture/evolve), the `updateVersioned` optimistic-lock helper, `AuditEvent` logging, `StorageService` + `FileInterceptor` upload pattern, and the existing `document.render`/`DocumentTemplate`/Puppeteer pipeline (currently only used for `product-pack`).
+
+**Schema gap fixed:** original snippet referenced `BuildPhaseStatus` without defining it. Also moved Brand Kit / User Flow uploads onto `BuildPhase` directly (RemoraDocument §8 says they're "attached to Build Phase", not to the generated pack) — `BuildPack` becomes a pure generation snapshot/manifest.
+
 ```prisma
+enum BuildPhaseStatus {
+  draft
+  ready
+  active
+  closed
+}
+
 model BuildPhase {
-  id          String    @id @default(uuid()) @db.Uuid
-  projectId   String    @db.Uuid
-  name        String
-  description String?
-  status      BuildPhaseStatus @default(draft)   // draft/ready/active/closed
-  version     Int       @default(1)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  stories     Story[]
-  pack        BuildPack?
-  syncUploads BuildSyncUpload[]
+  id                String    @id @default(uuid()) @db.Uuid
+  projectId         String    @db.Uuid
+  name              String
+  description       String?
+  status            BuildPhaseStatus @default(draft)
+  brandKitObjectId  String?   @db.Uuid   // uploaded by founder, attached to Build Phase directly
+  userFlowObjectId  String?   @db.Uuid   // uploaded or Evolve-generated, attached to Build Phase directly
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stories           Story[]
+  pack              BuildPack?
+  syncUploads       BuildSyncUpload[]
 
   @@index([projectId])
 }
@@ -171,10 +184,8 @@ model Story {
 model BuildPack {
   id                            String    @id @default(uuid()) @db.Uuid
   buildPhaseId                  String    @unique @db.Uuid
-  status                        ReportStatus @default(queued)
+  status                        ReportStatus @default(queued)   // reuse existing enum
   prdDocumentId                 String?   @db.Uuid
-  brandKitObjectId              String?   @db.Uuid
-  userFlowObjectId              String?   @db.Uuid
   buildSyncFileObjectId         String?   @db.Uuid
   buildSyncInstructionsObjectId String?   @db.Uuid
   projectContextSnapshot        Json?
@@ -189,23 +200,32 @@ model BuildSyncUpload {
   uploadedById         String    @db.Uuid
   storageObjectId      String    @db.Uuid
   buildPhaseIdentifier String
-  status               JobStatus @default(queued)
+  status               JobStatus @default(queued)   // reuse existing enum
   ingestedAt           DateTime?
   createdAt            DateTime  @default(now())
   buildPhase           BuildPhase @relation(fields: [buildPhaseId], references: [id], onDelete: Cascade)
 }
 ```
 
-Worker: `build-pack.generate` (assembles 6 artefacts → PDF), `build-sync.ingest` (validate identifier first, reject unknown BuildPhase, map statuses), `build-sync.export` (callable anytime, not just at pack generation).
+**Build Sync File format** — founder hasn't provided the real spec yet (RemoraDocument: developer parses whatever format the founder configures). Ship a generic placeholder now: CSV with `buildPhaseIdentifier, storyId, status` columns, column-mapping kept configurable rather than hardcoded, swappable later without code changes once the real spec lands.
 
-API:
+Worker: `build-pack.generate` (assembles PRD via existing `document.render` pipeline + Build Sync File CSV + Build Sync Instructions PDF + project.context snapshot, all reusing current Puppeteer/DocumentTemplate infra), `build-sync.ingest` (validate `buildPhaseIdentifier` first, reject unknown BuildPhase, map statuses per configurable column mapping), `build-sync.export` (callable anytime, not just at pack generation).
+
+API (new `BuildPhaseModule`, `PhaseGuard` on venture/evolve, optimistic-locked mutations):
 ```
-POST /projects/:id/build-phases
-POST /build-phases/:id/stories        // sets Story.buildPhaseId
-POST /build-phases/:id/pack/generate
-POST /build-phases/:id/sync/upload
-GET  /build-phases/:id/sync/export
+POST   /projects/:id/build-phases
+GET    /projects/:id/build-phases
+POST   /build-phases/:id/stories          // assign, sets Story.buildPhaseId
+PATCH  /build-phases/:id                  // status transitions, If-Match version
+PATCH  /build-phases/:id/brand-kit        // file upload
+PATCH  /build-phases/:id/user-flow        // file upload
+POST   /build-phases/:id/pack/generate
+GET    /build-phases/:id/pack
+POST   /build-phases/:id/sync/upload
+GET    /build-phases/:id/sync/export
 ```
+
+Frontend: `venture.tsx` gets a real "Build Phases" tab (not backend-only like Evolve) — list/create phases, assign Stories from Backlog, brand kit/user flow upload buttons, Generate Pack + download, Sync upload/export — matching the existing Backlog/RAID tab pattern.
 
 ### Phase 3 — Health Score
 

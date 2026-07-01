@@ -34,6 +34,9 @@ export const config = {
         "gdpr.delete",
         "retention.cleanup",
         "storage.expire",
+        "build-pack.generate",
+        "build-sync.ingest",
+        "build-sync.export",
       ];
     }
     return val.split(",").map((q) => q.trim());

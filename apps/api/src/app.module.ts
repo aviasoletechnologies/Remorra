@@ -13,6 +13,7 @@ import { SanitizeMiddleware } from "./infrastructure/sanitize.middleware.js";
 import { EventRouterModule } from "./modules/event-router/event-router.module.js";
 import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.module.js";
 import { EvolveModule } from "./modules/evolve/evolve.module.js";
+import { BuildPhaseModule } from "./modules/build-phase/build-phase.module.js";
 
 
 @Module({
@@ -29,6 +30,7 @@ import { EvolveModule } from "./modules/evolve/evolve.module.js";
     EventRouterModule,
     WorkspaceFlowModule,
     EvolveModule,
+    BuildPhaseModule,
   ],
   controllers: [HealthController],
 })
