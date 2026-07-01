@@ -54,7 +54,7 @@ export function App() {
                   </PhaseRoute>
                 }
               />
-              <Route path="/evolve" element={<Navigate to="/workspace" replace />} />
+              <Route path="/evolve" element={<Navigate to="/venture" replace />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/team" element={<TeamPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
