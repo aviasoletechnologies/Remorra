@@ -448,10 +448,10 @@ export async function handleConversation(payload: Payload) {
                     allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
                   }
                 }
-                const ops = await applyOperationsExtract(projectId, jsonParsed, allowedActionsMap);
+                const ops = await applyOperationsExtract(projectId, userId, jsonParsed, allowedActionsMap);
                 dbFiredEvents.push(...ops);
               } else {
-                await applyGenericExtractMappings(projectId, jsonParsed);
+                await applyGenericExtractMappings(projectId, userId, jsonParsed);
                 // generic mapper does not return granular events — use structured_extract.create
                 dbFiredEvents.push("structured_extract.create");
               }

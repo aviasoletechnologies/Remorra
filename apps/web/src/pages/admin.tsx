@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { MODEL_TIERS } from "@remorra/contracts";
 import {
   TrendingUp,
   Users,
@@ -176,6 +177,7 @@ export function AdminPage() {
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
   const [newSkillKbEligible, setNewSkillKbEligible] = useState(false);
   const [newSkillPhase, setNewSkillPhase] = useState("discover");
+  const [newSkillModelTier, setNewSkillModelTier] = useState("standard");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [newSkillCustomSchemaError, setNewSkillCustomSchemaError] = useState<string | null>(null);
@@ -190,6 +192,7 @@ export function AdminPage() {
   const [editSkillDesc, setEditSkillDesc] = useState("");
   const [editKbEligible, setEditKbEligible] = useState(false);
   const [editSkillPhase, setEditSkillPhase] = useState("discover");
+  const [editSkillModelTier, setEditSkillModelTier] = useState("standard");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [editCustomSchemaError, setEditCustomSchemaError] = useState<string | null>(null);
@@ -289,8 +292,8 @@ export function AdminPage() {
         projectName: "Greenfield Analytics",
         coveragePercent: 88,
         linkageValid: true,
-        ambitions: [{ id: "amb-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
-        personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", userNeeds: [{ id: "un-1", statement: "Needs clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
+        goals: [{ id: "goal-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
+        personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", linkedStories: [{ id: "story-1", statement: "Clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
       }, null, 2));
     } else {
       setSampleJsonText(JSON.stringify({
@@ -446,10 +449,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -483,10 +486,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -550,7 +553,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -830,6 +833,7 @@ export function AdminPage() {
                   setEditSkillDesc(skill.description ?? "");
                   setEditKbEligible(skill.kbEligible ?? false);
                   setEditSkillPhase(skill.phase ?? "discover");
+                  setEditSkillModelTier(currentVer?.modelTier ?? "standard");
                   setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
                   setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
@@ -910,6 +914,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
         const selectVersion = (version: any) => {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
+          setEditSkillModelTier(version.modelTier ?? "standard");
           setEditInputSourceMap(parseInputSourceMap(version.inputSourceMap));
           setEditOutputSchema(parseOutputSchema(version.outputSchema));
           setSkillEditError(null);
@@ -945,6 +950,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
                             phase: editSkillPhase,
+                            modelTier: editSkillModelTier,
                           });
                         }}
                       >
@@ -962,6 +968,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
                             phase: editSkillPhase,
+                            modelTier: editSkillModelTier,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -1029,6 +1036,19 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                       <option value="initiate">Initiate</option>
                       <option value="venture">Venture</option>
                       <option value="evolve">Evolve</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="admin-field-label">Model Tier</label>
+                    <select
+                      className="admin-input"
+                      value={editSkillModelTier}
+                      onChange={(e) => setEditSkillModelTier(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    >
+                      {MODEL_TIERS.map((tier) => (
+                        <option key={tier} value={tier}>{tier}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -1356,6 +1376,19 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                 </div>
 
                 <div>
+                  <label className="admin-field-label">Model Tier</label>
+                  <select
+                    className="admin-input"
+                    value={newSkillModelTier}
+                    onChange={(e) => setNewSkillModelTier(e.target.value)}
+                  >
+                    {MODEL_TIERS.map((tier) => (
+                      <option key={tier} value={tier}>{tier}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="admin-field-label">Initial System Prompt</label>
                   <textarea
                     placeholder="You are an expert agent that..."
@@ -1433,6 +1466,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         outputSchema: newSkillOutputSchema,
                         kbEligible: newSkillKbEligible,
                         phase: newSkillPhase,
+                        modelTier: newSkillModelTier,
                       });
                     }}
                     disabled={createSkillMutation.isPending}

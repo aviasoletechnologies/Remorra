@@ -12,6 +12,7 @@ import {
 } from "./project.repository.js";
 import { EventRouterService } from "../event-router/event-router.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
+import { PhaseCompletionService } from "../../shared/phase-completion.service.js";
 
 const PHASE_ORDER = [
   "discover",
@@ -29,6 +30,7 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly eventRouter: EventRouterService,
     private readonly access: ProjectAccessService,
+    private readonly phaseCompletion: PhaseCompletionService,
   ) {}
 
   list(userId: string) {
@@ -69,6 +71,13 @@ export class ProjectsService {
     if (toIndex !== fromIndex + 1) {
       throw new BadRequestException(
         `Invalid phase transition: cannot move from "${fromPhase}" to "${toPhase}". Phases must advance one step at a time.`,
+      );
+    }
+
+    const complete = await this.phaseCompletion.isComplete(projectId, fromPhase);
+    if (!complete) {
+      throw new BadRequestException(
+        `The "${fromPhase}" phase is not yet complete — the Skill guiding this phase has not signalled completion.`,
       );
     }
 

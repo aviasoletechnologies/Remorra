@@ -12,6 +12,10 @@ export type DrivePhase = z.infer<typeof drivePhaseSchema>;
 export const projectRoleSchema = z.enum(["founder", "team"]);
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
 
+export const modelTierSchema = z.enum(["fast", "standard", "reasoning"]);
+export type ModelTier = z.infer<typeof modelTierSchema>;
+export const MODEL_TIERS = modelTierSchema.options;
+
 export const projectSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2).max(120),
@@ -29,20 +33,39 @@ export const createProjectSchema = z.object({
 });
 export type CreateProject = z.infer<typeof createProjectSchema>;
 
+export const buildPhaseStatusSchema = z.enum(["draft", "ready", "active", "closed"]);
+
+export const createBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(2000).optional(),
+});
+
+export const updateBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  description: z.string().trim().max(2000).optional(),
+  status: buildPhaseStatusSchema.optional(),
+});
+
+export const assignBuildPhaseStoriesSchema = z.object({
+  storyIds: z.array(z.string().uuid()).min(1),
+});
+
 export const sessionModeSchema = z.enum(["ideate", "publish"]);
 export const sessionStatusSchema = z.enum([
   "active",
   "draft",
   "screening",
   "completed",
+  "nav_away",
 ]);
 
 export const createEvolveSessionSchema = z.object({
-  projectId: z.string().uuid(),
-  mode: sessionModeSchema,
-  topic: z.string().trim().min(3).max(180),
-  launchedFrom: z.string().trim().max(160),
-  continuedFromSessionId: z.string().uuid().optional(),
+  launchedFrom: z.string().trim().min(1).max(160),
+  topic: z.string().trim().min(3).max(180).optional(),
+});
+
+export const updateEvolveSessionStatusSchema = z.object({
+  status: z.enum(["draft", "completed", "nav_away"]),
 });
 
 export const impactItemSchema = z.object({
@@ -220,6 +243,7 @@ export const skillVersionInputSchema = z.object({
   phase: drivePhaseSchema.optional(),
   kbEligible: z.boolean().optional(),
   systemPrompt: z.string().optional(),
+  modelTier: modelTierSchema.optional(),
   inputSourceMap: z.object({
     skills: z.array(z.string()).optional(),
     tables: z.record(z.string(), z.array(z.string())).optional(),

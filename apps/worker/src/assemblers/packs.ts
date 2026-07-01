@@ -67,3 +67,69 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
     assembledAt: new Date().toISOString(),
   };
 }
+
+// PRD data for a single Build Phase (Build Pack artefact) — scoped to that
+// phase's assigned Stories only, not the whole project backlog.
+export async function assembleBuildPackData(buildPhaseId: string): Promise<any> {
+  const buildPhase = await prisma.buildPhase.findUniqueOrThrow({
+    where: { id: buildPhaseId },
+    include: { project: true },
+  });
+  const stories = await prisma.story.findMany({
+    where: { buildPhaseId },
+    include: {
+      epic: { include: { goal: true } },
+      personas: { include: { persona: true } },
+    },
+    orderBy: [{ status: "asc" }, { position: "asc" }],
+  });
+  const raid = await prisma.raidItem.findMany({ where: { projectId: buildPhase.projectId } });
+
+  return {
+    projectName: buildPhase.project.name,
+    buildPhaseId: buildPhase.id,
+    buildPhaseName: buildPhase.name,
+    buildPhaseDescription: buildPhase.description ?? "",
+    stories: stories.map((s: any) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? "",
+      status: s.status,
+      priority: s.priority,
+      acceptance: Array.isArray(s.acceptance) ? s.acceptance : [],
+      epicTitle: s.epic?.title ?? "",
+      goalTitle: s.epic?.goal?.title ?? "",
+      personaNames: s.personas.map((link: any) => link.persona.name),
+    })),
+    risks: raid.map((r: any) => ({ title: r.title, type: r.type, severity: r.severity, status: r.status })),
+    assembledAt: new Date().toISOString(),
+  };
+}
+
+// Build Sync File — clean CSV export, blank statuses, for handoff to a developer.
+// Placeholder format (buildPhaseIdentifier/storyId/title/status columns) until
+// the founder provides the real spec; column set kept in one place so the
+// real format can replace this without touching the ingestion caller.
+export function buildSyncCsvColumns(): string[] {
+  return ["buildPhaseIdentifier", "storyId", "title", "status"];
+}
+
+export async function assembleBuildSyncCsv(buildPhaseId: string, blank: boolean): Promise<string> {
+  const stories = await prisma.story.findMany({
+    where: { buildPhaseId },
+    orderBy: [{ status: "asc" }, { position: "asc" }],
+  });
+  const columns = buildSyncCsvColumns();
+  const rows = stories.map((s: any) => [
+    buildPhaseId,
+    s.id,
+    csvEscape(s.title),
+    blank ? "" : s.status,
+  ]);
+  return [columns.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}

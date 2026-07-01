@@ -28,7 +28,7 @@ describe("applyOperationsExtract", () => {
     } as any);
     vi.mocked(prisma.painPoint.create).mockResolvedValue({ id: "pain-1" } as any);
 
-    const events = await applyOperationsExtract("project-1", {
+    const events = await applyOperationsExtract("project-1", "user-1", {
       operations: [
         {
           action: "create",
@@ -71,7 +71,7 @@ describe("applyOperationsExtract", () => {
       .mockResolvedValueOnce({ id: "persona-1", name: "A B" } as any)
       .mockResolvedValueOnce({ id: "persona-2", name: "AB" } as any);
 
-    const events = await applyOperationsExtract("project-1", {
+    const events = await applyOperationsExtract("project-1", "user-1", {
       operations: [
         {
           action: "create",

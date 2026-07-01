@@ -47,8 +47,7 @@ export class EventRouterService {
       return [];
     }
 
-    // 2. Filter by conditions — commented out for now (trigger all active mappings)
-    /*
+    // 2. Filter by conditions — mappings with no conditions ({}) always pass
     const matched = mappings.filter((mapping: any) => {
       const conditions = (mapping.conditions ?? {}) as Record<string, unknown>;
       return Object.entries(conditions).every(
@@ -60,8 +59,6 @@ export class EventRouterService {
       this.logger.debug(`Event ${eventType} matched ${mappings.length} mapping(s) but none passed conditions filter`);
       return [];
     }
-    */
-    const matched = mappings;
 
     // 3. Enqueue a job for EACH matched mapping
     const jobs = [];
@@ -79,6 +76,15 @@ export class EventRouterService {
         },
       });
       jobs.push({ skillId: mapping.skillId, jobId: job.id });
+
+      await this.prisma.client.auditEvent.create({
+        data: {
+          projectId,
+          actorId: userId,
+          eventType: "event_router.routed",
+          metadata: { eventType, phase: projectPhase, skillId: mapping.skillId, queue: mapping.targetQueue, jobId: job.id },
+        },
+      });
     }
 
     return jobs;
