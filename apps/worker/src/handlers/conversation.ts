@@ -570,45 +570,115 @@ export async function handleConversation(payload: Payload) {
               );
             }
           } else {
-            // ── NOTHING MATCHED → unpin + close session gracefully ───────────
-            await prisma.conversation.update({
-              where: { id: conversationId },
-              data: {
-                activeSkillId:        null,
-                activeSkillVersionId: null,
-                activeSkillPinnedAt:  null,
-              },
+            // ── NOTHING MATCHED → auto-advance phase if possible + unpin & close session ───────────
+            const project = await prisma.project.findUnique({
+              where: { id: projectId },
             });
 
-            const closingText =
-              "You've completed all the steps — great work! 🎉 " +
-              "Everything has been saved. Feel free to ask me anything else.";
+            const DRIVE_PHASE_TRANSITIONS: Record<string, string> = {
+              discover: "refine",
+              refine: "initiate",
+              initiate: "venture",
+              venture: "evolve",
+            };
+            const nextPhase = project ? DRIVE_PHASE_TRANSITIONS[project.phase] : undefined;
 
-            savedAssistantMsg = await prisma.conversationMessage.create({
-              data: {
-                conversationId,
-                role: "assistant",
-                content: closingText,
-                skillId:        null,
-                skillVersionId: null,
-              },
-            });
+            if (project && nextPhase) {
+              await prisma.$transaction([
+                prisma.project.update({
+                  where: { id: projectId },
+                  data: {
+                    phase: nextPhase as any,
+                    version: { increment: 1 },
+                  },
+                }),
+                prisma.conversation.update({
+                  where: { id: conversationId },
+                  data: {
+                    activeSkillId:        null,
+                    activeSkillVersionId: null,
+                    activeSkillPinnedAt:  null,
+                    status: "completed",
+                  },
+                })
+              ]);
 
-            queue.push({
-              type: "session_complete",
-              snapshot: closingText,
-              metadata: { completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
-            });
-            queue.push({
-              type: "log",
-              delta: `[Session] No matching event mappings. Closed session gracefully.`,
-              metadata: { stage: "session_close", completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
-            });
-            void flush();
+              let transitionText = "";
+              if (project.phase === "discover") {
+                transitionText = `**Phase Advanced: Discover → Refine** 🎯\n\nAll tasks in the **Discover** phase are complete! Your project has been automatically advanced to the **Refine** phase.\n\nIn the Refine phase, we will organize your discovery notes into structured goals, group your features into epics, write detailed user stories, and detail your target user personas.\n\n*To get started, ask me to build your product goals or epic backlog (e.g., "Help me organize my product goals and epics").*`;
+              } else if (project.phase === "refine") {
+                transitionText = `**Phase Advanced: Refine → Initiate** 🚀\n\nAll tasks in the **Refine** phase are complete! Your project has been automatically advanced to the **Initiate** phase.\n\nIn the Initiate phase, we will perform a comprehensive strategy check, compute your health readiness score, and identify any backlog alignment gaps.\n\n*To get started, simply type a message to invoke the strategy audit.*`;
+              } else if (project.phase === "initiate") {
+                transitionText = `**Phase Advanced: Initiate → Venture** 📈\n\nAll tasks in the **Initiate** phase are complete! Your project has been automatically advanced to the **Venture** phase.\n\nIn the Venture phase, we will set up cycles, estimate your user stories, and manage your delivery risks (RAID logs).\n\n*To get started, ask me to help plan your release sprint or review your project risks.*`;
+              } else if (project.phase === "venture") {
+                transitionText = `**Phase Advanced: Venture → Evolve** 🔄\n\nAll tasks in the **Venture** phase are complete! Your project has been automatically advanced to the **Evolve** phase.\n\nIn the Evolve phase, we will monitor ongoing strategy evolution, screen goal changes, and compile your final PRD document.\n\n*To get started, ask me to help screen strategy updates or compile your PRD.*`;
+              }
 
-            console.info(
-              `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] dbFiredEvents=[${dbFiredEvents.join(", ")}] skillId=${result.skill.id}`,
-            );
+              savedAssistantMsg = await prisma.conversationMessage.create({
+                data: {
+                  conversationId,
+                  role: "assistant",
+                  content: transitionText,
+                  skillId:        null,
+                  skillVersionId: null,
+                },
+              });
+
+              queue.push({
+                type: "session_complete",
+                snapshot: transitionText,
+                metadata: { completedSkillId: result.skill.id, firedEvents, dbFiredEvents, advancedToPhase: nextPhase },
+              });
+              queue.push({
+                type: "log",
+                delta: `[Session] Advanced project phase from "${project.phase}" to "${nextPhase}". Closed active session.`,
+                metadata: { stage: "session_close", completedSkillId: result.skill.id, firedEvents, dbFiredEvents, advancedToPhase: nextPhase },
+              });
+              void flush();
+
+              console.info(
+                `[worker:conversation] project advanced from ${project.phase} to ${nextPhase} — conversation=${conversationId}`
+              );
+            } else {
+              await prisma.conversation.update({
+                where: { id: conversationId },
+                data: {
+                  activeSkillId:        null,
+                  activeSkillVersionId: null,
+                  activeSkillPinnedAt:  null,
+                },
+              });
+
+              const closingText =
+                "You've completed all the steps — great work! 🎉 " +
+                "Everything has been saved. Feel free to ask me anything else.";
+
+              savedAssistantMsg = await prisma.conversationMessage.create({
+                data: {
+                  conversationId,
+                  role: "assistant",
+                  content: closingText,
+                  skillId:        null,
+                  skillVersionId: null,
+                },
+              });
+
+              queue.push({
+                type: "session_complete",
+                snapshot: closingText,
+                metadata: { completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
+              });
+              queue.push({
+                type: "log",
+                delta: `[Session] Closed session gracefully.`,
+                metadata: { stage: "session_close", completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
+              });
+              void flush();
+
+              console.info(
+                `[worker:conversation] session complete — no mapping matched firedEvents=[${firedEvents.join(", ")}] dbFiredEvents=[${dbFiredEvents.join(", ")}] skillId=${result.skill.id}`,
+              );
+            }
           }
         }
 
