@@ -340,6 +340,14 @@ export async function handleConversation(payload: Payload) {
         });
         const currentPhase = project?.phase;
 
+        const DRIVE_PHASE_TRANSITIONS: Record<string, string> = {
+          discover: "refine",
+          refine: "initiate",
+          initiate: "venture",
+          venture: "evolve",
+        };
+        const nextPhase = currentPhase ? DRIVE_PHASE_TRANSITIONS[currentPhase] : undefined;
+
         queue.push({
           type: "log",
           delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings (phase: ${currentPhase})...`,
@@ -353,10 +361,156 @@ export async function handleConversation(payload: Payload) {
           orderBy: { id: "asc" }, // admin's creation order = priority
         });
 
-        // First match in the current phase box wins
-        const nextMapping = matchedMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
+        const executeCrossPhaseTransition = async (targetMapping: any) => {
+          if (!nextPhase) return;
+
+          // Find or create conversation for the next phase
+          let nextConversation = await prisma.conversation.findFirst({
+            where: { projectId, kind: nextPhase as any, status: "active" },
+          });
+          if (!nextConversation) {
+            nextConversation = await prisma.conversation.create({
+              data: {
+                projectId,
+                kind: nextPhase as any,
+                retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+              },
+            });
+          }
+
+          const nextVersion = await prisma.skillVersion.findFirst({
+            where: { skillId: targetMapping.skillId, active: true },
+            orderBy: { version: "desc" },
+          });
+
+          if (nextVersion) {
+            await prisma.$transaction([
+              prisma.project.update({
+                where: { id: projectId },
+                data: {
+                  phase: nextPhase as any,
+                  version: { increment: 1 },
+                },
+              }),
+              prisma.conversation.update({
+                where: { id: conversationId },
+                data: {
+                  activeSkillId:        null,
+                  activeSkillVersionId: null,
+                  activeSkillPinnedAt:  null,
+                  status: "completed",
+                },
+              }),
+              prisma.conversation.update({
+                where: { id: nextConversation.id },
+                data: {
+                  activeSkillId:        targetMapping.skillId,
+                  activeSkillVersionId: nextVersion.id,
+                  activeSkillPinnedAt:  new Date(),
+                },
+              }),
+            ]);
+
+            let transitionText = "";
+            if (currentPhase === "discover") {
+              transitionText = `**Phase Advanced: Discover → Refine** 🎯\n\nAll tasks in the **Discover** phase are complete! Your project has been automatically advanced to the **Refine** phase.\n\nIn the Refine phase, we will organize your discovery notes into structured goals, group your features into epics, write detailed user stories, and detail your target user personas.\n\n*Auto-starting the first Refine task: ${nextVersion.skillId}...*`;
+            } else if (currentPhase === "refine") {
+              transitionText = `**Phase Advanced: Refine → Initiate** 🚀\n\nAll tasks in the **Refine** phase are complete! Your project has been automatically advanced to the **Initiate** phase.\n\nIn the Initiate phase, we will perform a comprehensive strategy check, compute your health readiness score, and identify any backlog alignment gaps.\n\n*Auto-starting the first Initiate task: ${nextVersion.skillId}...*`;
+            } else if (currentPhase === "initiate") {
+              transitionText = `**Phase Advanced: Initiate → Venture** 📈\n\nAll tasks in the **Initiate** phase are complete! Your project has been automatically advanced to the **Venture** phase.\n\n*Auto-starting the first Venture task: ${nextVersion.skillId}...*`;
+            } else if (currentPhase === "venture") {
+              transitionText = `**Phase Advanced: Venture → Evolve** 🔄\n\nAll tasks in the **Venture** phase are complete! Your project has been automatically advanced to the **Evolve** phase.\n\n*Auto-starting the first Evolve task: ${nextVersion.skillId}...*`;
+            }
+
+            // Save transition message to the next conversation
+            await prisma.conversationMessage.create({
+              data: {
+                conversationId: nextConversation.id,
+                role: "assistant",
+                content: transitionText,
+                skillId:        null,
+                skillVersionId: null,
+              },
+            });
+
+            // Enqueue next skill turn for the next conversation!
+            const nextJobRecord = await prisma.jobRecord.create({
+              data: {
+                projectId,
+                userId,
+                queue: "ai.conversation",
+                payload: jsonValue({
+                  conversationId: nextConversation.id,
+                  skillId: targetMapping.skillId,
+                  skillVersionId: nextVersion.id,
+                  previousSkillId: result.skill.id,
+                  content: "",
+                }),
+              },
+            });
+
+            const nextBossJobId = await boss.send("ai.conversation", {
+              conversationId: nextConversation.id,
+              projectId,
+              userId,
+              skillId: targetMapping.skillId,
+              skillVersionId: nextVersion.id,
+              previousSkillId: result.skill.id,
+              content: "",
+              jobRecordId: nextJobRecord.id,
+            });
+
+            await prisma.jobRecord.update({
+              where: { id: nextJobRecord.id },
+              data: { bossJobId: nextBossJobId ?? undefined },
+            });
+
+            queue.push({
+              type: "skill_transition",
+              snapshot: transitionText,
+              metadata: {
+                completedSkillId: result.skill.id,
+                nextSkillId:      targetMapping.skillId,
+                triggeredByEvent: targetMapping.eventType,
+                nextJobId:        nextJobRecord.id,
+                advancedToPhase:  nextPhase,
+              },
+            });
+
+            queue.push({
+              type: "log",
+              delta: `[Transition] Advanced phase to "${nextPhase}". Auto-starting next-phase skill: "${targetMapping.skillId}".`,
+              metadata: {
+                stage: "transition",
+                completedSkillId: result.skill.id,
+                nextSkillId:      targetMapping.skillId,
+                triggeredByEvent: targetMapping.eventType,
+                nextJobId:        nextJobRecord.id,
+                advancedToPhase:  nextPhase,
+              },
+            });
+            void flush();
+
+            console.info(
+              `[worker:conversation] next skill auto-enqueued in new phase=${nextPhase} nextSkill=${targetMapping.skillId} conversation=${nextConversation.id}`
+            );
+          }
+        };
+
+        // First match in the current phase box wins, otherwise check next phase
+        let nextMapping = matchedMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
+        let isCrossPhaseTransition = false;
+        if (!nextMapping && nextPhase) {
+          nextMapping = matchedMappings.find((m: any) => m.skill.phase === nextPhase) ?? null;
+          if (nextMapping) {
+            isCrossPhaseTransition = true;
+          }
+        }
 
         if (nextMapping) {
+          if (isCrossPhaseTransition) {
+            await executeCrossPhaseTransition(nextMapping);
+          } else {
           // ── NEXT SKILL FOUND → pin it + auto-enqueue immediately ─────────
           const nextVersion = await prisma.skillVersion.findFirst({
             where: { skillId: nextMapping.skillId, active: true },
@@ -432,8 +586,8 @@ export async function handleConversation(payload: Payload) {
               `[worker:conversation] next skill auto-enqueued triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId} jobId=${nextBossJobId}`,
             );
           }
-
-        } else {
+        }
+      } else {
           // ── NO SKILL-TO-SKILL MATCH → run DB mapper, fire DB events, check again ──
           const dbFiredEvents: string[] = [];
 
@@ -503,9 +657,19 @@ export async function handleConversation(payload: Payload) {
               }))
             : [];
 
-          const dbMapping = dbMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
+          let dbMapping = dbMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
+          let isDbCrossPhaseTransition = false;
+          if (!dbMapping && nextPhase) {
+            dbMapping = dbMappings.find((m: any) => m.skill.phase === nextPhase) ?? null;
+            if (dbMapping) {
+              isDbCrossPhaseTransition = true;
+            }
+          }
 
           if (dbMapping) {
+            if (isDbCrossPhaseTransition) {
+              await executeCrossPhaseTransition(dbMapping);
+            } else {
             // ── DB EVENT MATCH → activate next skill ─────────────────────────
             const dbNextVersion = await prisma.skillVersion.findFirst({
               where: { skillId: dbMapping.skillId, active: true },
@@ -579,7 +743,8 @@ export async function handleConversation(payload: Payload) {
                 `[worker:conversation] next skill auto-enqueued via DB event triggeredBy=${dbMapping.eventType} nextSkill=${dbMapping.skillId} conversation=${conversationId}`,
               );
             }
-          } else {
+          }
+        } else {
             // ── NOTHING MATCHED → auto-advance phase if possible + unpin & close session ───────────
             const project = await prisma.project.findUnique({
               where: { id: projectId },
