@@ -415,6 +415,7 @@ describe("Admin & Support Ops Console Tests", () => {
           name: "Test Skill",
           description: "Test Desc",
           kbEligible: false,
+          phase: "discover",
         },
       });
       expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
