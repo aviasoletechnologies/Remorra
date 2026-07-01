@@ -7,6 +7,7 @@ import {
 } from "@remorra/contracts";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
+import { ContextAutomationService } from "../../shared/context-automation.service.js";
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
+    private readonly contextAutomation: ContextAutomationService,
   ) {}
 
   me(userId: string) {
@@ -84,7 +86,7 @@ export class AuthService {
     ) {
       throw new BadRequestException("Invitation is invalid or expired.");
     }
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
       await tx.projectMembership.upsert({
         where: {
           projectId_userId: { projectId: invitation.projectId, userId },
@@ -101,6 +103,13 @@ export class AuthService {
         data: { acceptedAt: new Date(), acceptedById: userId },
       });
     });
+
+    const profile = await this.prisma.client.profile.findUnique({ where: { id: userId } });
+    await this.contextAutomation
+      .runRosterCapture(invitation.projectId, profile?.preferredName ?? email, invitation.role)
+      .catch(() => undefined);
+
+    return result;
   }
 
   private hash(value: string) {

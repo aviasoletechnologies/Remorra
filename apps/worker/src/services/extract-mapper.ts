@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue } from "../lib/utils";
 import { logEntityAudit } from "../lib/audit";
+import { runLayer1AutoCapture } from "./context-automation";
 
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -189,6 +190,12 @@ export async function applyOperationsExtract(projectId: string, actorId: string,
     } catch (err) {
       console.warn(`[applyOperationsExtract] op failed entity=${entityRaw} action=${op.action} id=${op.id ?? ""}:`, err);
     }
+  }
+
+  if (firedEvents.length > 0) {
+    await runLayer1AutoCapture(projectId).catch((err) =>
+      console.warn(`[applyOperationsExtract] Layer 1 auto-capture failed:`, err),
+    );
   }
 
   return firedEvents;
@@ -397,4 +404,8 @@ export async function applyGenericExtractMappings(projectId: string, actorId: st
       }
     }
   }
+
+  await runLayer1AutoCapture(projectId).catch((err) =>
+    console.warn(`[applyGenericExtractMappings] Layer 1 auto-capture failed:`, err),
+  );
 }

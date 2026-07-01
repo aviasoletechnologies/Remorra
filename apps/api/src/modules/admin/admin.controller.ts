@@ -312,6 +312,49 @@ export class AdminController {
     return this.admin.updateHealthScoreWeight(actor, component, body);
   }
 
+  // --- Phase 6: Project Context Automation configuration ---
+
+  @Get("context-auto-capture-rules")
+  getContextAutoCaptureRules(@CurrentActor() actor: Actor) {
+    return this.admin.getContextAutoCaptureRules(actor);
+  }
+
+  @Post("context-auto-capture-rules")
+  createContextAutoCaptureRule(
+    @CurrentActor() actor: Actor,
+    @Body() body: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences?: number },
+  ) {
+    return this.admin.createContextAutoCaptureRule(actor, body);
+  }
+
+  @Put("context-auto-capture-rules/:id")
+  updateContextAutoCaptureRule(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { pattern?: string; entityTypes?: string[]; contextText?: string; minOccurrences?: number; active?: boolean },
+  ) {
+    return this.admin.updateContextAutoCaptureRule(actor, id, body);
+  }
+
+  @Delete("context-auto-capture-rules/:id")
+  deleteContextAutoCaptureRule(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.deleteContextAutoCaptureRule(actor, id);
+  }
+
+  @Get("context-review-config")
+  getContextReviewConfig(@CurrentActor() actor: Actor) {
+    return this.admin.getContextReviewConfig(actor);
+  }
+
+  @Put("context-review-config/:id")
+  updateContextReviewConfig(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { cronExpression?: string; active?: boolean },
+  ) {
+    return this.admin.updateContextReviewConfig(actor, id, body);
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   @Get("metrics/overview")

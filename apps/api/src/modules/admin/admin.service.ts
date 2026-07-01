@@ -918,6 +918,75 @@ export class AdminService {
     });
   }
 
+  // --- Phase 6: Project Context Automation configuration ---
+
+  async getContextAutoCaptureRules(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.contextAutoCaptureRule.findMany({ orderBy: { createdAt: "desc" } });
+  }
+
+  async createContextAutoCaptureRule(
+    actor: Actor,
+    body: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences?: number },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    if (!body.pattern?.trim() || !body.contextText?.trim() || !Array.isArray(body.entityTypes) || body.entityTypes.length === 0) {
+      throw new BadRequestException("pattern, contextText, and at least one entityType are required.");
+    }
+    return this.prisma.client.contextAutoCaptureRule.create({
+      data: {
+        pattern: body.pattern.trim(),
+        entityTypes: body.entityTypes,
+        contextText: body.contextText.trim(),
+        minOccurrences: body.minOccurrences && body.minOccurrences > 0 ? body.minOccurrences : 2,
+      },
+    });
+  }
+
+  async updateContextAutoCaptureRule(
+    actor: Actor,
+    id: string,
+    body: { pattern?: string; entityTypes?: string[]; contextText?: string; minOccurrences?: number; active?: boolean },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.contextAutoCaptureRule.update({
+      where: { id },
+      data: {
+        ...(body.pattern !== undefined ? { pattern: body.pattern.trim() } : {}),
+        ...(body.entityTypes !== undefined ? { entityTypes: body.entityTypes } : {}),
+        ...(body.contextText !== undefined ? { contextText: body.contextText.trim() } : {}),
+        ...(body.minOccurrences !== undefined ? { minOccurrences: body.minOccurrences } : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
+  }
+
+  async deleteContextAutoCaptureRule(actor: Actor, id: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    await this.prisma.client.contextAutoCaptureRule.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
+  async getContextReviewConfig(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.contextReviewConfig.findFirst({ orderBy: { updatedAt: "desc" } });
+  }
+
+  async updateContextReviewConfig(actor: Actor, id: string, body: { cronExpression?: string; active?: boolean }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.contextReviewConfig.update({
+      where: { id },
+      data: {
+        ...(body.cronExpression !== undefined ? { cronExpression: body.cronExpression.trim() } : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   async getOverviewMetrics(actor: Actor, from?: Date, to?: Date) {

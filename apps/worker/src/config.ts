@@ -39,6 +39,7 @@ export const config = {
         "build-sync.export",
         "health-score.calculate",
         "evolve.message",
+        "context.review",
       ];
     }
     return val.split(",").map((q) => q.trim());
