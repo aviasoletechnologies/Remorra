@@ -38,6 +38,7 @@ export const config = {
         "build-sync.ingest",
         "build-sync.export",
         "health-score.calculate",
+        "evolve.message",
       ];
     }
     return val.split(",").map((q) => q.trim());

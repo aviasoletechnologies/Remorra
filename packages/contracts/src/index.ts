@@ -68,6 +68,9 @@ export const updateEvolveSessionStatusSchema = z.object({
   status: z.enum(["draft", "completed", "nav_away"]),
 });
 
+export const proposalStatusSchema = z.enum(["pending", "confirmed", "rejected"]);
+export type ProposalStatusValue = z.infer<typeof proposalStatusSchema>;
+
 export const impactItemSchema = z.object({
   id: z.string().uuid(),
   entityType: z.string(),
@@ -75,9 +78,35 @@ export const impactItemSchema = z.object({
   severity: z.enum(["red", "amber", "green"]),
   title: z.string(),
   reasoning: z.string(),
-  decision: z.enum(["pending", "approved", "rejected"]),
+  decision: proposalStatusSchema,
 });
 export type ImpactItem = z.infer<typeof impactItemSchema>;
+
+export const evolveActionSchema = z.object({
+  id: z.string().uuid(),
+  entityType: z.string(),
+  entityId: z.string().uuid().nullable(),
+  actionType: z.enum(["create", "update", "delete"]),
+  proposedChange: z.record(z.string(), z.unknown()),
+  requiresScreening: z.boolean(),
+  status: proposalStatusSchema,
+  rationale: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  impactItems: z.array(impactItemSchema),
+});
+export type EvolveAction = z.infer<typeof evolveActionSchema>;
+
+export const contextProposalSchema = z.object({
+  id: z.string().uuid(),
+  proposedText: z.string(),
+  status: proposalStatusSchema,
+  createdAt: z.iso.datetime(),
+});
+export type ContextProposal = z.infer<typeof contextProposalSchema>;
+
+export const sendEvolveMessageSchema = z.object({
+  content: z.string().trim().min(1).max(8000),
+});
 
 export const conversationMessageSchema = z.object({
   id: z.string().uuid(),

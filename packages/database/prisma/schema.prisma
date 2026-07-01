@@ -61,6 +61,12 @@ enum ProposalStatus {
   rejected
 }
 
+enum ImpactSeverity {
+  red
+  amber
+  green
+}
+
 enum WorkStatus {
   ready
   in_progress
@@ -193,6 +199,8 @@ model Project {
   evolveSessions EvolveSession[]
   buildPhases   BuildPhase[]
   healthScores  HealthScore[]
+  evolveActions EvolveAction[]
+  contextProposals ContextProposal[]
 
   @@index([ownerId])
 }
@@ -413,7 +421,69 @@ model EvolveSession {
   updatedAt      DateTime      @updatedAt
   project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actions        EvolveAction[]
+  contextProposals ContextProposal[]
 
+  @@index([projectId, status])
+}
+
+// RemoraDocument §7 — Screening Engine + Action Capability.
+// Goal changes get requiresScreening=true and spawn EvolveImpactItem rows
+// (Impact Screener cascade); non-Goal actions (Story/RaidItem/etc.) apply
+// directly on approval with no impact list. Rejections are never persisted
+// past this row per doc ("rejections are not saved anywhere").
+model EvolveAction {
+  id                String         @id @default(uuid()) @db.Uuid
+  evolveSessionId   String         @db.Uuid
+  projectId         String         @db.Uuid
+  entityType        String
+  entityId          String?        @db.Uuid
+  actionType        String
+  proposedChange    Json
+  requiresScreening Boolean        @default(false)
+  status            ProposalStatus @default(pending)
+  rationale         String?
+  createdAt         DateTime       @default(now())
+  decidedAt         DateTime?
+  decidedByUserId   String?        @db.Uuid
+  evolveSession     EvolveSession  @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  impactItems       EvolveImpactItem[]
+
+  @@index([evolveSessionId, status])
+  @@index([projectId, status])
+}
+
+model EvolveImpactItem {
+  id                 String         @id @default(uuid()) @db.Uuid
+  evolveActionId     String         @db.Uuid
+  affectedEntityType String
+  affectedEntityId   String?        @db.Uuid
+  severity           ImpactSeverity
+  title              String
+  reasoning          String
+  suggestedChange    Json?
+  status             ProposalStatus @default(pending)
+  evolveAction       EvolveAction   @relation(fields: [evolveActionId], references: [id], onDelete: Cascade)
+
+  @@index([evolveActionId])
+}
+
+// RemoraDocument §10 Layer 2 — AI-proposed project.context updates surfaced
+// inline during Evolve conversations, confirmed or rejected by the founder.
+model ContextProposal {
+  id              String         @id @default(uuid()) @db.Uuid
+  evolveSessionId String         @db.Uuid
+  projectId       String         @db.Uuid
+  proposedText    String
+  status          ProposalStatus @default(pending)
+  createdAt       DateTime       @default(now())
+  decidedAt       DateTime?
+  decidedByUserId String?        @db.Uuid
+  evolveSession   EvolveSession  @relation(fields: [evolveSessionId], references: [id], onDelete: Cascade)
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([evolveSessionId, status])
   @@index([projectId, status])
 }
 
