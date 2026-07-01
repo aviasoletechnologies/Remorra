@@ -15,6 +15,7 @@ export const QUEUES = {
   buildSyncIngest: "build-sync.ingest",
   buildSyncExport: "build-sync.export",
   healthScoreCalculate: "health-score.calculate",
+  evolveMessage: "evolve.message",
 } as const;
 
 @Injectable()

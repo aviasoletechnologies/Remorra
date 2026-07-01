@@ -43,6 +43,7 @@ import { buttonVariants } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { EmptyState } from "./app-ui";
+import { EvolvePanel } from "./evolve-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import {
   Sidebar,
@@ -123,6 +124,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
+  const [isEvolveOpen, setIsEvolveOpen] = useState(false);
   const { data: projects = [], error: projectsError } = useQuery({
     queryKey: ["projects"],
     queryFn: () => api<Project[]>("/projects"),
@@ -426,6 +428,17 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                 <span className="absolute right-2.5 top-2.5 size-2 rounded-full border-2 border-card bg-destructive" />
               ) : null}
             </Button>
+            {project && ["venture", "evolve"].includes(project.phase) ? (
+              <Button
+                variant={isEvolveOpen ? "default" : "ghost"}
+                size="icon"
+                aria-label="Evolve"
+                onClick={() => setIsEvolveOpen((value) => !value)}
+                title="Evolve — AI strategy assistant"
+              >
+                <Sparkles size={17} />
+              </Button>
+            ) : null}
             {project?.role === "founder" ? (
               <Link to="/workspace" className={cn(buttonVariants(), "hidden sm:inline-flex")}>
                 <Sparkles size={14} /> Open AI guide
@@ -575,6 +588,14 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
               </div>
             )}
         </MovablePanel>
+
+        {project && isEvolveOpen && ["venture", "evolve"].includes(project.phase) ? (
+          <div
+            className="fixed right-4 top-[80px] z-50 flex h-[calc(100vh-100px)] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+          >
+            <EvolvePanel projectId={project.id} onClose={() => setIsEvolveOpen(false)} />
+          </div>
+        ) : null}
 
         {!project ? (
           <div className="page-container">

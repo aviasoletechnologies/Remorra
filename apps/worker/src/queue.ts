@@ -15,6 +15,7 @@ import {
   handleBuildSyncIngest,
   handleBuildSyncExport,
   handleHealthScoreCalculate,
+  handleEvolveMessage,
   type Payload,
 } from "./handlers";
 
@@ -30,6 +31,7 @@ export const queues = [
   "build-sync.ingest",
   "build-sync.export",
   "health-score.calculate",
+  "evolve.message",
 ] as const;
 
 export async function startQueue() {
@@ -75,6 +77,9 @@ export async function startQueue() {
   }
   if (enabled.includes("health-score.calculate")) {
     await boss.work<Payload>("health-score.calculate", handleJobs("health-score.calculate", handleHealthScoreCalculate));
+  }
+  if (enabled.includes("evolve.message")) {
+    await boss.work<Payload>("evolve.message", handleJobs("evolve.message", handleEvolveMessage));
   }
 
   console.info(
