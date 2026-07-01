@@ -17,6 +17,9 @@ describe("IntentRouterService", () => {
 
     const prisma = {
       client: {
+        project: {
+          findUniqueOrThrow: vi.fn().mockResolvedValue({ phase: "discover" }),
+        },
         skill: {
           findMany: vi.fn().mockResolvedValue([
             {

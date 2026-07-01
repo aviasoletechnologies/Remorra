@@ -153,7 +153,12 @@ export class IntentRouterService {
       return { routeType: "general", skillId: null, confidence: 1, reason: "Greeting or small talk." };
     }
 
-    const candidates = await this.loadCandidates();
+    const project = await this.prisma.client.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { phase: true },
+    });
+
+    const candidates = await this.loadCandidates(project.phase);
     if (!candidates.length) {
       this.logger.warn(`No active skills available for intent routing project=${projectId} user=${userId}`);
       return { routeType: "general", skillId: null, confidence: 0, reason: "No active skills are available." };
@@ -287,8 +292,9 @@ export class IntentRouterService {
       || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "groq");
   }
 
-  private async loadCandidates(): Promise<IntentCandidate[]> {
+  private async loadCandidates(phase: string): Promise<IntentCandidate[]> {
     const skills = await this.prisma.client.skill.findMany({
+      where: { phase: phase as any },
       include: {
         versions: {
           where: { active: true },

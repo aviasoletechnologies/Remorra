@@ -334,20 +334,27 @@ export async function handleConversation(payload: Payload) {
           `[worker:conversation] checking skill completion firedEvents=[${firedEvents.join(", ")}] conversation=${conversationId}`,
         );
 
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { phase: true },
+        });
+        const currentPhase = project?.phase;
+
         queue.push({
           type: "log",
-          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings...`,
-          metadata: { stage: "event", firedEvents },
+          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings (phase: ${currentPhase})...`,
+          metadata: { stage: "event", firedEvents, currentPhase },
         });
         void flush();
 
         const matchedMappings = await prisma.skillEventMapping.findMany({
           where: { eventType: { in: firedEvents }, active: true },
+          include: { skill: { select: { phase: true } } },
           orderBy: { id: "asc" }, // admin's creation order = priority
         });
 
-        // First match wins — fully admin-driven, no static priority in code
-        const nextMapping = matchedMappings[0] ?? null;
+        // First match in the current phase box wins
+        const nextMapping = matchedMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
 
         if (nextMapping) {
           // ── NEXT SKILL FOUND → pin it + auto-enqueue immediately ─────────
@@ -488,12 +495,15 @@ export async function handleConversation(payload: Payload) {
           }
 
           // Check DB-level events against SkillEventMapping
-          const dbMapping = dbFiredEvents.length > 0
-            ? (await prisma.skillEventMapping.findFirst({
+          const dbMappings = dbFiredEvents.length > 0
+            ? (await prisma.skillEventMapping.findMany({
                 where: { eventType: { in: dbFiredEvents }, active: true },
+                include: { skill: { select: { phase: true } } },
                 orderBy: { id: "asc" },
               }))
-            : null;
+            : [];
+
+          const dbMapping = dbMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
 
           if (dbMapping) {
             // ── DB EVENT MATCH → activate next skill ─────────────────────────
