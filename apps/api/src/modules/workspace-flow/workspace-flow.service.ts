@@ -276,19 +276,10 @@ export class WorkspaceFlowService {
   }
 
   private async createConversation(projectId: string, kind: "discover" | "refine") {
-    const startingSkillId = kind === "discover" ? "discover-facilitator" : "refine-facilitator";
-    const activeVersion = await this.prisma.client.skillVersion.findFirst({
-      where: { skillId: startingSkillId, active: true },
-      orderBy: { version: "desc" },
-    });
-
     const conversation = await this.prisma.client.conversation.create({
       data: {
         projectId,
         kind,
-        activeSkillId: startingSkillId,
-        activeSkillVersionId: activeVersion?.id ?? null,
-        activeSkillPinnedAt: new Date(),
         retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
       },
       include: {
