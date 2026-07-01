@@ -116,37 +116,39 @@ export class ProjectsService {
     const project = await this.repository.find(projectId);
     if (!project) notFound("Project", projectId);
 
-    const ambitions = await this.prisma.client.ambition.findMany({
+    const goals = await this.prisma.client.goal.findMany({
       where: { projectId },
-      include: { okrs: { include: { personaLinks: true } } },
+      include: { epics: { include: { stories: { include: { personas: true } } } } },
     });
     const personas = await this.prisma.client.persona.findMany({
       where: { projectId },
-      include: { painPoints: true, userNeeds: true },
+      include: { painPoints: true, stories: { include: { story: true } } },
     });
 
-    const completeThread = ambitions.some((a: any) =>
-      a.okrs.some((okr: any) =>
-        okr.personaLinks.some((link: any) => {
-          const persona = personas.find((p: any) => p.id === link.personaId);
-          return persona?.painPoints.length && persona.userNeeds.length;
-        }),
+    const completeThread = goals.some((goal: any) =>
+      goal.epics.some((epic: any) =>
+        epic.stories.some((story: any) =>
+          story.personas.some((link: any) => {
+            const persona = personas.find((p: any) => p.id === link.personaId);
+            return persona?.painPoints.length;
+          }),
+        ),
       ),
     );
 
-    const ambitionScore = ambitions.length > 0 ? 100 : 0;
-    const ambitionsWithOkrs = ambitions.filter((a: any) => a.okrs.length > 0).length;
-    const okrScore = ambitions.length > 0 ? (ambitionsWithOkrs / ambitions.length) * 100 : 0;
+    const goalScore = goals.length > 0 ? 100 : 0;
+    const goalsWithEpics = goals.filter((g: any) => g.epics.length > 0).length;
+    const epicScore = goals.length > 0 ? (goalsWithEpics / goals.length) * 100 : 0;
 
     const personaScore = personas.length > 0 ? 100 : 0;
     const personasWithPainPoints = personas.filter((p: any) => p.painPoints.length > 0).length;
     const painPointScore = personas.length > 0 ? (personasWithPainPoints / personas.length) * 100 : 0;
 
-    const personasWithUserNeeds = personas.filter((p: any) => p.userNeeds.length > 0).length;
-    const userNeedScore = personas.length > 0 ? (personasWithUserNeeds / personas.length) * 100 : 0;
+    const personasWithStories = personas.filter((p: any) => p.stories.length > 0).length;
+    const storyLinkScore = personas.length > 0 ? (personasWithStories / personas.length) * 100 : 0;
 
     const coveragePercent = Math.round(
-      (ambitionScore + okrScore + personaScore + painPointScore + userNeedScore) / 5
+      (goalScore + epicScore + personaScore + painPointScore + storyLinkScore) / 5
     );
 
     return {
@@ -154,15 +156,17 @@ export class ProjectsService {
       coveragePercent,
       linkageValid: Boolean(completeThread),
       passThread: Boolean(completeThread),
-      ambitions: ambitions.map((a: any) => ({
-        id: a.id,
-        title: a.title,
-        detail: a.detail,
-        okrs: a.okrs.map((okr: any) => ({
-          id: okr.id,
-          objective: okr.objective,
-          keyResults: okr.keyResults,
-          personaIds: okr.personaLinks.map((link: any) => link.personaId),
+      goals: goals.map((g: any) => ({
+        id: g.id,
+        title: g.title,
+        detail: g.detail,
+        epics: g.epics.map((epic: any) => ({
+          id: epic.id,
+          title: epic.title,
+          storyTitles: epic.stories.map((s: any) => s.title),
+          personaIds: Array.from(
+            new Set(epic.stories.flatMap((s: any) => s.personas.map((link: any) => link.personaId))),
+          ),
         })),
       })),
       personas: personas.map((p: any) => ({
@@ -170,106 +174,10 @@ export class ProjectsService {
         name: p.name,
         description: p.description,
         painPoints: p.painPoints.map((pt: any) => ({ id: pt.id, statement: pt.statement })),
-        userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
+        linkedStories: p.stories.map((link: any) => ({ id: link.story.id, statement: link.story.title })),
       })),
       assembledAt: new Date().toISOString(),
     };
-  }
-
-  async developerImport(projectId: string, userId: string, body: unknown) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
-    const changes = this.extractDeveloperChanges(body);
-
-    if (changes.length === 0) {
-      throw new BadRequestException(
-        "Developer import requires a non-empty changes array.",
-      );
-    }
-
-    const project = await this.repository.find(projectId);
-    if (!project) notFound("Project", projectId);
-
-    const { sessionId, impactsCreated } = await this.prisma.client.$transaction(
-      async (tx: any) => {
-        const session = await tx.evolveSession.create({
-          data: {
-            projectId,
-            conversationId: null,
-            mode: "ideate",
-            status: "screening",
-            topic: "Developer handoff import",
-            launchedFrom: "knowledge-page",
-            continuedFromSessionId: null,
-            baseProjectVersion: project.version,
-          },
-        });
-
-        const impacts = await Promise.all(
-          changes.map((change: any) =>
-            tx.impactItem.create({
-              data: {
-                evolveSessionId: session.id,
-                entityType: String(change.entityType ?? change.type ?? "task"),
-                entityId: this.extractUuid(change.entityId ?? change.id),
-                severity: this.mapImportSeverity(change),
-                title: String(
-                  change.title ??
-                    change.name ??
-                    `${String(change.operation ?? change.action ?? "update")} ${String(change.entityType ?? change.type ?? "item")}`,
-                ),
-                reasoning: String(
-                  change.reason ?? change.reasoning ?? "Imported from developer change pack.",
-                ),
-                proposedChange: change,
-                decision: "pending",
-                status: "ready",
-                conflictReason: null,
-                resolution: null,
-                resolutionNote: null,
-                resolvedPayload: null,
-                currentSnapshot: null,
-              },
-            }),
-          ),
-        );
-
-        return { sessionId: session.id, impactsCreated: impacts.length };
-      },
-    );
-
-    return { sessionId, impactsCreated };
-  }
-
-  private extractDeveloperChanges(body: unknown): unknown[] {
-    if (Array.isArray(body)) return body;
-    if (typeof body === "string") {
-      try {
-        return this.extractDeveloperChanges(JSON.parse(body));
-      } catch {
-        throw new BadRequestException("Developer import payload must be valid JSON.");
-      }
-    }
-    if (!body || typeof body !== "object") return [];
-    const candidate = body as Record<string, unknown>;
-    if (Array.isArray(candidate.changes)) return candidate.changes;
-    if (Array.isArray(candidate.impacts)) return candidate.impacts;
-    return [];
-  }
-
-  private extractUuid(value: unknown) {
-    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-      ? value
-      : null;
-  }
-
-  private mapImportSeverity(change: any) {
-    const operation = String(change.operation ?? change.action ?? "").toLowerCase();
-    if (String(change.severity ?? "").toLowerCase() === "red") return "red";
-    if (String(change.severity ?? "").toLowerCase() === "amber") return "amber";
-    if (String(change.severity ?? "").toLowerCase() === "green") return "green";
-    if (operation === "delete" || operation === "remove") return "red";
-    if (operation === "create" || operation === "add") return "amber";
-    return "amber";
   }
 }
 

@@ -11,7 +11,7 @@ import { Page, PageHeader, SectionCard } from "../components/app-ui";
 export function TeamPage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"team" | "supplier">("team");
+  const [role, setRole] = useState<"team">("team");
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api<any>(`/projects/${projectId}`),
@@ -27,7 +27,7 @@ export function TeamPage() {
       <PageHeader
         eyebrow="Project access"
         title="People and permissions"
-        description="Roles are resolved per project. Suppliers receive assigned tasks and Build Pack access only."
+        description="Roles are resolved per project. Team members share the founder's Venture access once onboarding is complete."
       />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_.9fr]">
         <SectionCard title="Invite a collaborator" description="Supabase will send a secure project invitation">
@@ -38,11 +38,10 @@ export function TeamPage() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="invite-role">Project role</Label>
-              <Select value={role} onValueChange={(value) => setRole(value as "team" | "supplier")}>
+              <Select value={role} onValueChange={(value) => setRole(value as "team")}>
                 <SelectTrigger id="invite-role"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="team">Team member</SelectItem>
-                  <SelectItem value="supplier">Supplier</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -4,13 +4,7 @@ import { prisma } from "../lib/prisma";
 import { supabase, bucket } from "../lib/supabase";
 import { boss } from "../lib/boss";
 import { jsonValue, parseAndValidateJson, escapeHtml } from "../lib/utils";
-import { projectContext } from "../assemblers/context";
-import {
-  assembleFounderPackData,
-  assembleProductPackData,
-  assembleInvestorPackData,
-  assembleBuildPackData,
-} from "../assemblers/packs";
+import { assembleProductPackData } from "../assemblers/packs";
 import { invokeSkill } from "../assemblers/skills";
 import type { Payload } from "./conversation";
 
@@ -84,12 +78,7 @@ export async function handleDocument(payload: Payload) {
     // 1. Determine template key
     await logStream("Locating active document template...", "find_template");
     let templateId = "";
-    if (
-      document.type === "founder-pack" ||
-      document.type === "product-pack" ||
-      document.type === "investor-pack" ||
-      document.type === "build-pack"
-    ) {
+    if (document.type === "product-pack") {
       templateId = document.type;
     } else if (document.type.startsWith("report:")) {
       const reportDefId = document.type.substring(7);
@@ -116,28 +105,10 @@ export async function handleDocument(payload: Payload) {
     await logStream("Assembling document data context...", "assemble_data");
     const reportContent = document.reportGeneration?.content?.structuredContent;
     let content: any = {};
-    if (document.type === "founder-pack") {
-      content = await assembleFounderPackData(project.id);
-    } else if (document.type === "product-pack") {
+    if (document.type === "product-pack") {
       content = await assembleProductPackData(project.id);
-    } else if (document.type === "investor-pack") {
-      content = await assembleInvestorPackData(project.id);
-    } else if (document.type === "build-pack") {
-      // Write snapshot for history
-      const rawContext = await projectContext(project.id);
-      const activeCycle = await prisma.cycle.findFirst({
-        where: { projectId: project.id, status: "active" },
-      });
-      await prisma.buildPackSnapshot.create({
-        data: {
-          projectId: project.id,
-          cycleId: activeCycle?.id,
-          content: jsonValue(rawContext),
-        },
-      });
-      content = await assembleBuildPackData(project.id);
     } else {
-      content = reportContent ?? (await projectContext(project.id));
+      content = reportContent ?? {};
     }
 
     // 4. Validate payload using AJV (bypassed for chat-report)
@@ -240,35 +211,6 @@ export async function handleDocument(payload: Payload) {
   }
 }
 
-export async function handleSummary(payload: Payload) {
-  const kind = String(payload.kind);
-  const resourceId = String(payload.resourceId);
-  const resource =
-    kind === "meeting"
-      ? await prisma.dailyMeeting.findUniqueOrThrow({ where: { id: resourceId } })
-      : await prisma.retrospective.findUniqueOrThrow({ where: { id: resourceId } });
-  const result = await invokeSkill({
-    skillId: typeof payload.skillId === "string" ? payload.skillId : undefined,
-    eventType: typeof payload.eventType === "string" ? payload.eventType : undefined,
-    userId: String(payload.userId),
-    projectId: resource.projectId,
-    content: JSON.stringify(resource),
-    context: await projectContext(resource.projectId),
-  });
-  if (kind === "meeting") {
-    await prisma.dailyMeeting.update({
-      where: { id: resourceId },
-      data: { aiSummary: result.text },
-    });
-  } else {
-    await prisma.retrospective.update({
-      where: { id: resourceId },
-      data: { aiInsights: result.text },
-    });
-  }
-  return { updated: resourceId };
-}
-
 export async function handleReport(payload: Payload) {
   const id = String(payload.reportGenerationId);
   const generation = await prisma.reportGeneration.findUniqueOrThrow({
@@ -281,7 +223,7 @@ export async function handleReport(payload: Payload) {
     where: { id },
     data: { status: "generating" },
   });
-  const snapshot = await projectContext(generation.projectId);
+  const snapshot = await assembleProductPackData(generation.projectId);
   await prisma.reportSourceSnapshot.upsert({
     where: { reportGenerationId: id },
     create: { reportGenerationId: id, payload: jsonValue(snapshot) },

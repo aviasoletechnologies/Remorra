@@ -29,7 +29,6 @@ export const config = {
       return [
         "ai.conversation",
         "ai.report",
-        "ai.summary",
         "document.render",
         "gdpr.export",
         "gdpr.delete",

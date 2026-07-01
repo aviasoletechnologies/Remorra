@@ -6,7 +6,6 @@ export const QUEUES = {
   aiConversation: "ai.conversation",
   aiExtract: "ai.extract",
   aiReport: "ai.report",
-  aiSummary: "ai.summary",
   documentRender: "document.render",
   gdprExport: "gdpr.export",
   gdprDelete: "gdpr.delete",

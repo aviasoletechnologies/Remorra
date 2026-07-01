@@ -28,7 +28,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       role:
         project.ownerId === userId
           ? "founder"
-          : (project.memberships[0]?.role ?? "supplier"),
+          : (project.memberships[0]?.role ?? "team"),
       version: project.version,
       viabilityScore: null,
       updatedAt: project.updatedAt.toISOString(),

@@ -1240,22 +1240,16 @@ export class AdminService {
       { table: "project", group: "Project" },
       { table: "conversation", group: "Conversation" },
       { table: "conversation_message", group: "Conversation" },
-      // Discover/Refine entities
-      { table: "ambition", group: "Entity" },
-      { table: "okr", group: "Entity" },
+      // Discover/Refine entities (V4.4: Goal -> Epic -> Story)
+      { table: "goal", group: "Entity" },
+      { table: "epic", group: "Entity" },
+      { table: "story", group: "Entity" },
       { table: "persona", group: "Entity" },
-      { table: "okr_persona", group: "Entity" },
       { table: "pain_point", group: "Entity" },
-      { table: "user_need", group: "Entity" },
-      { table: "user_story", group: "Entity" },
-      { table: "task", group: "Entity" },
       // Refine
       { table: "structured_extract", group: "Refine" },
-      // Cycle management
-      { table: "cycle", group: "Cycle" },
-      { table: "raid_item", group: "Cycle" },
-      { table: "daily_meeting", group: "Cycle" },
-      { table: "retrospective", group: "Cycle" },
+      // Venture
+      { table: "raid_item", group: "Venture" },
     ];
 
     const operations = ["create", "update", "delete"];

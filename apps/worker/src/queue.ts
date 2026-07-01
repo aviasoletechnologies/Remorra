@@ -5,7 +5,6 @@ import { jsonValue } from "./lib/utils";
 import { config } from "./config";
 import {
   handleConversation,
-  handleSummary,
   handleReport,
   handleDocument,
   handleGdprExport,
@@ -18,7 +17,6 @@ import {
 export const queues = [
   "ai.conversation",
   "ai.report",
-  "ai.summary",
   "document.render",
   "gdpr.export",
   "gdpr.delete",
@@ -37,9 +35,6 @@ export async function startQueue() {
 
   if (enabled.includes("ai.conversation")) {
     await boss.work<Payload>("ai.conversation", handleJobs("ai.conversation", handleConversation));
-  }
-  if (enabled.includes("ai.summary")) {
-    await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
   }
   if (enabled.includes("ai.report")) {
     await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
