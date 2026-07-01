@@ -232,7 +232,7 @@ async function runRoleAcceptance(
   assert(supplierVenture.stories.length === 0, "Supplier received strategic stories.");
   await expectStatus(
     supplier.token,
-    `/viability/projects/${projectId}/calculate`,
+    `/projects/${projectId}/health-score/calculate`,
     403,
     { method: "POST" },
   );
@@ -257,15 +257,15 @@ async function runRoleAcceptance(
 
   const first = await request<any>(
     founderToken,
-    `/viability/projects/${projectId}/calculate`,
+    `/projects/${projectId}/health-score/calculate`,
     { method: "POST" },
   );
   const second = await request<any>(
     founderToken,
-    `/viability/projects/${projectId}/calculate`,
+    `/projects/${projectId}/health-score/calculate`,
     { method: "POST" },
   );
-  assert(first.id === second.id, "Duplicate viability command created a second job.");
+  assert(first.id === second.id, "Duplicate health-score command created a second job.");
   console.log("role acceptance: passed");
 }
 
