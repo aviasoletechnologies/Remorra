@@ -95,14 +95,23 @@ export function AiWorkspacePage() {
   });
   const project = projects?.find((p) => p.id === projectId);
 
+  const nextPhaseMap: Record<string, string> = {
+    discover: "refine",
+    refine: "initiate",
+    initiate: "venture",
+    venture: "evolve",
+  };
+
   const advance = useMutation({
     mutationFn: () => {
       if (!project) throw new Error("No active project");
-      return advancePhase(project.id, "refine", project.version);
+      const nextPhase = nextPhaseMap[project.phase];
+      if (!nextPhase) throw new Error("Already at the final phase");
+      return advancePhase(project.id, nextPhase, project.version);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Project advanced to Refine phase!");
+      toast.success("Project advanced to the next phase!");
     },
     onError: (err: any) => {
       toast.error(err.message || "Failed to advance phase.");
@@ -357,14 +366,24 @@ export function AiWorkspacePage() {
             </button>
           )}
 
-          {project?.phase === "discover" && (
+          {project && nextPhaseMap[project.phase] && conversation && conversation.activeSkill === null && conversation.messages.length > 0 && (
             <button
               type="button"
               disabled={advance.isPending}
               onClick={() => advance.mutate()}
               className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-4.5 py-1.5 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold disabled:opacity-50"
             >
-              {advance.isPending ? "Advancing..." : "Continue to Refine →"}
+              {advance.isPending
+                ? "Advancing..."
+                : `Continue to ${
+                    project.phase === "discover"
+                      ? "Refine"
+                      : project.phase === "refine"
+                      ? "Initiate"
+                      : project.phase === "initiate"
+                      ? "Venture"
+                      : "Evolve"
+                  } →`}
             </button>
           )}
 
