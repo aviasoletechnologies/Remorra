@@ -33,6 +33,23 @@ export const createProjectSchema = z.object({
 });
 export type CreateProject = z.infer<typeof createProjectSchema>;
 
+export const buildPhaseStatusSchema = z.enum(["draft", "ready", "active", "closed"]);
+
+export const createBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(2000).optional(),
+});
+
+export const updateBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  description: z.string().trim().max(2000).optional(),
+  status: buildPhaseStatusSchema.optional(),
+});
+
+export const assignBuildPhaseStoriesSchema = z.object({
+  storyIds: z.array(z.string().uuid()).min(1),
+});
+
 export const sessionModeSchema = z.enum(["ideate", "publish"]);
 export const sessionStatusSchema = z.enum([
   "active",

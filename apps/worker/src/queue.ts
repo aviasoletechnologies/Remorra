@@ -11,6 +11,9 @@ import {
   handleGdprDelete,
   handleRetention,
   handleStorageExpiry,
+  handleBuildPackGenerate,
+  handleBuildSyncIngest,
+  handleBuildSyncExport,
   type Payload,
 } from "./handlers";
 
@@ -22,6 +25,9 @@ export const queues = [
   "gdpr.delete",
   "retention.cleanup",
   "storage.expire",
+  "build-pack.generate",
+  "build-sync.ingest",
+  "build-sync.export",
 ] as const;
 
 export async function startQueue() {
@@ -55,6 +61,15 @@ export async function startQueue() {
   if (enabled.includes("storage.expire")) {
     await boss.work<Payload>("storage.expire", handleJobs("storage.expire", handleStorageExpiry));
     await boss.schedule("storage.expire", "30 2 * * *", {});
+  }
+  if (enabled.includes("build-pack.generate")) {
+    await boss.work<Payload>("build-pack.generate", handleJobs("build-pack.generate", handleBuildPackGenerate));
+  }
+  if (enabled.includes("build-sync.ingest")) {
+    await boss.work<Payload>("build-sync.ingest", handleJobs("build-sync.ingest", handleBuildSyncIngest));
+  }
+  if (enabled.includes("build-sync.export")) {
+    await boss.work<Payload>("build-sync.export", handleJobs("build-sync.export", handleBuildSyncExport));
   }
 
   console.info(

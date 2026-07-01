@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, ListChecks, ShieldAlert, Trash2 } from "lucide-react";
+import { ChevronRight, Download, Layers, ListChecks, Loader2, ShieldAlert, Sparkles, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
 import { AppTabs, DisabledOverlay, Page, PageHeader, SectionCard, TableSkeleton } from "../components/app-ui";
@@ -9,10 +9,12 @@ import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 
 const columns = ["ready", "in_progress", "review", "done"] as const;
-const tabs = ["board", "raid"] as const;
+const buildPhaseStatuses = ["draft", "ready", "active", "closed"] as const;
+const tabs = ["board", "raid", "build"] as const;
 const tabItems = [
   { value: "board", label: "Backlog", icon: ListChecks },
   { value: "raid", label: "RAID", icon: ShieldAlert },
+  { value: "build", label: "Build Phases", icon: Layers },
 ] satisfies Array<{ value: (typeof tabs)[number]; label: string; icon: any }>;
 
 export function VenturePage() {
@@ -20,6 +22,10 @@ export function VenturePage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<(typeof tabs)[number]>("board");
   const [raidTitle, setRaidTitle] = useState("");
+  const [newBuildPhaseName, setNewBuildPhaseName] = useState("");
+  const [expandedBuildPhaseId, setExpandedBuildPhaseId] = useState<string | null>(null);
+  const [generatingPack, setGeneratingPack] = useState(false);
+  const [exportingSync, setExportingSync] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["venture", projectId],
@@ -38,6 +44,77 @@ export function VenturePage() {
     },
     onSuccess: refresh,
   });
+
+  const { data: buildPhases = [], isLoading: loadingBuildPhases } = useQuery({
+    queryKey: ["build-phases", projectId],
+    queryFn: () => api<any[]>(`/projects/${projectId}/build-phases`),
+    enabled: Boolean(projectId) && tab === "build",
+  });
+
+  const refreshBuildPhases = () => void queryClient.invalidateQueries({ queryKey: ["build-phases", projectId] });
+
+  const { data: expandedPhase } = useQuery({
+    queryKey: ["build-phase", projectId, expandedBuildPhaseId],
+    queryFn: () => api<any>(`/projects/${projectId}/build-phases/${expandedBuildPhaseId}`),
+    enabled: Boolean(projectId && expandedBuildPhaseId),
+  });
+
+  const { data: buildPack, refetch: refetchPack } = useQuery({
+    queryKey: ["build-pack", projectId, expandedBuildPhaseId],
+    queryFn: () => api<any>(`/projects/${projectId}/build-phases/${expandedBuildPhaseId}/pack`),
+    enabled: Boolean(projectId && expandedBuildPhaseId),
+    refetchInterval: (query) => (query.state.data && (query.state.data as any).status === "generating" ? 3000 : false),
+  });
+
+  const buildPhaseCommand = useMutation({
+    mutationFn: ({ path, method = "POST", body, version }: any) => {
+      const options: RequestInit = { method };
+      if (version) options.headers = { "If-Match": String(version) };
+      if (body !== undefined) options.body = JSON.stringify(body);
+      return api(`/projects/${projectId}/build-phases${path}`, options);
+    },
+    onSuccess: () => {
+      refreshBuildPhases();
+      void queryClient.invalidateQueries({ queryKey: ["build-phase", projectId, expandedBuildPhaseId] });
+    },
+  });
+
+  const uploadBuildPhaseFile = async (buildPhaseId: string, field: "brand-kit" | "user-flow", file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    await api(`/projects/${projectId}/build-phases/${buildPhaseId}/${field}`, { method: "PATCH", body: formData });
+    refreshBuildPhases();
+    void queryClient.invalidateQueries({ queryKey: ["build-phase", projectId, buildPhaseId] });
+  };
+
+  const uploadSyncFile = async (buildPhaseId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    await api(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/upload`, { method: "POST", body: formData });
+    refreshBuildPhases();
+  };
+
+  const generatePack = async (buildPhaseId: string) => {
+    setGeneratingPack(true);
+    try {
+      const job = await api<{ id: string }>(`/projects/${projectId}/build-phases/${buildPhaseId}/pack/generate`, { method: "POST" });
+      await waitForJob(job.id);
+      await refetchPack();
+    } finally {
+      setGeneratingPack(false);
+    }
+  };
+
+  const exportSync = async (buildPhaseId: string) => {
+    setExportingSync(true);
+    try {
+      const job = await api<{ id: string }>(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/export`);
+      const result = await waitForJob<{ downloadUrl?: string }>(job.id);
+      if (result.downloadUrl) window.open(result.downloadUrl, "_blank", "noopener");
+    } finally {
+      setExportingSync(false);
+    }
+  };
 
   const stories = data?.stories ?? [];
   const founderOrTeam = Boolean(data?.role);
@@ -170,6 +247,192 @@ export function VenturePage() {
                   ) : null,
                 }))}
               />
+            )}
+
+            {tab === "build" && (
+              <div className="flex flex-col gap-6">
+                <SectionCard title="New Build Phase" description="A container for a subset of Stories going to developers">
+                  <div className="flex gap-2">
+                    <Input
+                      className="flex-1"
+                      value={newBuildPhaseName}
+                      onChange={(event) => setNewBuildPhaseName(event.target.value)}
+                      placeholder="e.g. Core Product Build"
+                    />
+                    <Button
+                      className="flex-shrink-0"
+                      disabled={newBuildPhaseName.trim().length < 2 || buildPhaseCommand.isPending}
+                      onClick={() =>
+                        buildPhaseCommand.mutate(
+                          { path: "", body: { name: newBuildPhaseName } },
+                          { onSuccess: () => setNewBuildPhaseName("") },
+                        )
+                      }
+                    >
+                      Create
+                    </Button>
+                  </div>
+                </SectionCard>
+
+                {loadingBuildPhases ? (
+                  <TableSkeleton rows={3} columns={3} />
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {buildPhases.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-border py-12 text-center text-xs text-muted-foreground">
+                        No Build Phases yet.
+                      </div>
+                    )}
+                    {buildPhases.map((phase: any) => {
+                      const expanded = expandedBuildPhaseId === phase.id;
+                      return (
+                        <Card key={phase.id} className="p-0 overflow-hidden">
+                          <button
+                            className="w-full flex items-center justify-between gap-3 p-4 text-left cursor-pointer hover:bg-secondary/35"
+                            onClick={() => setExpandedBuildPhaseId(expanded ? null : phase.id)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <strong className="text-xs font-bold">{phase.name}</strong>
+                              <Badge tone="neutral">{phase.status}</Badge>
+                              <span className="text-[10px] text-muted-foreground">{phase._count?.stories ?? 0} stories</span>
+                            </div>
+                            <ChevronRight size={14} className={expanded ? "rotate-90 transition-transform" : "transition-transform"} />
+                          </button>
+
+                          {expanded && (
+                            <div className="border-t border-border p-4 flex flex-col gap-5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Status</span>
+                                {buildPhaseStatuses.map((status) => (
+                                  <Button
+                                    key={status}
+                                    variant={phase.status === status ? "default" : "outline"}
+                                    className="h-7 text-[11px] px-2.5"
+                                    disabled={buildPhaseCommand.isPending}
+                                    onClick={() =>
+                                      buildPhaseCommand.mutate({
+                                        path: `/${phase.id}`,
+                                        method: "PATCH",
+                                        version: phase.version,
+                                        body: { status },
+                                      })
+                                    }
+                                  >
+                                    {status}
+                                  </Button>
+                                ))}
+                              </div>
+
+                              <div>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assign Stories</span>
+                                <div className="mt-2 flex flex-col gap-1.5 max-h-48 overflow-y-auto rounded-lg border border-border p-2">
+                                  {stories.map((story: any) => {
+                                    const assignedHere = expandedPhase?.stories?.some((s: any) => s.id === story.id);
+                                    const assignedElsewhere = story.buildPhaseId && story.buildPhaseId !== phase.id;
+                                    return (
+                                      <label key={story.id} className="flex items-center gap-2 text-xs px-1 py-1 rounded hover:bg-secondary/35">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(assignedHere)}
+                                          disabled={assignedElsewhere}
+                                          onChange={() =>
+                                            buildPhaseCommand.mutate({ path: `/${phase.id}/stories`, body: { storyIds: [story.id] } })
+                                          }
+                                        />
+                                        <span className={assignedElsewhere ? "text-muted-foreground line-through" : ""}>{story.title}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Brand Kit</span>
+                                  <input
+                                    type="file"
+                                    className="text-xs"
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      if (file) void uploadBuildPhaseFile(phase.id, "brand-kit", file);
+                                    }}
+                                  />
+                                  {expandedPhase?.brandKitUrl && (
+                                    <a href={expandedPhase.brandKitUrl} target="_blank" rel="noopener" className="text-[11px] text-primary underline">View current file</a>
+                                  )}
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">User Flow</span>
+                                  <input
+                                    type="file"
+                                    className="text-xs"
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      if (file) void uploadBuildPhaseFile(phase.id, "user-flow", file);
+                                    }}
+                                  />
+                                  {expandedPhase?.userFlowUrl && (
+                                    <a href={expandedPhase.userFlowUrl} target="_blank" rel="noopener" className="text-[11px] text-primary underline">View current file</a>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Pack</span>
+                                  <Button
+                                    className="h-8 text-[11px] flex items-center gap-1.5"
+                                    disabled={generatingPack || (phase.status !== "ready" && phase.status !== "active")}
+                                    onClick={() => void generatePack(phase.id)}
+                                  >
+                                    {generatingPack ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                                    Generate Pack
+                                  </Button>
+                                </div>
+                                {buildPack && (
+                                  <div className="flex flex-col gap-1 text-[11px]">
+                                    <span className="text-muted-foreground">Status: {buildPack.status}</span>
+                                    {buildPack.prdUrl && <a href={buildPack.prdUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> PRD</a>}
+                                    {buildPack.buildSyncFileUrl && <a href={buildPack.buildSyncFileUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync File</a>}
+                                    {buildPack.buildSyncInstructionsUrl && <a href={buildPack.buildSyncInstructionsUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync Instructions</a>}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Sync</span>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                                    <Upload size={12} />
+                                    <span>Upload developer status file</span>
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      onChange={(event) => {
+                                        const file = event.target.files?.[0];
+                                        if (file) void uploadSyncFile(phase.id, file);
+                                      }}
+                                    />
+                                  </label>
+                                  <Button
+                                    variant="outline"
+                                    className="h-8 text-[11px] flex items-center gap-1.5"
+                                    disabled={exportingSync}
+                                    onClick={() => void exportSync(phase.id)}
+                                  >
+                                    {exportingSync ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                                    Pull fresh sync file
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
