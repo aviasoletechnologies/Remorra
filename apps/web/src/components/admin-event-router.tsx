@@ -118,7 +118,16 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  const groupedEvents = eventTypes.reduce((acc, curr) => {
+  const filteredEventTypes = eventTypes.filter((curr) => {
+    if (curr.group === "Skill Completion" && curr.eventType.startsWith("skill.") && curr.eventType.endsWith(".completed")) {
+      const skillId = curr.eventType.split(".")[1];
+      const skill = skills.find((s: any) => s.id === skillId);
+      return skill?.phase === activePhase;
+    }
+    return true;
+  });
+
+  const groupedEvents = filteredEventTypes.reduce((acc, curr) => {
     const list = acc[curr.group] ?? [];
     list.push(curr);
     acc[curr.group] = list;
