@@ -13,6 +13,14 @@ import {
 import { EventRouterService } from "../event-router/event-router.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 
+const PHASE_ORDER = [
+  "discover",
+  "refine",
+  "initiate",
+  "venture",
+  "evolve",
+] as const;
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -54,6 +62,15 @@ export class ProjectsService {
     if (!project) notFound("Project", projectId);
     const fromPhase = project.phase;
     const toPhase = drivePhaseSchema.parse(phase);
+
+    const fromIndex = PHASE_ORDER.indexOf(fromPhase as (typeof PHASE_ORDER)[number]);
+    const toIndex = PHASE_ORDER.indexOf(toPhase as (typeof PHASE_ORDER)[number]);
+
+    if (toIndex !== fromIndex + 1) {
+      throw new BadRequestException(
+        `Invalid phase transition: cannot move from "${fromPhase}" to "${toPhase}". Phases must advance one step at a time.`,
+      );
+    }
 
     const result = await this.repository.advance(
       projectId,
