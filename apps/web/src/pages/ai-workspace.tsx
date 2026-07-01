@@ -294,7 +294,10 @@ export function AiWorkspacePage() {
       if (data?.pendingId) {
         setPendingMessages((current) => current.filter((m) => m.id !== data.pendingId));
       }
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      ]);
     },
   });
 
