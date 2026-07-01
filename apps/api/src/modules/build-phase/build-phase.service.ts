@@ -240,6 +240,17 @@ export class BuildPhaseService {
     return upload;
   }
 
+  async listSyncUploads(projectId: string, buildPhaseId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+    const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
+    if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
+    return this.prisma.client.buildSyncUpload.findMany({
+      where: { buildPhaseId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+  }
+
   async exportSync(projectId: string, buildPhaseId: string, userId: string) {
     await this.access.require(projectId, userId, ["founder", "team"]);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });

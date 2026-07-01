@@ -66,6 +66,13 @@ export function VenturePage() {
     refetchInterval: (query) => (query.state.data && (query.state.data as any).status === "generating" ? 3000 : false),
   });
 
+  const { data: syncUploads = [], refetch: refetchSyncUploads } = useQuery({
+    queryKey: ["build-sync-uploads", projectId, expandedBuildPhaseId],
+    queryFn: () => api<any[]>(`/projects/${projectId}/build-phases/${expandedBuildPhaseId}/sync/uploads`),
+    enabled: Boolean(projectId && expandedBuildPhaseId),
+    refetchInterval: (query) => ((query.state.data as any[])?.some((u) => u.status === "queued" || u.status === "running") ? 3000 : false),
+  });
+
   const buildPhaseCommand = useMutation({
     mutationFn: ({ path, method = "POST", body, version }: any) => {
       const options: RequestInit = { method };
@@ -92,6 +99,7 @@ export function VenturePage() {
     formData.append("file", file);
     await api(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/upload`, { method: "POST", body: formData });
     refreshBuildPhases();
+    void refetchSyncUploads();
   };
 
   const generatePack = async (buildPhaseId: string) => {
@@ -178,8 +186,11 @@ export function VenturePage() {
                               key={story.id}
                             >
                               <Card className="p-3.5 flex flex-col gap-3 bg-card hover:border-primary/25 hover:shadow-md transition-[border-color,box-shadow] duration-200">
-                                <div className="flex justify-between items-center">
+                                <div className="flex justify-between items-center gap-2">
                                   <Badge tone="neutral">{story.priority}</Badge>
+                                  {story.buildPhase?.name && (
+                                    <Badge tone="blue" className="truncate max-w-[100px]">{story.buildPhase.name}</Badge>
+                                  )}
                                 </div>
 
                                 <h3 className="text-xs font-bold text-foreground leading-relaxed font-sans min-h-[40px] flex items-center">
@@ -424,6 +435,20 @@ export function VenturePage() {
                                     Pull fresh sync file
                                   </Button>
                                 </div>
+                                {syncUploads.length > 0 && (
+                                  <div className="mt-1 flex flex-col gap-1.5">
+                                    {syncUploads.map((upload: any) => (
+                                      <div key={upload.id} className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                        <span>{new Date(upload.createdAt).toLocaleString()}</span>
+                                        <Badge
+                                          tone={upload.status === "completed" ? "green" : upload.status === "failed" ? "red" : "amber"}
+                                        >
+                                          {upload.status}
+                                        </Badge>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}

@@ -124,4 +124,13 @@ export class BuildPhaseController {
   ) {
     return this.buildPhases.exportSync(projectId, buildPhaseId, actor.userId);
   }
+
+  @Get(":buildPhaseId/sync/uploads")
+  listSyncUploads(
+    @CurrentActor() actor: Actor,
+    @Param("projectId") projectId: string,
+    @Param("buildPhaseId") buildPhaseId: string,
+  ) {
+    return this.buildPhases.listSyncUploads(projectId, buildPhaseId, actor.userId);
+  }
 }
