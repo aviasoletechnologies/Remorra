@@ -134,7 +134,9 @@ It DOES happen in **Evolve**. Schema has `ConversationKind: discover/refine/evol
 
 **Real example:** You set a rule: "After the morning report is written, write the morning report." The system writes a report, then immediately starts writing another report, then another. It never stops until someone manually intervenes or the server crashes.
 
-**Recommended Fix:** Hard hop-counter per session (e.g. max 20 hops), kill + alert admin on breach. **Easy, must-do.**
+**Primarily solved by issue #1's fix.** Once skill links are explicit named selections (not the implicit `@previous` keyword), the event-mapping chain becomes a real graph that can be walked at config-save time — Admin gets blocked from saving a loop ("This creates a loop: A → B → A") before it ever runs. See issue #1's "config-time cycle detection" section for the exact mechanism.
+
+**Recommended Fix:** Config-time cycle detection (from #1) is the primary prevention — stops bad config from being saved at all. Keep a hard hop-counter per session (e.g. max 20 hops) as a runtime safety net regardless — catches any loop that somehow gets created outside the normal config UI (manual DB edit, future config import, bug in the cycle-check itself). Both together, not either/or. **Easy, must-do.**
 
 ---
 
@@ -218,7 +220,18 @@ No new config field needed — the previous-skill-output selector (issue #1) alr
 
 **Real example:** A chef writes a shopping list (Skill A's output). The grocery buyer (Skill B) is supposed to buy what's on the list. But the list was never physically written down — it was in the chef's head. The grocery buyer goes to the store with no list and has to guess.
 
-**Recommended Fix:** Always persist the save step before transitioning, regardless of whether direct skill-to-skill routing exists. **Easy, must-do (Critical).**
+**Confirmed against current code (`conversation.ts`):** Real, currently happening. When `firedEvents` (skill.completed, structured_extract.create, conversation_message.create) matches a mapping, system transitions to the next skill immediately — the table mapper (`applyOperationsExtract`/`applyGenericExtractMappings`, which writes personas/ambitions/etc. to their real tables) is in the `else` branch only. It does not run later either — that turn's entity data is permanently never written to entity tables if direct routing fires.
+
+**⚠ Needs founder discussion before fixing — design intent unclear:**
+This skip might be intentional, not a bug. If Skill B only ever reads context via the previous-skill-output mechanism (conversation/StructuredExtract — see issue #1's fix), it doesn't need personas/ambitions in their entity tables to function. Saving raw JSON to StructuredExtract already happens unconditionally; only the *entity table* writes are skipped.
+
+**The real risk:** other parts of the system that read directly from entity tables — Live Entity Summary (Q12), User Board (Q42), RAID list, Refine phase completion check (Q39) — would never see this data if it's only ever skipped during direct routing and never written. If Admin chains 5 skills together with direct routing the whole way, none of those 5 skills' entities ever land in Goal/Epic/Story/Persona tables, even though the conversation looks successful.
+
+**Two possible fixes — needs a decision, not a default:**
+1. **Always write to entity tables**, regardless of routing path — matches the original "Recommended Fix" below, removes the skip entirely.
+2. **Keep the skip, but make it explicit and reversible** — Admin can mark a mapping as "skip entity write" only when they specifically don't need it (e.g. an internal scratch-pad chain), defaulting to "always write" otherwise. Safer default, opt-out instead of opt-in.
+
+**Recommended Fix (if going with option 1):** Always persist the table-mapper save step before transitioning, regardless of whether direct skill-to-skill routing exists. **Easy, must-do (Critical) — but confirm intent with founder before implementing, since this reverts what looks like a deliberate design choice in the current flow.**
 
 ---
 
