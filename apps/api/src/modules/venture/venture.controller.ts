@@ -7,10 +7,14 @@ import {
   Param,
   Patch,
   Post,
+  UseGuards,
 } from "@nestjs/common";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
+import { PhaseGuard, RequirePhase } from "../../shared/phase.guard.js";
 import { VentureService } from "./venture.service.js";
 
+@RequirePhase("venture", "evolve")
+@UseGuards(PhaseGuard)
 @Controller()
 export class VentureController {
   constructor(private readonly venture: VentureService) {}
