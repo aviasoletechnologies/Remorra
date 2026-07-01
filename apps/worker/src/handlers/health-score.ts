@@ -4,21 +4,20 @@ import { assembleHealthScoreRawData } from "../assemblers/packs";
 import { invokeSkill } from "../assemblers/skills";
 import type { Payload } from "./conversation";
 
-// Weights per HARDIK doc Q13 — 15% each for the 6 top/detail components, 10% Cohesion.
-const COMPONENT_WEIGHTS: Record<string, number> = {
-  problem_top: 15,
-  idea_top: 15,
-  user_top: 15,
-  problem_detail: 15,
-  idea_detail: 15,
-  user_detail: 15,
-  cohesion: 10,
-};
-const COMPONENT_KEYS = Object.keys(COMPONENT_WEIGHTS);
-
 export async function handleHealthScoreCalculate(payload: Payload) {
   const projectId = String(payload.projectId);
   const userId = String(payload.userId ?? "");
+
+  // Weights are admin-configurable (RemoraDocument §20), not hardcoded —
+  // read the current values from HealthScoreWeightConfig each run.
+  const weightConfigs = await prisma.healthScoreWeightConfig.findMany();
+  if (weightConfigs.length === 0) {
+    throw new Error(
+      "No HealthScoreWeightConfig rows found — an admin must configure Health Score component weights before it can be calculated.",
+    );
+  }
+  const COMPONENT_WEIGHTS = Object.fromEntries(weightConfigs.map((c: any) => [c.component, c.weight]));
+  const COMPONENT_KEYS = Object.keys(COMPONENT_WEIGHTS);
 
   const rawData = await assembleHealthScoreRawData(projectId);
 

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -63,6 +64,16 @@ export class BuildPhaseController {
     @Body() body: unknown,
   ) {
     return this.buildPhases.assignStories(projectId, buildPhaseId, actor.userId, body);
+  }
+
+  @Delete(":buildPhaseId/stories/:storyId")
+  unassignStory(
+    @CurrentActor() actor: Actor,
+    @Param("projectId") projectId: string,
+    @Param("buildPhaseId") buildPhaseId: string,
+    @Param("storyId") storyId: string,
+  ) {
+    return this.buildPhases.unassignStory(projectId, buildPhaseId, storyId, actor.userId);
   }
 
   @Patch(":buildPhaseId/brand-kit")

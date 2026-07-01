@@ -103,6 +103,21 @@ export class BuildPhaseService {
     return this.prisma.client.story.findMany({ where: { buildPhaseId } });
   }
 
+  async unassignStory(projectId: string, buildPhaseId: string, storyId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+    const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
+    if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
+
+    const result = await this.prisma.client.story.updateMany({
+      where: { id: storyId, projectId, buildPhaseId },
+      data: { buildPhaseId: null },
+    });
+    if (!result.count) notFound("Story", storyId);
+
+    await this.logAudit(projectId, userId, "build_phase.story_unassigned", buildPhaseId, null, { storyId });
+    return { storyId, unassigned: true };
+  }
+
   async uploadBrandKit(projectId: string, buildPhaseId: string, userId: string, file: Express.Multer.File) {
     return this.uploadAsset(projectId, buildPhaseId, userId, file, "brand-kit", "brandKitObjectId");
   }

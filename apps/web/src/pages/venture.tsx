@@ -347,7 +347,9 @@ export function VenturePage() {
                                           checked={Boolean(assignedHere)}
                                           disabled={assignedElsewhere}
                                           onChange={() =>
-                                            buildPhaseCommand.mutate({ path: `/${phase.id}/stories`, body: { storyIds: [story.id] } })
+                                            assignedHere
+                                              ? buildPhaseCommand.mutate({ path: `/${phase.id}/stories/${story.id}`, method: "DELETE" })
+                                              : buildPhaseCommand.mutate({ path: `/${phase.id}/stories`, body: { storyIds: [story.id] } })
                                           }
                                         />
                                         <span className={assignedElsewhere ? "text-muted-foreground line-through" : ""}>{story.title}</span>

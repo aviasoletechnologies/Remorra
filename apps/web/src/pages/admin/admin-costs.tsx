@@ -1,4 +1,4 @@
-import { ShieldAlert, DollarSign } from "lucide-react";
+import { ShieldAlert, DollarSign, Gauge } from "lucide-react";
 import { Badge, Button, Input, Card } from "../../components/ui";
 import { DataTable, DangerZone, TableSkeleton } from "../../components/app-ui";
 import { AdminShellSection } from "../../components/admin-ui";
@@ -167,4 +167,88 @@ function resolveDraft(row: any, drafts: Record<string, CostDraft>): CostDraft {
     flatCostMinor: row.flatCostMinor,
     active: row.active,
   };
+}
+
+export function AdminHealthScoreWeights({
+  weights,
+  drafts,
+  isAdmin,
+  setDrafts,
+  onSave,
+  isLoading,
+}: {
+  weights: any[];
+  drafts: Record<string, number>;
+  isAdmin: boolean;
+  setDrafts: (drafts: Record<string, number>) => void;
+  onSave: (component: string, weight: number) => void;
+  isLoading?: boolean;
+}) {
+  const total = weights.reduce((sum, row) => sum + (drafts[row.component] ?? row.weight), 0);
+
+  return (
+    <AdminShellSection
+      title="Health Score weights"
+      description="Component weights for the one-time Initiate readiness assessment (RemoraDocument §20 — configuration, not code). Must sum to 100."
+    >
+      {!isAdmin ? (
+        <DangerZone
+          title="Read-only support mode"
+          description="Health Score weights can only be changed by a Platform Admin."
+          action={<ShieldAlert size={18} />}
+        />
+      ) : null}
+
+      <Card className="flow-builder">
+        <div className="flow-builder__header flex justify-between items-center mb-6">
+          <div>
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <Gauge className="text-emerald-500" size={20} />
+              Component Weights
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Current total: <strong className={total === 100 ? "text-emerald-500" : "text-destructive"}>{total}%</strong>
+            </p>
+          </div>
+        </div>
+        {isLoading ? (
+          <TableSkeleton rows={7} columns={3} />
+        ) : (
+          <DataTable
+            rows={weights}
+            getRowKey={(row: any) => row.component}
+            minWidth={480}
+            emptyTitle="No weight configs"
+            emptyDescription="Health Score weight records have not been seeded."
+            columns={[
+              { key: "component", header: "Component", cell: (row: any) => <code className="capitalize">{row.component.replaceAll("_", " ")}</code> },
+              {
+                key: "weight",
+                header: "Weight %",
+                cell: (row: any) => (
+                  <Input
+                    aria-label={`Weight for ${row.component}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={drafts[row.component] ?? row.weight}
+                    onChange={(event) => setDrafts({ ...drafts, [row.component]: Number(event.target.value) })}
+                    disabled={!isAdmin}
+                  />
+                ),
+              },
+              {
+                key: "actions",
+                header: "Actions",
+                cell: (row: any) => {
+                  const weight = drafts[row.component] ?? row.weight;
+                  return isAdmin ? <Button variant="secondary" onClick={() => onSave(row.component, weight)}>Save</Button> : null;
+                },
+              },
+            ]}
+          />
+        )}
+      </Card>
+    </AdminShellSection>
+  );
 }
