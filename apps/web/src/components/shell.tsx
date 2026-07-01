@@ -207,7 +207,8 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   }, [activeProjectId, project, setActiveProjectId]);
 
   const navItems = useMemo(() => {
-    const items = project?.role === "supplier"
+    if (!project) return [];
+    const items = project.role === "supplier"
       ? [
           { to: "/venture", label: "My tasks", icon: ListChecks },
           { to: "/reports", label: "Build Pack", icon: FileChartColumn },
@@ -221,11 +222,19 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
           { to: "/team", label: "People & access", icon: Users },
           { to: "/knowledge", label: "Product library", icon: BookOpen },
         ];
+
+    const filtered = items.filter((item) => {
+      if (item.to === "/workspace") return ["discover", "refine"].includes(project.phase);
+      if (item.to === "/initiate") return ["initiate"].includes(project.phase);
+      if (item.to === "/venture" || item.to === "/reports") return ["venture", "evolve"].includes(project.phase);
+      return true;
+    });
+
     if (actor && ["admin", "support"].includes(actor.platformRole ?? "")) {
-      items.push({ to: "/admin", label: "Platform admin", icon: ShieldCheck });
+      filtered.push({ to: "/admin", label: "Platform admin", icon: ShieldCheck });
     }
-    return items;
-  }, [actor, project?.role]);
+    return filtered;
+  }, [actor, project?.role, project?.phase]);
 
   if (actor && (!actor.privacyPolicyVersion || !actor.termsVersion)) {
     return (

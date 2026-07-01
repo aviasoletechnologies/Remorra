@@ -3,7 +3,7 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { skillVersionInputSchema } from "@remorra/contracts";
+import { skillVersionInputSchema, drivePhaseSchema, type DrivePhase } from "@remorra/contracts";
 
 async function generateKbEmbedding(text: string): Promise<number[]> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -143,7 +143,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -151,10 +151,12 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt, inputSourceMap, outputSchema, kbEligible } = body;
+    const { systemPrompt, inputSourceMap, outputSchema, kbEligible, phase } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
+
+    const validatedPhase = phase ? drivePhaseSchema.parse(phase) : "discover";
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
@@ -170,6 +172,7 @@ export class AdminService {
           name,
           description,
           kbEligible: kbEligible ?? false,
+          phase: validatedPhase,
         },
       });
 
@@ -225,6 +228,9 @@ export class AdminService {
     if (typeof body.name === "string") data.name = body.name.trim();
     if (typeof body.description === "string") data.description = body.description.trim();
     if (typeof body.kbEligible === "boolean") data.kbEligible = body.kbEligible;
+    if (typeof body.phase === "string") {
+      data.phase = drivePhaseSchema.parse(body.phase);
+    }
 
     const skill = await this.prisma.client.skill.update({
       where: { id },
@@ -272,13 +278,14 @@ export class AdminService {
       throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(parseResult.error.issues)}`);
     }
     const parsed = parseResult.data;
-    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined || parsed.phase !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
           ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
+          ...(parsed.phase !== undefined ? { phase: parsed.phase } : {}),
         },
       });
     }
@@ -328,13 +335,14 @@ export class AdminService {
       throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(result.error.issues)}`);
     }
     const parsed = result.data;
-    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined || parsed.phase !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
           ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
+          ...(parsed.phase !== undefined ? { phase: parsed.phase } : {}),
         },
       });
     }

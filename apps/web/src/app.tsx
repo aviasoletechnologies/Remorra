@@ -6,6 +6,8 @@ import { TokenBudgetModal } from "./components/token-budget-modal";
 import { PageErrorBoundary } from "./components/page-error-boundary";
 import { CardSkeleton, PageSkeleton } from "./components/app-ui";
 
+import { PhaseRoute } from "./components/phase-route.js";
+
 const AdminPage = lazy(() => import("./pages/admin").then((module) => ({ default: module.AdminPage })));
 const AiWorkspacePage = lazy(() => import("./pages/ai-workspace").then((module) => ({ default: module.AiWorkspacePage })));
 const InitiatePage = lazy(() => import("./pages/initiate").then((module) => ({ default: module.InitiatePage })));
@@ -26,11 +28,32 @@ export function App() {
           <Suspense fallback={<PageSkeleton actionsCount={0} eyebrow={false} title={false}><CardSkeleton rows={4} /></PageSkeleton>}>
             <Routes>
               <Route path="/" element={<OverviewPage />} />
-              <Route path="/workspace" element={<AiWorkspacePage />} />
+              <Route
+                path="/workspace"
+                element={
+                  <PhaseRoute allowedPhases={["discover", "refine"]}>
+                    <AiWorkspacePage />
+                  </PhaseRoute>
+                }
+              />
               <Route path="/discover" element={<Navigate to="/workspace" replace />} />
               <Route path="/refine" element={<Navigate to="/workspace" replace />} />
-              <Route path="/initiate" element={<InitiatePage />} />
-              <Route path="/venture" element={<VenturePage />} />
+              <Route
+                path="/initiate"
+                element={
+                  <PhaseRoute allowedPhases={["initiate"]}>
+                    <InitiatePage />
+                  </PhaseRoute>
+                }
+              />
+              <Route
+                path="/venture"
+                element={
+                  <PhaseRoute allowedPhases={["venture", "evolve"]}>
+                    <VenturePage />
+                  </PhaseRoute>
+                }
+              />
               <Route path="/evolve" element={<Navigate to="/workspace" replace />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/team" element={<TeamPage />} />
