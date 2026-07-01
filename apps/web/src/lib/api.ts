@@ -322,3 +322,15 @@ async function expireSession() {
   await supabase.auth.signOut({ scope: "local" });
   window.dispatchEvent(new CustomEvent("remorra-session-expired"));
 }
+
+export async function advancePhase(
+  projectId: string,
+  toPhase: string,
+  currentVersion: number,
+): Promise<{ id: string; phase: string; version: number }> {
+  return api(`/projects/${projectId}/phase`, {
+    method: "PATCH",
+    version: currentVersion,
+    body: JSON.stringify({ phase: toPhase }),
+  });
+}

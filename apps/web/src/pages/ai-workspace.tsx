@@ -4,8 +4,8 @@ import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { ProductPackPanel } from "../components/product-pack-panel";
-import type { ProductPackDto } from "@remorra/contracts";
-import { api, streamTextJob } from "../lib/api";
+import type { ProductPackDto, Project } from "@remorra/contracts";
+import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -87,6 +87,28 @@ function cleanMessageContent(content: string): string {
 export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
+
+  const { data: projects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Project[]>("/projects"),
+    enabled: Boolean(projectId),
+  });
+  const project = projects?.find((p) => p.id === projectId);
+
+  const advance = useMutation({
+    mutationFn: () => {
+      if (!project) throw new Error("No active project");
+      return advancePhase(project.id, "refine", project.version);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Project advanced to Refine phase!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to advance phase.");
+    },
+  });
+
   const [message, setMessage] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
@@ -332,6 +354,17 @@ export function AiWorkspacePage() {
                   <PanelRightOpen size={13} />
                 </>
               )}
+            </button>
+          )}
+
+          {project?.phase === "discover" && (
+            <button
+              type="button"
+              disabled={advance.isPending}
+              onClick={() => advance.mutate()}
+              className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-4.5 py-1.5 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold disabled:opacity-50"
+            >
+              {advance.isPending ? "Advancing..." : "Continue to Refine →"}
             </button>
           )}
 

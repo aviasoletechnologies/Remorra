@@ -217,6 +217,7 @@ export const cursorPageSchema = <T extends z.ZodType>(item: T) =>
 export const skillVersionInputSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
+  phase: drivePhaseSchema.optional(),
   kbEligible: z.boolean().optional(),
   systemPrompt: z.string().optional(),
   inputSourceMap: z.object({

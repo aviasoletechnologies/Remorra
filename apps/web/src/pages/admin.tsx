@@ -175,6 +175,7 @@ export function AdminPage() {
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
   const [newSkillKbEligible, setNewSkillKbEligible] = useState(false);
+  const [newSkillPhase, setNewSkillPhase] = useState("discover");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [newSkillCustomSchemaError, setNewSkillCustomSchemaError] = useState<string | null>(null);
@@ -188,6 +189,7 @@ export function AdminPage() {
   const [editSkillName, setEditSkillName] = useState("");
   const [editSkillDesc, setEditSkillDesc] = useState("");
   const [editKbEligible, setEditKbEligible] = useState(false);
+  const [editSkillPhase, setEditSkillPhase] = useState("discover");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [editCustomSchemaError, setEditCustomSchemaError] = useState<string | null>(null);
@@ -444,10 +446,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -481,10 +483,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -548,7 +550,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -562,6 +564,7 @@ export function AdminPage() {
       setNewSkillDesc("");
       setNewSkillPrompt("");
       setNewSkillKbEligible(false);
+      setNewSkillPhase("discover");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
       setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
@@ -826,6 +829,7 @@ export function AdminPage() {
                   setEditSkillName(skill.name ?? "");
                   setEditSkillDesc(skill.description ?? "");
                   setEditKbEligible(skill.kbEligible ?? false);
+                  setEditSkillPhase(skill.phase ?? "discover");
                   setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
                   setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
@@ -940,6 +944,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
+                            phase: editSkillPhase,
                           });
                         }}
                       >
@@ -956,6 +961,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
+                            phase: editSkillPhase,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -1009,6 +1015,21 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                       className="h-4 w-4 cursor-pointer"
                     />
                     <span className="text-xs text-muted-foreground">Enable knowledge base injection for this skill</span>
+                  </div>
+                  <div>
+                    <label className="admin-field-label">DRIVE Phase</label>
+                    <select
+                      className="admin-input"
+                      value={editSkillPhase}
+                      onChange={(e) => setEditSkillPhase(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    >
+                      <option value="discover">Discover</option>
+                      <option value="refine">Refine</option>
+                      <option value="initiate">Initiate</option>
+                      <option value="venture">Venture</option>
+                      <option value="evolve">Evolve</option>
+                    </select>
                   </div>
                 </div>
 
@@ -1320,6 +1341,21 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                 </div>
 
                 <div>
+                  <label className="admin-field-label">DRIVE Phase</label>
+                  <select
+                    className="admin-input"
+                    value={newSkillPhase}
+                    onChange={(e) => setNewSkillPhase(e.target.value)}
+                  >
+                    <option value="discover">Discover</option>
+                    <option value="refine">Refine</option>
+                    <option value="initiate">Initiate</option>
+                    <option value="venture">Venture</option>
+                    <option value="evolve">Evolve</option>
+                  </select>
+                </div>
+
+                <div>
                   <label className="admin-field-label">Initial System Prompt</label>
                   <textarea
                     placeholder="You are an expert agent that..."
@@ -1396,6 +1432,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         inputSourceMap: newSkillInputSourceMap,
                         outputSchema: newSkillOutputSchema,
                         kbEligible: newSkillKbEligible,
+                        phase: newSkillPhase,
                       });
                     }}
                     disabled={createSkillMutation.isPending}

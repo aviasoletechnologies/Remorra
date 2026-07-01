@@ -107,6 +107,11 @@ export function AdminSkills({
             { key: "name", header: "Name", cell: (row: any) => <strong>{row.name}</strong> },
             { key: "description", header: "Description", cell: (row: any) => row.description },
             {
+              key: "phase",
+              header: "DRIVE Phase",
+              cell: (row: any) => <Badge tone="neutral" className="capitalize">{row.phase}</Badge>,
+            },
+            {
               key: "active",
               header: "Active version",
               cell: (row: any) => {

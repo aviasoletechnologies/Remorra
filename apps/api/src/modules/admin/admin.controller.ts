@@ -36,7 +36,7 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string },
   ) {
     return this.admin.createSkill(actor, body);
   }
@@ -45,7 +45,7 @@ export class AdminController {
   updateSkill(
     @CurrentActor() actor: Actor,
     @Param("skillId") skillId: string,
-    @Body() body: { name?: string; description?: string; kbEligible?: boolean },
+    @Body() body: { name?: string; description?: string; kbEligible?: boolean; phase?: string },
   ) {
     return this.admin.updateSkill(actor, skillId, body);
   }
