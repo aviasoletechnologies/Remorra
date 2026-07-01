@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { supabase, bucket } from "../lib/supabase";
 import { boss } from "../lib/boss";
 import { jsonValue, parseAndValidateJson, escapeHtml } from "../lib/utils";
-import { assembleProductPackData } from "../assemblers/packs";
+import { assembleProductPackData, assembleBuildPackData } from "../assemblers/packs";
 import { invokeSkill } from "../assemblers/skills";
 import type { Payload } from "./conversation";
 
@@ -80,6 +80,10 @@ export async function handleDocument(payload: Payload) {
     let templateId = "";
     if (document.type === "product-pack") {
       templateId = document.type;
+    } else if (document.type.startsWith("build-pack:")) {
+      templateId = "build-pack";
+    } else if (document.type.startsWith("build-sync-instructions:")) {
+      templateId = "build-sync-instructions";
     } else if (document.type.startsWith("report:")) {
       const reportDefId = document.type.substring(7);
       const reportDefVer = await prisma.reportDefinitionVersion.findFirst({
@@ -107,6 +111,10 @@ export async function handleDocument(payload: Payload) {
     let content: any = {};
     if (document.type === "product-pack") {
       content = await assembleProductPackData(project.id);
+    } else if (document.type.startsWith("build-pack:")) {
+      content = await assembleBuildPackData(document.type.substring("build-pack:".length));
+    } else if (document.type.startsWith("build-sync-instructions:")) {
+      content = { buildPhaseId: document.type.substring("build-sync-instructions:".length) };
     } else {
       content = reportContent ?? {};
     }
@@ -199,6 +207,15 @@ export async function handleDocument(payload: Payload) {
           data: { status: "completed", completedAt: new Date() },
         });
       }
+
+      if (document.type.startsWith("build-pack:")) {
+        const buildPhaseId = document.type.substring("build-pack:".length);
+        await updateBuildPackField(buildPhaseId, { prdDocumentId: document.id });
+      } else if (document.type.startsWith("build-sync-instructions:")) {
+        const buildPhaseId = document.type.substring("build-sync-instructions:".length);
+        await updateBuildPackField(buildPhaseId, { buildSyncInstructionsObjectId: storageObject.id });
+      }
+
       await logStream("PDF generation completed successfully!", "completed", "completed");
       return { documentId: document.id, path };
     } finally {
@@ -208,6 +225,23 @@ export async function handleDocument(payload: Payload) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await logStream(`PDF generation failed: ${message}`, "failed", "failed");
     throw err;
+  }
+}
+
+async function updateBuildPackField(buildPhaseId: string, data: Record<string, unknown>) {
+  const pack = await prisma.buildPack.upsert({
+    where: { buildPhaseId },
+    create: { buildPhaseId, ...data },
+    update: data,
+  });
+  const allArtefactsReady = Boolean(
+    pack.prdDocumentId && pack.buildSyncFileObjectId && pack.buildSyncInstructionsObjectId && pack.projectContextSnapshot,
+  );
+  if (allArtefactsReady && pack.status !== "completed") {
+    await prisma.buildPack.update({
+      where: { buildPhaseId },
+      data: { status: "completed", completedAt: new Date() },
+    });
   }
 }
 

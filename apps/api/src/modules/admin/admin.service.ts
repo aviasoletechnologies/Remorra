@@ -3,7 +3,7 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { skillVersionInputSchema, drivePhaseSchema, type DrivePhase } from "@remorra/contracts";
+import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, type DrivePhase } from "@remorra/contracts";
 
 async function generateKbEmbedding(text: string): Promise<number[]> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -143,7 +143,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string; modelTier?: string },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -151,12 +151,13 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt, inputSourceMap, outputSchema, kbEligible, phase } = body;
+    const { systemPrompt, inputSourceMap, outputSchema, kbEligible, phase, modelTier } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
 
     const validatedPhase = phase ? drivePhaseSchema.parse(phase) : "discover";
+    const validatedModelTier = modelTier ? modelTierSchema.parse(modelTier) : "standard";
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
@@ -183,6 +184,7 @@ export class AdminService {
           version: 1,
           active: true,
           systemPrompt,
+          modelTier: validatedModelTier,
           inputSourceMap: inputSourceMap ?? {},
           outputSchema: outputSchema ?? null,
           constraints: [],
@@ -301,6 +303,7 @@ export class AdminService {
           version: current.version + 1,
           active: false,
           systemPrompt: String(parsed.systemPrompt ?? current.systemPrompt),
+          modelTier: parsed.modelTier ?? current.modelTier,
           inputSourceMap: parsed.inputSourceMap !== undefined ? parsed.inputSourceMap : current.inputSourceMap,
           outputSchema: parsed.outputSchema !== undefined ? parsed.outputSchema : current.outputSchema,
           constraints: parsed.constraints ?? current.constraints,
@@ -357,6 +360,7 @@ export class AdminService {
       where: { id: versionId },
       data: {
         ...(parsed.systemPrompt !== undefined ? { systemPrompt: String(parsed.systemPrompt) } : {}),
+        ...(parsed.modelTier !== undefined ? { modelTier: parsed.modelTier } : {}),
         ...(parsed.inputSourceMap !== undefined ? { inputSourceMap: parsed.inputSourceMap } : {}),
         ...(parsed.outputSchema !== undefined ? { outputSchema: parsed.outputSchema } : {}),
         ...(parsed.constraints !== undefined ? { constraints: parsed.constraints } : {}),
@@ -1312,6 +1316,48 @@ export class AdminService {
     };
   }
 
+  // Detects cycles in the skill-completion routing chain (skill.<id>.completed → skill).
+  // Entity-creation events (e.g. "goal.create") aren't checked here — which skill
+  // produces which entity event is data-dependent, not a static config fact.
+  private async assertNoCircularMapping(eventType: string, skillId: string, excludeMappingId?: string) {
+    const completionMatch = eventType.match(/^skill\.(.+)\.completed$/);
+    if (!completionMatch) return;
+    const sourceSkillId = completionMatch[1]!;
+    if (sourceSkillId === skillId) {
+      throw new BadRequestException(
+        `Circular mapping: skill "${skillId}" cannot be triggered by its own completion event.`,
+      );
+    }
+
+    const mappings = await this.prisma.client.skillEventMapping.findMany({
+      where: { active: true, ...(excludeMappingId ? { id: { not: excludeMappingId } } : {}) },
+    });
+    const edges = new Map<string, Set<string>>();
+    for (const m of mappings) {
+      const match = m.eventType.match(/^skill\.(.+)\.completed$/);
+      if (!match) continue;
+      const from = match[1]!;
+      if (!edges.has(from)) edges.set(from, new Set());
+      edges.get(from)!.add(m.skillId);
+    }
+    if (!edges.has(sourceSkillId)) edges.set(sourceSkillId, new Set());
+    edges.get(sourceSkillId)!.add(skillId);
+
+    const visited = new Set<string>();
+    const stack = [skillId];
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === sourceSkillId) {
+        throw new BadRequestException(
+          `Circular mapping detected: this would let skill "${sourceSkillId}" eventually re-trigger itself via "${skillId}".`,
+        );
+      }
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of edges.get(current) ?? []) stack.push(next);
+    }
+  }
+
   async createEventMapping(
     actor: Actor,
     body: { eventType: string; skillId: string; targetQueue?: string; conditions?: Record<string, unknown>; active?: boolean },
@@ -1324,6 +1370,7 @@ export class AdminService {
     }
     const targetQueue = body.targetQueue?.trim() || "ai.conversation";
     await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
+    await this.assertNoCircularMapping(eventType, skillId);
 
     const mapping = await this.prisma.client.skillEventMapping.create({
       data: {
@@ -1345,6 +1392,7 @@ export class AdminService {
     body: { active?: boolean; skillId?: string; targetQueue?: string; conditions?: Record<string, unknown> },
   ) {
     this.requireWriteAdmin(actor);
+    const current = await this.prisma.client.skillEventMapping.findUniqueOrThrow({ where: { id } });
     const data: Record<string, any> = {};
     if (typeof body.active === "boolean") data.active = body.active;
     if (typeof body.skillId === "string") {
@@ -1357,6 +1405,11 @@ export class AdminService {
     }
     if (body.conditions !== undefined) {
       data.conditions = body.conditions;
+    }
+
+    const effectiveActive = data.active ?? current.active;
+    if (effectiveActive) {
+      await this.assertNoCircularMapping(current.eventType, data.skillId ?? current.skillId, id);
     }
 
     const mapping = await this.prisma.client.skillEventMapping.update({

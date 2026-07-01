@@ -132,28 +132,16 @@ export class PrismaSkillRegistry implements SkillRegistry {
       where: { skillId, active: true },
       orderBy: { version: "desc" },
     });
-    if (!process.env.DEFAULT_MODEL_TIER) {
-      throw new Error("Missing required environment variable: DEFAULT_MODEL_TIER");
-    }
-    if (!process.env.DEFAULT_TOKEN_CEILING) {
-      throw new Error("Missing required environment variable: DEFAULT_TOKEN_CEILING");
-    }
-    const modelTier = process.env.DEFAULT_MODEL_TIER as any;
-    const tokenCeiling = Number(process.env.DEFAULT_TOKEN_CEILING);
-    if (Number.isNaN(tokenCeiling)) {
-      throw new Error("Invalid DEFAULT_TOKEN_CEILING environment variable; must be a number");
-    }
 
     return {
       id: version.skillId,
       versionId: version.id,
       name: version.skillId,
       version: version.version,
-      modelTier,
+      modelTier: version.modelTier as ModelTier,
       systemPrompt: version.systemPrompt,
       inputSourceMap: version.inputSourceMap ?? {},
       constraints: (version.constraints as string[]) ?? [],
-      tokenCeiling,
       retryPolicy: version.retryPolicy,
       outputSchema: version.outputSchema,
     };

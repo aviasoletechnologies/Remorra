@@ -71,6 +71,7 @@ type WorkspaceConversation = {
   status: string;
   activeSkill: WorkspaceActiveSkill | null;
   messages: { id: string; role: "user" | "assistant"; content: string; createdAt: string }[];
+  phaseComplete: boolean;
 };
 
 type PendingMessage = { id: string; role: "user"; content: string };
@@ -366,7 +367,7 @@ export function AiWorkspacePage() {
             </button>
           )}
 
-          {project && nextPhaseMap[project.phase] && conversation && conversation.activeSkill === null && conversation.messages.length > 0 && (
+          {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete && (
             <button
               type="button"
               disabled={advance.isPending}

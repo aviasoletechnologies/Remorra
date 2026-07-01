@@ -82,6 +82,13 @@ enum ReportStatus {
   failed
 }
 
+enum BuildPhaseStatus {
+  draft
+  ready
+  active
+  closed
+}
+
 enum DeletionStatus {
   scheduled
   cancelled
@@ -116,6 +123,12 @@ enum FlowStepRunStatus {
   completed
   skipped
   failed
+}
+
+enum ModelTier {
+  fast
+  standard
+  reasoning
 }
 
 model Profile {
@@ -177,6 +190,8 @@ model Project {
   aiInvocations AiInvocation[]
   streamEvents  JobStreamEvent[]
   flowRuns      FlowRun[]
+  evolveSessions EvolveSession[]
+  buildPhases   BuildPhase[]
 
   @@index([ownerId])
 }
@@ -291,14 +306,17 @@ model Story {
   position       Int            @default(0)
   estimatePoints Int?
   version        Int            @default(1)
+  buildPhaseId   String?        @db.Uuid
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   epic           Epic           @relation(fields: [epicId], references: [id], onDelete: Cascade)
   personas       PersonaStory[]
+  buildPhase     BuildPhase?    @relation(fields: [buildPhaseId], references: [id])
 
   @@index([projectId, status, position])
   @@index([epicId])
+  @@index([buildPhaseId])
 }
 
 model Persona {
@@ -375,9 +393,73 @@ model Conversation {
   messages             ConversationMessage[]
   extracts             StructuredExtract[]
   flowRuns             FlowRun[]
+  evolveSession        EvolveSession?
 
   @@index([projectId, kind])
   @@index([activeSkillId])
+}
+
+model EvolveSession {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectId      String        @db.Uuid
+  conversationId String        @unique @db.Uuid
+  launchedFrom   String
+  topic          String?
+  status         SessionStatus @default(active)
+  startedAt      DateTime      @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+}
+
+model BuildPhase {
+  id               String           @id @default(uuid()) @db.Uuid
+  projectId        String           @db.Uuid
+  name             String
+  description      String?
+  status           BuildPhaseStatus @default(draft)
+  brandKitObjectId String?          @db.Uuid
+  userFlowObjectId String?          @db.Uuid
+  version          Int              @default(1)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stories          Story[]
+  pack             BuildPack?
+  syncUploads      BuildSyncUpload[]
+
+  @@index([projectId])
+}
+
+model BuildPack {
+  id                            String       @id @default(uuid()) @db.Uuid
+  buildPhaseId                  String       @unique @db.Uuid
+  status                        ReportStatus @default(queued)
+  prdDocumentId                 String?      @db.Uuid
+  buildSyncFileObjectId         String?      @db.Uuid
+  buildSyncInstructionsObjectId String?      @db.Uuid
+  projectContextSnapshot        Json?
+  createdAt                     DateTime     @default(now())
+  completedAt                   DateTime?
+  buildPhase                    BuildPhase   @relation(fields: [buildPhaseId], references: [id], onDelete: Cascade)
+}
+
+model BuildSyncUpload {
+  id                   String     @id @default(uuid()) @db.Uuid
+  buildPhaseId         String     @db.Uuid
+  uploadedById         String     @db.Uuid
+  storageObjectId      String     @db.Uuid
+  buildPhaseIdentifier String
+  status               JobStatus  @default(queued)
+  ingestedAt           DateTime?
+  createdAt            DateTime   @default(now())
+  buildPhase           BuildPhase @relation(fields: [buildPhaseId], references: [id], onDelete: Cascade)
+
+  @@index([buildPhaseId])
 }
 
 model ConversationMessage {
@@ -459,6 +541,7 @@ model SkillVersion {
   version             Int
   active              Boolean        @default(false)
   systemPrompt        String
+  modelTier           ModelTier      @default(standard)
   inputSourceMap      Json           @default("{}")
   outputSchema        Json?
   constraints         Json
