@@ -74,7 +74,7 @@ export function KnowledgePage() {
           <div className="min-w-0">
             <h2 className="m-0 text-base font-bold">Product Pack coverage</h2>
             <p className="mb-0 mt-1 text-sm leading-6 text-muted-foreground">
-              {pack?.linkageValid ? "Initiate pass criteria met." : "A complete Ambition-to-User-Need thread is still required."}
+              {pack?.linkageValid ? "Initiate pass criteria met." : "A complete Goal-to-Story thread is still required."}
             </p>
           </div>
         </div>

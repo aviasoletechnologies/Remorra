@@ -44,7 +44,7 @@ function resolveRef(
   return normalizedRefMap.get(normalized) ?? undefined;
 }
 
-// Returns list of DB events fired (e.g. ["persona.create", "user_need.create"])
+// Returns list of DB events fired (e.g. ["persona.create", "goal.create"])
 // Event name = snake_case(delegateName) + "." + action — matches SkillEventMapping format
 export async function applyOperationsExtract(projectId: string, json: any, allowedActionsMap?: Record<string, string[]>): Promise<string[]> {
   if (!Array.isArray(json.operations)) return [];
@@ -197,39 +197,42 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
     }
   }
 
-  // Helper mapping maps to store created/updated IDs for linkage
+  // Helper maps to store created/updated IDs for linkage (V4.4: Goal -> Epic -> Story, Persona -> PainPoint)
   const personaMap = new Map<string, string>(); // name -> id
-  const ambitionMap = new Map<string, string>(); // title -> id
-  const needMap = new Map<string, string>(); // statement -> id
+  const goalMap = new Map<string, string>(); // title -> id
+  const epicMap = new Map<string, string>(); // title -> id
 
-  // Load existing personas to seed the map
   const existingPersonas = await prisma.persona.findMany({ where: { projectId } });
   for (const p of existingPersonas) {
     personaMap.set(p.name.toLowerCase(), p.id);
   }
 
-  // Load existing ambitions to seed the map
-  const existingAmbitions = await prisma.ambition.findMany({ where: { projectId } });
-  for (const a of existingAmbitions) {
-    ambitionMap.set(a.title.toLowerCase(), a.id);
+  const existingGoals = await prisma.goal.findMany({ where: { projectId } });
+  for (const g of existingGoals) {
+    goalMap.set(g.title.toLowerCase(), g.id);
   }
 
-  // 2. Ambitions mapping
-  const ambitions = j.ambitions || j.ambition;
-  if (Array.isArray(ambitions)) {
-    for (const item of ambitions) {
+  const existingEpics = await prisma.epic.findMany({ where: { projectId } });
+  for (const e of existingEpics) {
+    epicMap.set(e.title.toLowerCase(), e.id);
+  }
+
+  // 2. Goals mapping
+  const goals = j.goals || j.goal;
+  if (Array.isArray(goals)) {
+    for (const item of goals) {
       if (!item || typeof item !== "object" || !item.title) continue;
       const title = String(item.title);
       const detail = String(item.detail ?? "");
       const key = title.toLowerCase();
-      let id = ambitionMap.get(key);
+      let id = goalMap.get(key);
       if (id) {
-        await prisma.ambition.update({ where: { id }, data: { detail } });
+        await prisma.goal.update({ where: { id }, data: { detail } });
       } else {
-        const created = await prisma.ambition.create({
+        const created = await prisma.goal.create({
           data: { projectId, title, detail },
         });
-        ambitionMap.set(key, created.id);
+        goalMap.set(key, created.id);
       }
     }
   }
@@ -257,12 +260,6 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
     }
   }
 
-  // Load existing user needs to seed map
-  const existingNeeds = await prisma.userNeed.findMany({ where: { projectId } });
-  for (const n of existingNeeds) {
-    needMap.set(n.statement.toLowerCase(), n.id);
-  }
-
   // 4. Pain points mapping
   const painpoints = j.painpoints || j.pain_points || j.painpoint || j.pain_point;
   if (Array.isArray(painpoints)) {
@@ -287,83 +284,80 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
     }
   }
 
-  // 5. User needs mapping
-  const userNeeds = j.userneeds || j.user_needs || j.userneed || j.user_need;
-  if (Array.isArray(userNeeds)) {
-    for (const item of userNeeds) {
-      if (!item || typeof item !== "object" || !item.statement) continue;
-      const statement = String(item.statement);
-      const personaFk = String(item.persona_fk || item.personaId || "").toLowerCase();
-      let personaId = personaMap.get(personaFk);
-      if (!personaId && personaMap.size === 1) {
-        personaId = Array.from(personaMap.values())[0];
+  // 5. Epics mapping (parent: Goal)
+  const epics = j.epics || j.epic;
+  if (Array.isArray(epics)) {
+    for (const item of epics) {
+      if (!item || typeof item !== "object" || !item.title) continue;
+      const title = String(item.title);
+      const description = item.description ? String(item.description) : null;
+      const goalFk = String(item.goal_fk || item.goalId || "").toLowerCase();
+      let goalId = goalMap.get(goalFk);
+      if (!goalId && goalMap.size === 1) {
+        goalId = Array.from(goalMap.values())[0];
       }
-      if (!personaId) continue;
+      if (!goalId) continue;
 
-      let id = needMap.get(statement.toLowerCase());
+      const key = title.toLowerCase();
+      let id = epicMap.get(key);
       if (!id) {
-        const created = await prisma.userNeed.create({
-          data: { projectId, personaId, statement },
+        const created = await prisma.epic.create({
+          data: { projectId, goalId, title, description },
         });
-        needMap.set(statement.toLowerCase(), created.id);
+        epicMap.set(key, created.id);
       }
     }
   }
 
-  // 6. OKRs mapping
-  const okrs = j.okrs || j.okr;
-  if (Array.isArray(okrs)) {
-    for (const item of okrs) {
-      if (!item || typeof item !== "object" || !item.objective) continue;
-      const objective = String(item.objective);
-      const keyResults = item.keyresults || item.key_results || item.keyResults || [];
-      const ambitionFk = String(item.ambition_fk || item.ambitionId || "").toLowerCase();
-      let ambitionId = ambitionMap.get(ambitionFk);
-      if (!ambitionId && ambitionMap.size === 1) {
-        ambitionId = Array.from(ambitionMap.values())[0];
+  // 6. Stories mapping (parent: Epic)
+  const stories = j.stories || j.story;
+  if (Array.isArray(stories)) {
+    for (const item of stories) {
+      if (!item || typeof item !== "object" || !item.title) continue;
+      const title = String(item.title);
+      const acceptance = item.acceptance || item.acceptance_criteria || item.acceptanceCriteria || [];
+      const epicFk = String(item.epic_fk || item.epicId || "").toLowerCase();
+      let epicId = epicMap.get(epicFk);
+      if (!epicId && epicMap.size === 1) {
+        epicId = Array.from(epicMap.values())[0];
       }
-      if (!ambitionId) continue;
+      if (!epicId) continue;
 
-      const existingOkr = await prisma.okr.findFirst({
-        where: { projectId, ambitionId, objective },
+      const existingStory = await prisma.story.findFirst({
+        where: { projectId, epicId, title },
       });
-      if (!existingOkr) {
-        await prisma.okr.create({
+      if (!existingStory) {
+        await prisma.story.create({
           data: {
             projectId,
-            ambitionId,
-            objective,
-            keyResults: jsonValue(keyResults),
+            epicId,
+            title,
+            acceptance: jsonValue(acceptance),
           },
         });
       }
     }
   }
 
-  // 7. User stories mapping
-  const userStories = j.userstories || j.user_stories || j.userstory || j.user_story;
-  if (Array.isArray(userStories)) {
-    for (const item of userStories) {
+  // 7. RAID items mapping
+  const raidItems = j.raiditems || j.raid_items || j.raiditem || j.raid_item;
+  if (Array.isArray(raidItems)) {
+    for (const item of raidItems) {
       if (!item || typeof item !== "object" || !item.title) continue;
       const title = String(item.title);
-      const acceptance = item.acceptance || item.acceptance_criteria || item.acceptanceCriteria || [];
-      const needFk = String(item.need_fk || item.userneedid || item.userNeedId || "").toLowerCase();
-      let userNeedId = needMap.get(needFk);
-      if (!userNeedId && needMap.size === 1) {
-        userNeedId = Array.from(needMap.values())[0];
-      }
-      if (!userNeedId) continue;
-
-      const existingStory = await prisma.userStory.findFirst({
-        where: { projectId, userNeedId, title },
+      const type = String(item.type ?? "risk");
+      const existingRaid = await prisma.raidItem.findFirst({
+        where: { projectId, title, type },
       });
-      if (!existingStory) {
-        await prisma.userStory.create({
+      if (!existingRaid) {
+        await prisma.raidItem.create({
           data: {
             projectId,
-            userNeedId,
+            type,
             title,
-            acceptance: jsonValue(acceptance),
+            description: item.description ? String(item.description) : null,
+            status: String(item.status ?? "open"),
+            severity: String(item.severity ?? "amber"),
           },
         });
       }

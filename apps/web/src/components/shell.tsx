@@ -73,7 +73,7 @@ interface Project {
   id: string;
   name: string;
   phase: string;
-  role: "founder" | "team" | "supplier";
+  role: "founder" | "team";
   viabilityScore: number | null;
 }
 
@@ -208,20 +208,15 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const navItems = useMemo(() => {
     if (!project) return [];
-    const items = project.role === "supplier"
-      ? [
-          { to: "/venture", label: "My tasks", icon: ListChecks },
-          { to: "/reports", label: "Build Pack", icon: FileChartColumn },
-        ]
-      : [
-          { to: "/", label: "Overview", icon: LayoutDashboard },
-          { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
-          { to: "/initiate", label: "Initiate", icon: Gauge },
-          { to: "/venture", label: "Delivery", icon: ListChecks },
-          { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
-          { to: "/team", label: "People & access", icon: Users },
-          { to: "/knowledge", label: "Product library", icon: BookOpen },
-        ];
+    const items = [
+      { to: "/", label: "Overview", icon: LayoutDashboard },
+      { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
+      { to: "/initiate", label: "Initiate", icon: Gauge },
+      { to: "/venture", label: "Delivery", icon: ListChecks },
+      { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
+      { to: "/team", label: "People & access", icon: Users },
+      { to: "/knowledge", label: "Product library", icon: BookOpen },
+    ];
 
     const filtered = items.filter((item) => {
       if (item.to === "/workspace") return ["discover", "refine"].includes(project.phase);
@@ -234,7 +229,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       filtered.push({ to: "/admin", label: "Platform admin", icon: ShieldCheck });
     }
     return filtered;
-  }, [actor, project?.role, project?.phase]);
+  }, [actor, project?.phase]);
 
   if (actor && (!actor.privacyPolicyVersion || !actor.termsVersion)) {
     return (
@@ -331,7 +326,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {project && project.role !== "supplier" ? (
+          {project ? (
             <div className="mx-2 mt-5 rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3 group-data-[collapsible=icon]:hidden">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-[.1em] text-sidebar-foreground/55">DRIVE progress</span>

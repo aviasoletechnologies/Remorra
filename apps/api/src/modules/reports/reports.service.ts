@@ -39,28 +39,7 @@ export class ReportsService {
   }
 
   async list(projectId: string, userId: string) {
-    const role = await this.access.require(projectId, userId, [
-      "founder",
-      "team",
-      "supplier",
-    ]);
-    if (role === "supplier") {
-      const documents = await this.prisma.client.generatedDocument.findMany({
-        where: { projectId, type: "build-pack" },
-        include: { storageObject: true },
-        orderBy: { createdAt: "desc" },
-      });
-      return documents.map((document: any) => ({
-        id: document.id,
-        status: document.status,
-        createdAt: document.createdAt,
-        definition: {
-          name: "Build Pack",
-          description: "Read-only delivery pack for assigned supplier work.",
-        },
-        document,
-      }));
-    }
+    await this.access.require(projectId, userId, ["founder", "team"]);
     return this.prisma.client.reportGeneration.findMany({
       where: { projectId },
       include: { definition: true, document: true },
@@ -122,11 +101,7 @@ export class ReportsService {
         include: { storageObject: true },
       },
     );
-    await this.access.require(document.projectId, userId, [
-      "founder",
-      "team",
-      "supplier",
-    ]);
+    await this.access.require(document.projectId, userId, ["founder", "team"]);
     return document;
   }
 

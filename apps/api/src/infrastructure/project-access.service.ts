@@ -26,7 +26,7 @@ export class ProjectAccessService {
   async require(
     projectId: string,
     userId: string,
-    allowed: ProjectRole[] = ["founder", "team", "supplier"],
+    allowed: ProjectRole[] = ["founder", "team"],
   ) {
     const role = await this.role(projectId, userId);
     if (!role || !allowed.includes(role)) {

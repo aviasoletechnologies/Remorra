@@ -2,21 +2,6 @@ import { Prisma } from "@remorra/database/generated/client";
 import { prisma } from "../lib/prisma";
 import { generateEmbedding } from "../services/embedding";
 
-export async function projectContext(projectId: string) {
-  return prisma.project.findUniqueOrThrow({
-    where: { id: projectId },
-    include: {
-      ambitions: { include: { okrs: true } },
-      personas: { include: { painPoints: true, userNeeds: true } },
-      userStories: true,
-      tasks: true,
-      cycles: true,
-      raidItems: true,
-      financeEntries: true,
-    },
-  });
-}
-
 const KB_THRESHOLDS = {
   veryShort: 0.50, // 1-6 words
   short: 0.55,     // 7-15 words

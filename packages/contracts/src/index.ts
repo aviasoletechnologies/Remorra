@@ -9,7 +9,7 @@ export const drivePhaseSchema = z.enum([
 ]);
 export type DrivePhase = z.infer<typeof drivePhaseSchema>;
 
-export const projectRoleSchema = z.enum(["founder", "team", "supplier"]);
+export const projectRoleSchema = z.enum(["founder", "team"]);
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
 
 export const projectSchema = z.object({
@@ -108,7 +108,7 @@ export const actorSchema = z.object({
 
 export const invitationInputSchema = z.object({
   email: z.email(),
-  role: z.enum(["team", "supplier"]),
+  role: z.enum(["team"]),
 });
 
 export const createRefineSessionSchema = z.object({
@@ -133,14 +133,14 @@ export const productPackDtoSchema = z.object({
   coveragePercent: z.number().int().min(0).max(100),
   linkageValid: z.boolean(),
   passThread: z.boolean(),
-  ambitions: z.array(z.object({
+  goals: z.array(z.object({
     id: z.string().uuid(),
     title: z.string(),
     detail: z.string(),
-    okrs: z.array(z.object({
+    epics: z.array(z.object({
       id: z.string().uuid(),
-      objective: z.string(),
-      keyResults: z.unknown(),
+      title: z.string(),
+      storyTitles: z.unknown(),
       personaIds: z.array(z.string().uuid()),
     })),
   })),
@@ -149,7 +149,7 @@ export const productPackDtoSchema = z.object({
     name: z.string(),
     description: z.string(),
     painPoints: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
-    userNeeds: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
+    linkedStories: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
   })),
   assembledAt: z.iso.datetime(),
 });

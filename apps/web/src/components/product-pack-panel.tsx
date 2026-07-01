@@ -49,7 +49,7 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
     );
   }
 
-  const isEmpty = !pack || (pack.ambitions.length === 0 && pack.personas.length === 0);
+  const isEmpty = !pack || (pack.goals.length === 0 && pack.personas.length === 0);
 
   return (
     <div className="h-full flex flex-col bg-background/50 backdrop-blur-md border-l border-border/60">
@@ -109,46 +109,46 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
             </div>
             <h3 className="text-xs font-semibold text-foreground mb-1">Build Your Product Pack</h3>
             <p className="text-[11px] text-muted-foreground leading-relaxed max-w-[200px]">
-              Start talking to the AI guide to define your ambitions, OKRs, and target personas.
+              Start talking to the AI guide to define your Goals, Epics, and target personas.
             </p>
           </div>
         )}
 
-        {/* Ambitions Section */}
-        {pack && pack.ambitions.length > 0 && (
+        {/* Goals Section */}
+        {pack && pack.goals.length > 0 && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               <Target size={11} />
-              <span>Ambitions & OKRs</span>
+              <span>Goals & Epics</span>
             </div>
             <div className="flex flex-col gap-2.5">
-              {pack.ambitions.map((ambition) => (
-                <div 
-                  key={ambition.id} 
+              {pack.goals.map((goal) => (
+                <div
+                  key={goal.id}
                   className="group flex flex-col gap-2 rounded-xl border border-border/60 bg-card p-3 shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-200 hover:border-border hover:shadow-md"
                 >
                   <div>
                     <h4 className="text-xs font-bold text-foreground leading-snug group-hover:text-emerald-500 transition-colors">
-                      {ambition.title}
+                      {goal.title}
                     </h4>
-                    {ambition.detail && (
+                    {goal.detail && (
                       <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                        {ambition.detail}
+                        {goal.detail}
                       </p>
                     )}
                   </div>
 
-                  {ambition.okrs.length > 0 && (
+                  {goal.epics.length > 0 && (
                     <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5 mt-0.5">
                       <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
                         <TrendingUp size={9} />
-                        <span>Key Results</span>
+                        <span>Epics</span>
                       </div>
                       <div className="flex flex-col gap-1 pl-1">
-                        {ambition.okrs.map((okr) => (
-                          <div key={okr.id} className="flex gap-2 items-start text-xs text-foreground/80">
+                        {goal.epics.map((epic) => (
+                          <div key={epic.id} className="flex gap-2 items-start text-xs text-foreground/80">
                             <ChevronRight size={12} className="text-muted-foreground/50 mt-0.5 flex-shrink-0" />
-                            <span className="text-[11px] leading-relaxed">{okr.objective}</span>
+                            <span className="text-[11px] leading-relaxed">{epic.title}</span>
                           </div>
                         ))}
                       </div>
@@ -189,7 +189,7 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
                     <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5 mt-0.5">
                       <div className="flex items-center gap-1 text-[9px] font-bold text-amber-600/90 dark:text-amber-400/90 uppercase tracking-wider">
                         <AlertCircle size={9} />
-                        <span>Fristrations & Pain Points</span>
+                        <span>Frustrations & Pain Points</span>
                       </div>
                       <div className="flex flex-col gap-1 pl-1">
                         {persona.painPoints.map((pt) => (
@@ -203,15 +203,15 @@ export function ProductPackPanel({ projectId, externalPack, onCollapse }: Produc
                     </div>
                   )}
 
-                  {/* User Needs */}
-                  {persona.userNeeds.length > 0 && (
+                  {/* Linked Stories */}
+                  {persona.linkedStories.length > 0 && (
                     <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5 mt-0.5">
                       <div className="flex items-center gap-1 text-[9px] font-bold text-sky-600/90 dark:text-sky-400/90 uppercase tracking-wider">
                         <Sparkles size={9} />
-                        <span>Required Capabilities</span>
+                        <span>Linked Stories</span>
                       </div>
                       <div className="flex flex-col gap-1 pl-1">
-                        {persona.userNeeds.map((n) => (
+                        {persona.linkedStories.map((n) => (
                           <div key={n.id} className="flex gap-1.5 items-start text-xs bg-sky-500/5 hover:bg-sky-500/10 p-1.5 rounded-lg border border-sky-500/10 transition-colors">
                             <span className="text-[11px] leading-relaxed text-sky-700 dark:text-sky-300">
                               {n.statement}

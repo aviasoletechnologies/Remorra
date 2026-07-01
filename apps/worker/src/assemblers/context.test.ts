@@ -15,7 +15,7 @@ vi.mock("../lib/prisma", () => {
       project: {
         findUniqueOrThrow: vi.fn(),
       },
-      ambition: {
+      goal: {
         findMany: vi.fn(),
       },
     },
@@ -106,14 +106,14 @@ describe("assembleContext Service Tests", () => {
       phase: "discover",
     } as any);
 
-    vi.mocked(prisma.ambition.findMany).mockResolvedValue([
-      { id: "ambition-1", title: "Scale to 10k users", detail: "Using SEO", ignoredField: "secret" },
+    vi.mocked(prisma.goal.findMany).mockResolvedValue([
+      { id: "goal-1", title: "Scale to 10k users", detail: "Using SEO", ignoredField: "secret" },
     ] as any);
 
     const sections = await assembleContext("p1", {
       tables: {
         Project: ["name", "summary"],
-        Ambition: ["id", "title"],
+        Goal: ["id", "title"],
       },
     });
 
@@ -122,20 +122,20 @@ describe("assembleContext Service Tests", () => {
 
     const parsedContent = JSON.parse(sections[0]!.content);
     expect(parsedContent.Project).toEqual({ name: "Test Project", summary: "My summary" });
-    expect(parsedContent.Ambition).toEqual([{ id: "ambition-1", title: "Scale to 10k users" }]);
+    expect(parsedContent.Goal).toEqual([{ id: "goal-1", title: "Scale to 10k users" }]);
   });
 
   it("returns all columns if only table is selected with empty columns array", async () => {
-    vi.mocked(prisma.ambition.findMany).mockResolvedValue([
-      { id: "ambition-1", title: "Scale to 10k users", detail: "Using SEO" },
+    vi.mocked(prisma.goal.findMany).mockResolvedValue([
+      { id: "goal-1", title: "Scale to 10k users", detail: "Using SEO" },
     ] as any);
 
-    const sections = await assembleContext("p1", { tables: { Ambition: [] } });
+    const sections = await assembleContext("p1", { tables: { Goal: [] } });
 
     expect(sections).toHaveLength(1);
     const parsedContent = JSON.parse(sections[0]!.content);
-    expect(parsedContent.Ambition[0]!).toEqual({
-      id: "ambition-1",
+    expect(parsedContent.Goal[0]!).toEqual({
+      id: "goal-1",
       title: "Scale to 10k users",
       detail: "Using SEO",
     });
