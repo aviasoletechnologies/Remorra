@@ -78,9 +78,9 @@ export function AdminSupport({
                 key: "health",
                 header: "Health",
                 cell: (row: any) =>
-                  row.latestViabilityScore !== null ? (
-                    <Badge tone={row.latestViabilityScore >= 70 ? "green" : row.latestViabilityScore >= 50 ? "amber" : "red"}>
-                      {row.latestViabilityScore}
+                  row.latestHealthScore !== null ? (
+                    <Badge tone={row.latestHealthScore >= 70 ? "green" : row.latestHealthScore >= 50 ? "amber" : "red"}>
+                      {row.latestHealthScore}
                     </Badge>
                   ) : "-",
               },

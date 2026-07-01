@@ -37,6 +37,7 @@ export const config = {
         "build-pack.generate",
         "build-sync.ingest",
         "build-sync.export",
+        "health-score.calculate",
       ];
     }
     return val.split(",").map((q) => q.trim());

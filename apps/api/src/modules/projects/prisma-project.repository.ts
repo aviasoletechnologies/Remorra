@@ -11,6 +11,15 @@ import type {
 export class PrismaProjectRepository implements ProjectRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async latestHealthScore(projectId: string): Promise<number | null> {
+    const score = await this.prisma.client.healthScore.findFirst({
+      where: { projectId },
+      orderBy: { calculatedAt: "desc" },
+      select: { overallScore: true },
+    });
+    return score?.overallScore ?? null;
+  }
+
   async listForUser(userId: string): Promise<ProjectRecord[]> {
     const projects = await this.prisma.client.project.findMany({
       where: {
@@ -19,7 +28,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       include: { memberships: { where: { userId }, take: 1 } },
       orderBy: { updatedAt: "desc" },
     });
-    return projects.map((project: any) => ({
+    return Promise.all(projects.map(async (project: any) => ({
       id: project.id,
       ownerId: project.ownerId,
       name: project.name,
@@ -30,9 +39,9 @@ export class PrismaProjectRepository implements ProjectRepository {
           ? "founder"
           : (project.memberships[0]?.role ?? "team"),
       version: project.version,
-      viabilityScore: null,
+      healthScore: await this.latestHealthScore(project.id),
       updatedAt: project.updatedAt.toISOString(),
-    }));
+    })));
   }
 
   async find(id: string): Promise<ProjectRecord | null> {
@@ -48,7 +57,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       phase: project.phase,
       role: "founder",
       version: project.version,
-      viabilityScore: null,
+      healthScore: await this.latestHealthScore(id),
       updatedAt: project.updatedAt.toISOString(),
     };
   }
@@ -79,7 +88,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       ...project,
       summary: project.summary ?? undefined,
       role: "founder",
-      viabilityScore: null,
+      healthScore: null,
       updatedAt: project.updatedAt.toISOString(),
     };
   }

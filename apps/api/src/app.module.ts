@@ -14,6 +14,7 @@ import { EventRouterModule } from "./modules/event-router/event-router.module.js
 import { WorkspaceFlowModule } from "./modules/workspace-flow/workspace-flow.module.js";
 import { EvolveModule } from "./modules/evolve/evolve.module.js";
 import { BuildPhaseModule } from "./modules/build-phase/build-phase.module.js";
+import { HealthScoreModule } from "./modules/health-score/health-score.module.js";
 
 
 @Module({
@@ -31,6 +32,7 @@ import { BuildPhaseModule } from "./modules/build-phase/build-phase.module.js";
     WorkspaceFlowModule,
     EvolveModule,
     BuildPhaseModule,
+    HealthScoreModule,
   ],
   controllers: [HealthController],
 })

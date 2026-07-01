@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, Gauge, RefreshCcw, Sparkles, Target } from "lucide-react";
+import { Activity, Gauge, Sparkles } from "lucide-react";
 import { Button, Card, Progress } from "../components/ui";
 import { DisabledOverlay, EmptyState, MetricCard, Page, PageHeader, SectionCard, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
 import { api, waitForJob } from "../lib/api";
@@ -9,31 +9,24 @@ export function InitiatePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
 
-  const { data: config } = useQuery<any>({ queryKey: ["viability-config"], queryFn: () => api("/viability/config") });
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["viability", projectId],
-    queryFn: () => api<any>(`/viability/projects/${projectId}/current`),
+  const { data: score, isLoading } = useQuery({
+    queryKey: ["health-score", projectId],
+    queryFn: () => api<any>(`/projects/${projectId}/health-score`),
     enabled: Boolean(projectId),
   });
 
   const calculate = useMutation({
     mutationFn: async () => {
-      const job = await api<{ id: string }>(`/viability/projects/${projectId}/calculate`, { method: "POST" });
+      const job = await api<{ id: string }>(`/projects/${projectId}/health-score/calculate`, { method: "POST" });
       return waitForJob(job.id);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["viability", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["health-score", projectId] });
     },
   });
 
-  const score = data?.overall ? data : null;
-  const remaining = config?.recalculationLimit && data?.recalculationsUsed !== undefined
-    ? Math.max(0, config.recalculationLimit - data.recalculationsUsed)
-    : null;
-  const components = Object.entries(score?.components ?? {});
-  const actions = Array.isArray(score?.actions) ? score.actions : [];
-  const canCalculate = config?.recalculationLimit ? (data?.recalculationsUsed ?? 0) < config.recalculationLimit : true;
+  const components = score?.components ?? [];
+  const actions = components.flatMap((c: any) => (Array.isArray(c.actions) ? c.actions : []));
 
   return (
     <Page>
@@ -41,19 +34,19 @@ export function InitiatePage() {
         <PageHeader
           eyebrow="Initiate"
           tone="blue"
-          title="Viability readiness"
-          description="Trace the current product evidence into a scored, explainable readiness snapshot."
+          title="Health Score readiness"
+          description="A one-time, evidence-based readiness snapshot: is this project well-defined enough to build?"
           actions={
-            <Button disabled={calculate.isPending || !canCalculate} onClick={() => calculate.mutate()}>
+            <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
               <Sparkles size={16} />
-              {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate viability"}
+              {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate Health Score"}
             </Button>
           }
         />
 
         {calculate.error ? (
           <Card className="border-destructive/25 bg-destructive-soft/30 p-6">
-            <h2 className="mb-2 text-base font-bold text-destructive">Calculation blocked</h2>
+            <h2 className="mb-2 text-base font-bold text-destructive">Calculation failed</h2>
             <p className="m-0 text-sm leading-6 text-destructive">{calculate.error.message}</p>
           </Card>
         ) : null}
@@ -67,79 +60,59 @@ export function InitiatePage() {
             </div>
           </div>
         ) : !score ? (
-          <EmptyState title="No viability snapshot yet" description="Complete a connected Refine thread, then calculate the first Initiate score." />
+          <EmptyState title="No Health Score yet" description="Complete a connected Refine thread, then calculate the first Initiate score." />
         ) : (
           <>
             <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="Overall viability" value={score.overall} detail={`Source version ${score.sourceVersion ?? "-"}`} icon={Gauge} tone="blue" />
-              <MetricCard
-                label="Recalculations"
-                value={`${data?.recalculationsUsed ?? 0}/${config?.recalculationLimit ?? "-"}`}
-                detail={`${remaining ?? "-"} remaining`}
-                icon={RefreshCcw}
-              />
-              {components.slice(0, 2).map(([name, value]) => (
+              <MetricCard label="Overall Health Score" value={score.overallScore} detail={new Date(score.calculatedAt).toLocaleDateString()} icon={Gauge} tone="blue" />
+              {components.slice(0, 3).map((c: any) => (
                 <MetricCard
-                  key={name}
-                  label={name.replaceAll("_", " ")}
-                  value={String(value)}
-                  detail={`Weight ${config?.weights?.[name] ?? "-"}%`}
-                  icon={Target}
+                  key={c.component}
+                  label={c.component.replaceAll("_", " ")}
+                  value={c.score}
+                  detail={`Weight ${c.weight}%`}
+                  icon={Activity}
                 />
               ))}
             </section>
 
-            {components.length > 2 ? (
-              <SectionCard title="Component scores" description="The weighted signals behind the readiness snapshot">
-                <div className="grid gap-4 md:grid-cols-2">
-                  {components.map(([name, value]) => (
-                    <div className="rounded-xl border border-border bg-secondary/35 p-4" key={name}>
-                      <div className="mb-3 flex items-center justify-between gap-4 text-xs">
-                        <strong className="capitalize">{name.replaceAll("_", " ")}</strong>
-                        <span className="font-bold text-foreground">{String(value)}</span>
-                      </div>
-                      <Progress value={Number(value)} label={`${name} score`} />
+            <SectionCard title="Component scores" description="The weighted signals behind the readiness snapshot">
+              <div className="grid gap-4 md:grid-cols-2">
+                {components.map((c: any) => (
+                  <div className="rounded-xl border border-border bg-secondary/35 p-4" key={c.component}>
+                    <div className="mb-3 flex items-center justify-between gap-4 text-xs">
+                      <strong className="capitalize">{c.component.replaceAll("_", " ")}</strong>
+                      <span className="font-bold text-foreground">{c.score}</span>
                     </div>
-                  ))}
-                </div>
-              </SectionCard>
-            ) : null}
-
-            <SectionCard title="Why this score" description="The rationale captured with this snapshot">
-              <p className="m-0 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{score.rationale}</p>
+                    <Progress value={c.score} label={`${c.component} score`} />
+                    <p className="mt-3 mb-0 text-xs leading-5 text-muted-foreground">{c.rationale}</p>
+                  </div>
+                ))}
+              </div>
             </SectionCard>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <SectionCard title="Prioritized readiness actions" description="Next actions to improve the score">
-                {actions.length ? (
-                  <div className="grid gap-3">
-                    {actions.map((action: any, index: number) => (
-                      <div className="flex gap-3 rounded-xl border border-warning/15 bg-warning-soft/35 p-4" key={index}>
-                        <Activity size={18} className="mt-0.5 shrink-0 text-warning" />
-                        <span className="text-sm leading-6">{typeof action === "string" ? action : action.title ?? JSON.stringify(action)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="m-0 text-sm text-muted-foreground">No further actions were returned.</p>
-                )}
-              </SectionCard>
+            <SectionCard title="Why this score" description="Readiness assessment">
+              <p className="m-0 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{score.readinessAssessment}</p>
+            </SectionCard>
 
-              <SectionCard title="Readiness criteria" description="Configured gates for entering delivery with confidence">
+            <SectionCard title="Prioritized readiness actions" description="Next actions to improve the score">
+              {actions.length ? (
                 <div className="grid gap-3">
-                  {(config?.readinessCriteria ?? []).map((item: string) => (
-                    <div className="flex gap-3 rounded-xl border border-border bg-card p-4" key={item}>
-                      <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-primary" />
-                      <span className="text-sm leading-6">{item}</span>
+                  {actions.map((action: string, index: number) => (
+                    <div className="flex gap-3 rounded-xl border border-warning/15 bg-warning-soft/35 p-4" key={index}>
+                      <Activity size={18} className="mt-0.5 shrink-0 text-warning" />
+                      <span className="text-sm leading-6">{action}</span>
                     </div>
                   ))}
                 </div>
-              </SectionCard>
-            </div>
+              ) : (
+                <p className="m-0 text-sm text-muted-foreground">No further actions were returned.</p>
+              )}
+            </SectionCard>
           </>
         )}
       </div>
-      <DisabledOverlay message="Admin has disabled viability calculations." />
+      <DisabledOverlay message="Admin has disabled Health Score calculations." />
     </Page>
   );
 }

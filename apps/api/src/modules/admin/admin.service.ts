@@ -1079,6 +1079,7 @@ export class AdminService {
         raidItems: { where: { severity: "critical", status: { not: "done" } } },
       },
     });
+    const healthScores = await this.latestHealthScoresFor(projects.map((p: any) => p.id));
 
     return projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
@@ -1092,11 +1093,25 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: null,
+        latestHealthScore: healthScores.get(p.id) ?? null,
         isSupportRisk: isRisk,
         updatedAt: p.updatedAt,
       };
     });
+  }
+
+  private async latestHealthScoresFor(projectIds: string[]): Promise<Map<string, number>> {
+    if (projectIds.length === 0) return new Map();
+    const scores = await this.prisma.client.healthScore.findMany({
+      where: { projectId: { in: projectIds } },
+      orderBy: { calculatedAt: "desc" },
+      select: { projectId: true, overallScore: true },
+    });
+    const byProject = new Map<string, number>();
+    for (const score of scores) {
+      if (!byProject.has(score.projectId)) byProject.set(score.projectId, score.overallScore);
+    }
+    return byProject;
   }
 
   // --- Support Workspace Endpoints ---
@@ -1120,6 +1135,7 @@ export class AdminService {
       }),
       this.prisma.client.project.count(),
     ]);
+    const healthScores = await this.latestHealthScoresFor(projects.map((p: any) => p.id));
 
     const items = projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
@@ -1133,7 +1149,7 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: null,
+        latestHealthScore: healthScores.get(p.id) ?? null,
         isSupportRisk: isRisk,
         createdAt: p.createdAt,
       };
@@ -1217,6 +1233,14 @@ export class AdminService {
     const prevTotal = (prevUsage._sum.inputTokens ?? 0) + (prevUsage._sum.outputTokens ?? 0);
     const usageSpikePercent = prevTotal > 0 ? Math.round(((recentTotal - prevTotal) / prevTotal) * 100) : 0;
 
+    // Health Score fires once at Initiate — no trend/delta per V4.4 (doc §12),
+    // so this is the single latest record, not a history series.
+    const healthScore = await this.prisma.client.healthScore.findFirst({
+      where: { projectId },
+      orderBy: { calculatedAt: "desc" },
+      include: { components: true },
+    });
+
     return {
       id: project.id,
       name: project.name,
@@ -1227,7 +1251,7 @@ export class AdminService {
         name: m.user.preferredName,
         role: m.role,
       })),
-      viabilityHistory: [],
+      healthScore,
       recentJobs: redactedJobs,
       recentAudits: redactedAudits,
       usageSpikePercent,

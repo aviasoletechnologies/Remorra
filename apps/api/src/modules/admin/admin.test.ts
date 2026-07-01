@@ -85,6 +85,10 @@ describe("Admin & Support Ops Console Tests", () => {
           count: vi.fn(),
           update: vi.fn(),
         },
+        healthScore: {
+          findFirst: vi.fn(),
+          findMany: vi.fn(),
+        },
       },
     };
 

@@ -22,7 +22,7 @@ export const projectSchema = z.object({
   phase: drivePhaseSchema,
   role: projectRoleSchema,
   version: z.number().int().positive(),
-  viabilityScore: z.number().min(0).max(100).nullable(),
+  healthScore: z.number().min(0).max(100).nullable(),
   updatedAt: z.iso.datetime(),
 });
 export type Project = z.infer<typeof projectSchema>;
@@ -87,20 +87,22 @@ export const conversationMessageSchema = z.object({
 });
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
-export const viabilityResultSchema = z.object({
-  overall: z.number().min(0).max(100),
-  components: z.record(z.string(), z.number().min(0).max(100)),
+export const healthScoreComponentSchema = z.object({
+  component: z.string(),
+  weight: z.number().int().min(0).max(100),
+  score: z.number().int().min(0).max(100),
   rationale: z.string(),
-  actions: z.array(
-    z.object({
-      priority: z.number().int().positive(),
-      title: z.string(),
-      targetType: z.string(),
-      targetId: z.string().uuid().nullable(),
-    }),
-  ),
+  actions: z.array(z.string()),
 });
-export type ViabilityResult = z.infer<typeof viabilityResultSchema>;
+
+export const healthScoreResultSchema = z.object({
+  id: z.string().uuid(),
+  overallScore: z.number().int().min(0).max(100),
+  readinessAssessment: z.string(),
+  calculatedAt: z.iso.datetime(),
+  components: z.array(healthScoreComponentSchema),
+});
+export type HealthScoreResult = z.infer<typeof healthScoreResultSchema>;
 
 export const apiErrorSchema = z.object({
   error: z.object({

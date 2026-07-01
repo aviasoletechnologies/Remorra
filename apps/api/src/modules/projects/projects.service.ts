@@ -67,18 +67,25 @@ export class ProjectsService {
 
     const fromIndex = PHASE_ORDER.indexOf(fromPhase as (typeof PHASE_ORDER)[number]);
     const toIndex = PHASE_ORDER.indexOf(toPhase as (typeof PHASE_ORDER)[number]);
+    const isForward = toIndex === fromIndex + 1;
+    const isBackward = toIndex === fromIndex - 1;
 
-    if (toIndex !== fromIndex + 1) {
+    if (!isForward && !isBackward) {
       throw new BadRequestException(
-        `Invalid phase transition: cannot move from "${fromPhase}" to "${toPhase}". Phases must advance one step at a time.`,
+        `Invalid phase transition: cannot move from "${fromPhase}" to "${toPhase}". Phases move one step at a time, forward or back.`,
       );
     }
 
-    const complete = await this.phaseCompletion.isComplete(projectId, fromPhase);
-    if (!complete) {
-      throw new BadRequestException(
-        `The "${fromPhase}" phase is not yet complete — the Skill guiding this phase has not signalled completion.`,
-      );
+    // Completion gating only applies to forward moves — e.g. HARDIK doc Q13:
+    // a low Health Score at Initiate must still let the founder return to
+    // Refine to improve it, without needing Refine's own completion flag.
+    if (isForward) {
+      const complete = await this.phaseCompletion.isComplete(projectId, fromPhase);
+      if (!complete) {
+        throw new BadRequestException(
+          `The "${fromPhase}" phase is not yet complete — the Skill guiding this phase has not signalled completion.`,
+        );
+      }
     }
 
     const result = await this.repository.advance(

@@ -74,7 +74,7 @@ interface Project {
   name: string;
   phase: string;
   role: "founder" | "team";
-  viabilityScore: number | null;
+  healthScore: number | null;
 }
 
 interface Actor {
@@ -399,11 +399,11 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {project?.viabilityScore != null ? (
+            {project?.healthScore != null ? (
               <div className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs sm:flex">
                 <Gauge size={14} className="text-primary" />
-                <span>Viability</span>
-                <strong className="text-foreground">{project.viabilityScore}</strong>
+                <span>Health Score</span>
+                <strong className="text-foreground">{project.healthScore}</strong>
               </div>
             ) : null}
             {location.pathname === "/workspace" ? (
