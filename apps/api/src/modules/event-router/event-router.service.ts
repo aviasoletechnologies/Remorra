@@ -24,13 +24,26 @@ export class EventRouterService {
     const { eventType, projectId, userId, payload = {}, idempotencyKey } = input;
     this.logger.log(`Routing event: ${eventType} for project: ${projectId}`);
 
-    // 1. Find ALL active mappings for this event type
+    // 1. Resolve project phase
+    const projectRecord = await this.prisma.client.project.findUnique({
+      where: { id: projectId },
+      select: { phase: true },
+    });
+    const projectPhase = projectRecord?.phase ?? "discover";
+
+    // 2. Find active mappings for this event type whose Skill phase matches the project phase
     const mappings = await this.prisma.client.skillEventMapping.findMany({
-      where: { eventType, active: true },
+      where: {
+        eventType,
+        active: true,
+        skill: { phase: projectPhase },
+      },
     });
 
     if (mappings.length === 0) {
-      this.logger.debug(`No active event mapping found for event: ${eventType}`);
+      this.logger.debug(
+        `No active event mapping found for event: ${eventType} in phase: ${projectPhase}`,
+      );
       return [];
     }
 
