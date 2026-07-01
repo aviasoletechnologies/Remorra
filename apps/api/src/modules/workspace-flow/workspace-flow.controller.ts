@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Throttle } from "@nestjs/throttler";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
+import { PhaseGuard, RequirePhase } from "../../shared/phase.guard.js";
 import { WorkspaceFlowService } from "./workspace-flow.service.js";
 
+@RequirePhase("discover", "refine")
+@UseGuards(PhaseGuard)
 @Controller("workspace")
 export class WorkspaceFlowController {
   constructor(private readonly workspace: WorkspaceFlowService) {}

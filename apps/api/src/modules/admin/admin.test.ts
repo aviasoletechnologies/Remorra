@@ -424,6 +424,7 @@ describe("Admin & Support Ops Console Tests", () => {
           version: 1,
           active: true,
           systemPrompt: "Test Prompt",
+          modelTier: "standard",
           inputSourceMap: {},
           constraints: [],
           examples: [],

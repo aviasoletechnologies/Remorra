@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { jsonValue } from "../lib/utils";
+import { logEntityAudit } from "../lib/audit";
 
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -46,7 +47,7 @@ function resolveRef(
 
 // Returns list of DB events fired (e.g. ["persona.create", "goal.create"])
 // Event name = snake_case(delegateName) + "." + action — matches SkillEventMapping format
-export async function applyOperationsExtract(projectId: string, json: any, allowedActionsMap?: Record<string, string[]>): Promise<string[]> {
+export async function applyOperationsExtract(projectId: string, actorId: string, json: any, allowedActionsMap?: Record<string, string[]>): Promise<string[]> {
   if (!Array.isArray(json.operations)) return [];
 
   const refMap = new Map<string, string>();
@@ -76,7 +77,12 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
             if (allowedFields.includes(key)) filteredData[key] = val;
           }
           if (Object.keys(filteredData).length > 0) {
-            await (prisma as any).project.update({ where: { id: projectId }, data: filteredData });
+            const before = await (prisma as any).project.findUnique({ where: { id: projectId } });
+            const after = await (prisma as any).project.update({ where: { id: projectId }, data: filteredData });
+            await logEntityAudit({
+              projectId, actorId, eventType: "project.update",
+              entityType: "Project", entityId: projectId, before, after,
+            });
             firedEvents.push("project.update");
           }
         } catch (err) {
@@ -120,6 +126,10 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
           registerRef(refMap, normalizedRefMap, created.objective, created.id);
         }
 
+        await logEntityAudit({
+          projectId, actorId, eventType: `${toSnakeCase(delegateName)}.create`,
+          entityType: entityRaw, entityId: created.id, before: null, after: created,
+        });
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "update" && op.id && op.data && typeof op.data === "object") {
         let targetId = op.id;
@@ -151,7 +161,12 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
         }
         if (refFailed) continue;
 
-        await delegate.update({ where: { id: targetId }, data: resolvedData });
+        const before = await delegate.findUnique({ where: { id: targetId } });
+        const after = await delegate.update({ where: { id: targetId }, data: resolvedData });
+        await logEntityAudit({
+          projectId, actorId, eventType: `${toSnakeCase(delegateName)}.update`,
+          entityType: entityRaw, entityId: targetId, before, after,
+        });
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       } else if (op.action === "delete" && op.id) {
         let targetId = op.id;
@@ -164,7 +179,11 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
           }
           targetId = resolved;
         }
-        await delegate.delete({ where: { id: targetId } });
+        const deleted = await delegate.delete({ where: { id: targetId } });
+        await logEntityAudit({
+          projectId, actorId, eventType: `${toSnakeCase(delegateName)}.delete`,
+          entityType: entityRaw, entityId: targetId, before: deleted, after: null,
+        });
         firedEvents.push(`${toSnakeCase(delegateName)}.${op.action}`);
       }
     } catch (err) {
@@ -175,7 +194,7 @@ export async function applyOperationsExtract(projectId: string, json: any, allow
   return firedEvents;
 }
 
-export async function applyGenericExtractMappings(projectId: string, json: any) {
+export async function applyGenericExtractMappings(projectId: string, actorId: string, json: any) {
   if (!json || typeof json !== "object") return;
 
   const j: Record<string, any> = {};
@@ -190,9 +209,14 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
     if (typeof projectData.summary === "string") data.summary = projectData.summary;
     if (typeof projectData.name === "string") data.name = projectData.name;
     if (Object.keys(data).length > 0) {
-      await prisma.project.update({
+      const before = await prisma.project.findUnique({ where: { id: projectId } });
+      const after = await prisma.project.update({
         where: { id: projectId },
         data,
+      });
+      await logEntityAudit({
+        projectId, actorId, eventType: "project.update",
+        entityType: "Project", entityId: projectId, before, after,
       });
     }
   }
@@ -227,12 +251,15 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
       const key = title.toLowerCase();
       let id = goalMap.get(key);
       if (id) {
-        await prisma.goal.update({ where: { id }, data: { detail } });
+        const before = await prisma.goal.findUnique({ where: { id } });
+        const after = await prisma.goal.update({ where: { id }, data: { detail } });
+        await logEntityAudit({ projectId, actorId, eventType: "goal.update", entityType: "Goal", entityId: id, before, after });
       } else {
         const created = await prisma.goal.create({
           data: { projectId, title, detail },
         });
         goalMap.set(key, created.id);
+        await logEntityAudit({ projectId, actorId, eventType: "goal.create", entityType: "Goal", entityId: created.id, before: null, after: created });
       }
     }
   }
@@ -250,12 +277,15 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
       const key = name.toLowerCase();
       let id = personaMap.get(key);
       if (id) {
-        await prisma.persona.update({ where: { id }, data: { description } });
+        const before = await prisma.persona.findUnique({ where: { id } });
+        const after = await prisma.persona.update({ where: { id }, data: { description } });
+        await logEntityAudit({ projectId, actorId, eventType: "persona.update", entityType: "Persona", entityId: id, before, after });
       } else {
         const created = await prisma.persona.create({
           data: { projectId, name, description },
         });
         personaMap.set(key, created.id);
+        await logEntityAudit({ projectId, actorId, eventType: "persona.create", entityType: "Persona", entityId: created.id, before: null, after: created });
       }
     }
   }
@@ -277,9 +307,10 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
         where: { projectId, personaId, statement },
       });
       if (!existingPp) {
-        await prisma.painPoint.create({
+        const created = await prisma.painPoint.create({
           data: { projectId, personaId, statement },
         });
+        await logEntityAudit({ projectId, actorId, eventType: "pain_point.create", entityType: "PainPoint", entityId: created.id, before: null, after: created });
       }
     }
   }
@@ -305,6 +336,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
           data: { projectId, goalId, title, description },
         });
         epicMap.set(key, created.id);
+        await logEntityAudit({ projectId, actorId, eventType: "epic.create", entityType: "Epic", entityId: created.id, before: null, after: created });
       }
     }
   }
@@ -327,7 +359,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
         where: { projectId, epicId, title },
       });
       if (!existingStory) {
-        await prisma.story.create({
+        const created = await prisma.story.create({
           data: {
             projectId,
             epicId,
@@ -335,6 +367,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
             acceptance: jsonValue(acceptance),
           },
         });
+        await logEntityAudit({ projectId, actorId, eventType: "story.create", entityType: "Story", entityId: created.id, before: null, after: created });
       }
     }
   }
@@ -350,7 +383,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
         where: { projectId, title, type },
       });
       if (!existingRaid) {
-        await prisma.raidItem.create({
+        const created = await prisma.raidItem.create({
           data: {
             projectId,
             type,
@@ -360,6 +393,7 @@ export async function applyGenericExtractMappings(projectId: string, json: any) 
             severity: String(item.severity ?? "amber"),
           },
         });
+        await logEntityAudit({ projectId, actorId, eventType: "raid_item.create", entityType: "RaidItem", entityId: created.id, before: null, after: created });
       }
     }
   }
