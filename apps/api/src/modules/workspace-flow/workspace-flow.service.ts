@@ -258,10 +258,21 @@ export class WorkspaceFlowService {
       include: {
         activeSkill: true,
         activeSkillVersion: true,
-        messages: { orderBy: { createdAt: "asc" } },
       },
     });
-    return conversation ? this.normalizeConversation(conversation) : null;
+    if (!conversation) return null;
+
+    const allMessages = await this.prisma.client.conversationMessage.findMany({
+      where: {
+        conversation: {
+          projectId,
+          kind: { in: ["discover", "refine", "evolve", "workspace"] },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return this.normalizeConversation(conversation, allMessages);
   }
 
   private async createConversation(projectId: string, kind: "discover" | "refine") {
@@ -274,13 +285,23 @@ export class WorkspaceFlowService {
       include: {
         activeSkill: true,
         activeSkillVersion: true,
-        messages: { orderBy: { createdAt: "asc" } },
       },
     });
-    return this.normalizeConversation(conversation);
+
+    const allMessages = await this.prisma.client.conversationMessage.findMany({
+      where: {
+        conversation: {
+          projectId,
+          kind: { in: ["discover", "refine", "evolve", "workspace"] },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return this.normalizeConversation(conversation, allMessages);
   }
 
-  private normalizeConversation(conversation: any): WorkspaceConversation {
+  private normalizeConversation(conversation: any, allMessages: any[]): WorkspaceConversation {
     return {
       id: conversation.id,
       status: conversation.status,
@@ -293,11 +314,11 @@ export class WorkspaceFlowService {
             versionId: conversation.activeSkillVersionId ?? conversation.activeSkillVersion?.id ?? "",
           }
         : null,
-      messages: (conversation.messages ?? []).map((message: any) => ({
+      messages: allMessages.map((message: any) => ({
         id: message.id,
         role: message.role,
         content: message.content,
-        createdAt: message.createdAt,
+        createdAt: message.createdAt.toISOString(),
       })),
     };
   }
