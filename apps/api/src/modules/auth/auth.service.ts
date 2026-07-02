@@ -52,18 +52,53 @@ export class AuthService {
   async invite(projectId: string, actorId: string, input: unknown) {
     await this.access.require(projectId, actorId, ["founder"]);
     const data = invitationInputSchema.parse(input);
+    const email = data.email.toLowerCase();
+
+    // Check if this person already has a Remorra account (Profile row)
+    const existingProfile = await this.prisma.client.profile.findFirst({
+      where: { email },
+      select: { id: true, preferredName: true },
+    });
+
+    if (existingProfile) {
+      // Existing user — skip Supabase invite flow, create membership directly
+      const alreadyMember = await this.access.role(projectId, existingProfile.id);
+      if (alreadyMember) {
+        throw new BadRequestException("This person already has access to the project.");
+      }
+      await this.prisma.client.projectMembership.create({
+        data: { projectId, userId: existingProfile.id, role: data.role },
+      });
+      await this.contextAutomation
+        .runRosterCapture(projectId, existingProfile.preferredName ?? email, data.role)
+        .catch(() => undefined);
+      // Send a magic link so they can log in and land on /venture
+      const { error: linkError } = await this.supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+        options: {
+          redirectTo: `${process.env.WEB_ORIGIN}/venture`,
+        },
+      });
+      if (linkError) {
+        console.warn(`[auth:invite] magic link generation failed for existing user ${email}:`, linkError.message);
+      }
+      return { id: null, expiresAt: null, addedDirectly: true };
+    }
+
+    // New user — use Supabase invite flow with token-based acceptance
     const token = randomBytes(32).toString("base64url");
     const invitation = await this.prisma.client.invitation.create({
       data: {
         projectId,
-        email: data.email.toLowerCase(),
+        email,
         role: data.role,
         tokenHash: this.hash(token),
         invitedById: actorId,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
-    const { error } = await this.supabase.auth.admin.inviteUserByEmail(data.email, {
+    const { error } = await this.supabase.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${process.env.WEB_ORIGIN}/invitations/accept?token=${encodeURIComponent(token)}`,
       data: { invitation_id: invitation.id, project_id: projectId },
     });
@@ -109,12 +144,25 @@ export class AuthService {
       .runRosterCapture(invitation.projectId, profile?.preferredName ?? email, invitation.role)
       .catch(() => undefined);
 
-    return result;
+    // Return projectId so the frontend can redirect to /venture
+    return { ...result, projectId: invitation.projectId };
   }
 
   async listMembers(projectId: string, actorId: string) {
     await this.access.require(projectId, actorId, ["founder", "team"]);
-    return this.prisma.client.projectMembership.findMany({
+
+    // Fetch the project owner (founder) — they live in project.ownerId, not ProjectMembership
+    const project = await this.prisma.client.project.findUnique({
+      where: { id: projectId },
+      select: {
+        ownerId: true,
+        owner: { select: { email: true, preferredName: true } },
+        createdAt: true,
+      },
+    });
+
+    // Fetch all ProjectMembership rows (team members)
+    const memberships = await this.prisma.client.projectMembership.findMany({
       where: { projectId },
       select: {
         userId: true,
@@ -124,6 +172,21 @@ export class AuthService {
       },
       orderBy: { createdAt: "asc" },
     });
+
+    // Build unified list: founder first, then team members
+    const founderEntry = project
+      ? {
+          userId: project.ownerId,
+          role: "founder" as const,
+          createdAt: project.createdAt,
+          user: project.owner,
+        }
+      : null;
+
+    return [
+      ...(founderEntry ? [founderEntry] : []),
+      ...memberships,
+    ];
   }
 
   async removeMember(projectId: string, actorId: string, targetUserId: string) {
