@@ -27,6 +27,7 @@ import {
   Activity,
   Plus,
   Loader2,
+  History,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation } from "react-router-dom";
@@ -100,6 +101,7 @@ const pageNames: Record<string, string> = {
   "/reports": "Reports & packs",
   "/team": "People & access",
   "/knowledge": "Product library",
+  "/history": "Conversation history",
   "/privacy": "Privacy & data",
   "/admin": "Platform admin",
 };
@@ -218,6 +220,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
       { to: "/team", label: "People & access", icon: Users },
       { to: "/knowledge", label: "Product library", icon: BookOpen },
+      { to: "/history", label: "Conversation history", icon: History },
     ];
 
     const filtered = items.filter((item) => {

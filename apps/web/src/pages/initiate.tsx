@@ -1,13 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Gauge, Sparkles } from "lucide-react";
+import { Activity, ArrowRight, Gauge, Sparkles } from "lucide-react";
 import { Button, Card, Progress } from "../components/ui";
-import { DisabledOverlay, EmptyState, MetricCard, Page, PageHeader, SectionCard, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
-import { api, waitForJob } from "../lib/api";
+import { EmptyState, MetricCard, Page, PageHeader, SectionCard, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
+import { api, advancePhase, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
+import type { Project } from "@remorra/contracts";
 
 export function InitiatePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Project[]>("/projects"),
+    enabled: Boolean(projectId),
+  });
+  const project = projects.find((p) => p.id === projectId);
 
   const { data: score, isLoading } = useQuery({
     queryKey: ["health-score", projectId],
@@ -25,24 +33,51 @@ export function InitiatePage() {
     },
   });
 
+  // Phase 5 (Stripe) isn't built yet — this stands in for the real paywall's
+  // "proceed and pay" action. HARDIK doc Q13: a low score doesn't block this.
+  const proceedToVenture = useMutation({
+    mutationFn: () => advancePhase(projectId!, "venture", project!.version),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
   const components = score?.components ?? [];
   const actions = components.flatMap((c: any) => (Array.isArray(c.actions) ? c.actions : []));
 
   return (
     <Page>
-      <div className="flex flex-col gap-6 pointer-events-none select-none opacity-75">
+      <div className="flex flex-col gap-6">
         <PageHeader
           eyebrow="Initiate"
           tone="blue"
           title="Health Score readiness"
           description="A one-time, evidence-based readiness snapshot: is this project well-defined enough to build?"
           actions={
-            <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
-              <Sparkles size={16} />
-              {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate Health Score"}
-            </Button>
+            <div className="flex gap-2">
+              <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
+                <Sparkles size={16} />
+                {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate Health Score"}
+              </Button>
+              {score ? (
+                <Button
+                  variant="outline"
+                  disabled={proceedToVenture.isPending || !project}
+                  onClick={() => proceedToVenture.mutate()}
+                >
+                  {proceedToVenture.isPending ? "Advancing..." : "Continue to Venture"}
+                  <ArrowRight size={14} />
+                </Button>
+              ) : null}
+            </div>
           }
         />
+
+        {proceedToVenture.error ? (
+          <Card className="border-destructive/25 bg-destructive-soft/30 p-6">
+            <p className="m-0 text-sm text-destructive">{proceedToVenture.error.message}</p>
+          </Card>
+        ) : null}
 
         {calculate.error ? (
           <Card className="border-destructive/25 bg-destructive-soft/30 p-6">
@@ -112,7 +147,6 @@ export function InitiatePage() {
           </>
         )}
       </div>
-      <DisabledOverlay message="Admin has disabled Health Score calculations." />
     </Page>
   );
 }

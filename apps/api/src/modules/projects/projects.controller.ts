@@ -55,4 +55,18 @@ export class ProjectsController {
   getProductPack(@CurrentActor() actor: Actor, @Param("id") id: string) {
     return this.projects.getProductPack(id, actor.userId);
   }
+
+  @Get(":id/conversations")
+  listConversations(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.projects.listConversationHistory(id, actor.userId);
+  }
+
+  @Get(":id/conversations/:conversationId")
+  getConversation(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Param("conversationId") conversationId: string,
+  ) {
+    return this.projects.getConversationTranscript(id, conversationId, actor.userId);
+  }
 }

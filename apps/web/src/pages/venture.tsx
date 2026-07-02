@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
-import { AppTabs, DisabledOverlay, Page, PageHeader, SectionCard, TableSkeleton } from "../components/app-ui";
+import { AppTabs, Page, PageHeader, SectionCard, TableSkeleton } from "../components/app-ui";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -133,7 +133,7 @@ export function VenturePage() {
 
   return (
     <Page className="relative min-h-[500px]">
-      <div className="flex flex-col gap-6 pointer-events-none select-none opacity-75">
+      <div className="flex flex-col gap-6">
         <PageHeader
           eyebrow="Venture"
           tone="blue"
@@ -464,7 +464,6 @@ export function VenturePage() {
           </>
         )}
       </div>
-      <DisabledOverlay message="Admin has disabled delivery workspace access." />
     </Page>
   );
 }
