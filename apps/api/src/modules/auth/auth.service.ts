@@ -112,6 +112,35 @@ export class AuthService {
     return result;
   }
 
+  async listMembers(projectId: string, actorId: string) {
+    await this.access.require(projectId, actorId, ["founder", "team"]);
+    return this.prisma.client.projectMembership.findMany({
+      where: { projectId },
+      select: {
+        userId: true,
+        role: true,
+        createdAt: true,
+        user: { select: { email: true, preferredName: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  async removeMember(projectId: string, actorId: string, targetUserId: string) {
+    await this.access.require(projectId, actorId, ["founder"]);
+    // Cannot remove yourself
+    if (actorId === targetUserId) {
+      throw new BadRequestException("You cannot remove yourself from the project.");
+    }
+    const deleted = await this.prisma.client.projectMembership.deleteMany({
+      where: { projectId, userId: targetUserId, role: "team" },
+    });
+    if (deleted.count === 0) {
+      throw new BadRequestException("Member not found in this project.");
+    }
+    return { removed: true };
+  }
+
   private hash(value: string) {
     return createHash("sha256").update(value).digest("hex");
   }
