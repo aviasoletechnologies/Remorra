@@ -27,12 +27,12 @@ export class EvolveService {
 
     return this.prisma.client.evolveSession.create({
       data: {
-        projectId,
+        project: { connect: { id: projectId } },
         launchedFrom: data.launchedFrom,
         topic: data.topic ?? null,
         conversation: {
           create: {
-            projectId,
+            project: { connect: { id: projectId } },
             kind: "evolve",
             retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
           },

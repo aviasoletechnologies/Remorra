@@ -192,12 +192,14 @@ export class BuildPhaseService {
     const pack = await this.prisma.client.buildPack.findUnique({ where: { buildPhaseId } });
     if (!pack) return null;
 
-    // prdDocumentId and buildSyncInstructionsObjectId are GeneratedDocument ids
-    // (rendered via the document.render pipeline); buildSyncFileObjectId is a
-    // raw StorageObject id (written directly by build-pack.generate, no PDF render).
+    // prdDocumentId is a GeneratedDocument id (rendered via the document.render
+    // pipeline). buildSyncInstructionsObjectId and buildSyncFileObjectId are
+    // both raw StorageObject ids — the worker writes the rendered Instructions
+    // PDF's StorageObject id directly onto BuildPack, it does not keep the
+    // GeneratedDocument id around (see handlers/document.ts build-sync-instructions branch).
     const [prdUrl, buildSyncInstructionsUrl, buildSyncFileUrl] = await Promise.all([
       this.signedUrlForDocument(pack.prdDocumentId),
-      this.signedUrlForDocument(pack.buildSyncInstructionsObjectId),
+      this.signedUrlForStorageObject(pack.buildSyncInstructionsObjectId),
       this.signedUrlForStorageObject(pack.buildSyncFileObjectId),
     ]);
 

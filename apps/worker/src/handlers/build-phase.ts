@@ -107,14 +107,15 @@ export async function handleBuildSyncExport(payload: Payload) {
 
 export async function handleBuildSyncIngest(payload: Payload) {
   const uploadId = String(payload.buildSyncUploadId);
-  const upload = await prisma.buildSyncUpload.findUniqueOrThrow({
-    where: { id: uploadId },
-    include: { buildPhase: true, storageObject: true },
-  });
-
-  await prisma.buildSyncUpload.update({ where: { id: uploadId }, data: { status: "running" } });
 
   try {
+    const upload = await prisma.buildSyncUpload.findUniqueOrThrow({
+      where: { id: uploadId },
+      include: { buildPhase: true, storageObject: true },
+    });
+
+    await prisma.buildSyncUpload.update({ where: { id: uploadId }, data: { status: "running" } });
+
     const { data, error } = await supabase.storage.from(bucket).download(upload.storageObject.path);
     if (error) throw error;
     const text = await data.text();
@@ -147,7 +148,8 @@ export async function handleBuildSyncIngest(payload: Payload) {
     });
     return { uploadId, storiesUpdated: updated };
   } catch (err) {
-    await prisma.buildSyncUpload.update({ where: { id: uploadId }, data: { status: "failed" } });
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.buildSyncUpload.update({ where: { id: uploadId }, data: { status: "failed", error: message } });
     throw err;
   }
 }

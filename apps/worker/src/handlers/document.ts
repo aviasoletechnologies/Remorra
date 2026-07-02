@@ -224,6 +224,14 @@ export async function handleDocument(payload: Payload) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await logStream(`PDF generation failed: ${message}`, "failed", "failed");
+    if (document.type.startsWith("build-pack:") || document.type.startsWith("build-sync-instructions:")) {
+      const buildPhaseId = document.type.split(":")[1]!;
+      await prisma.buildPack.upsert({
+        where: { buildPhaseId },
+        create: { buildPhaseId, status: "failed" },
+        update: { status: "failed" },
+      }).catch(() => undefined);
+    }
     throw err;
   }
 }

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api, waitForJob } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Button, Badge, Card } from "./ui";
+import { useConfirm } from "./confirm-dialog";
 
 type EvolveSession = {
   id: string;
@@ -60,9 +61,10 @@ const sourceLabel: Record<ContextProposal["source"], string> = {
 
 const severityTone: Record<string, "red" | "amber" | "green"> = { red: "red", amber: "amber", green: "green" };
 
-export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose?: () => void }) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const confirm = useConfirm();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSessionStatus, setCurrentSessionStatus] = useState<EvolveSession["status"] | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -94,6 +96,24 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
     queryFn: () => api<EvolveMessage[]>(`/projects/${projectId}/evolve/sessions/${sessionId}/messages`),
     enabled: !!sessionId,
   });
+
+  // Page mode has no explicit Close button (nothing to "close") — instead,
+  // auto-save an active session as a Draft when navigating away, so work
+  // isn't silently lost. Refs avoid the stale-closure problem in unmount cleanup.
+  const autoSaveRef = useRef({ projectId, sessionId, currentSessionStatus, messageCount: messages.length });
+  autoSaveRef.current = { projectId, sessionId, currentSessionStatus, messageCount: messages.length };
+  useEffect(() => {
+    if (onClose) return; // panel mode already has its own explicit close-time save prompt
+    return () => {
+      const { projectId: pid, sessionId: sid, currentSessionStatus: status, messageCount } = autoSaveRef.current;
+      if (sid && status === "active" && messageCount > 0) {
+        void api(`/projects/${pid}/evolve/sessions/${sid}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "draft" }),
+        }).catch(() => undefined);
+      }
+    };
+  }, [onClose]);
 
   const { data: actions = [] } = useQuery({
     queryKey: ["evolve-actions", sessionId],
@@ -167,9 +187,12 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
 
   const closeSession = async () => {
     if (sessionId && currentSessionStatus === "active" && messages.length > 0) {
-      const saveDraft = window.confirm(
-        "You have an active Evolve session. Click OK to save it as a Draft (resumable later), or Cancel to keep it active.",
-      );
+      const saveDraft = await confirm({
+        title: "Save this Evolve session?",
+        description: "This session is still active. Save it as a Draft to resume later, or keep it active and continue now.",
+        confirmText: "Save as Draft",
+        cancelText: "Keep Active",
+      });
       if (saveDraft) {
         await api(`/projects/${projectId}/evolve/sessions/${sessionId}/status`, {
           method: "PATCH",
@@ -179,7 +202,7 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
         queryClient.invalidateQueries({ queryKey: ["evolve-sessions", projectId] });
       }
     }
-    onClose();
+    onClose?.();
   };
 
   return (
@@ -192,9 +215,11 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
           <Button variant="ghost" size="icon-xs" onClick={() => setShowHistory((v) => !v)} title="Session history">
             <History size={14} />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={closeSession} title="Close">
-            <X size={14} />
-          </Button>
+          {onClose ? (
+            <Button variant="ghost" size="icon-xs" onClick={closeSession} title="Close">
+              <X size={14} />
+            </Button>
+          ) : null}
         </div>
       </div>
 

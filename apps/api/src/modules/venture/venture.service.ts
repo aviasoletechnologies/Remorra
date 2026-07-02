@@ -1,7 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
-import { versionConflict } from "../../shared/http-errors.js";
+import { notFound, versionConflict } from "../../shared/http-errors.js";
 import { ContextAutomationService } from "../../shared/context-automation.service.js";
 
 @Injectable()
@@ -18,7 +18,7 @@ export class VentureService {
       this.prisma.client.story.findMany({
         where: { projectId },
         orderBy: [{ status: "asc" }, { position: "asc" }],
-        include: { epic: { select: { title: true } }, buildPhase: { select: { name: true } } },
+        include: { epic: { select: { title: true } }, buildPhase: { select: { name: true, status: true } } },
       }),
       this.prisma.client.raidItem.findMany({ where: { projectId } }),
     ]);
@@ -33,11 +33,41 @@ export class VentureService {
     body: any,
   ) {
     await this.access.require(projectId, userId, ["founder", "team"]);
-    return this.updateVersioned("story", storyId, projectId, version, {
+
+    // A closed Build Phase means the handoff is finished — its Stories become
+    // a frozen record rather than editable, so a founder can't accidentally
+    // drift the backlog out of sync with what was actually shipped.
+    const existing = await this.prisma.client.story.findUnique({
+      where: { id: storyId },
+      include: { buildPhase: { select: { status: true, name: true } } },
+    });
+    if (!existing || existing.projectId !== projectId) notFound("Story", storyId);
+    if (existing!.buildPhase?.status === "closed") {
+      throw new BadRequestException(
+        `This Story belongs to the closed Build Phase "${existing!.buildPhase.name}" and can no longer be edited.`,
+      );
+    }
+    // Once a Build Phase is Active, its Stories are being tracked via the
+    // developer's Build Sync File — status changes must come from there
+    // (handleBuildSyncIngest writes status directly), not manual board clicks,
+    // so the two sources of truth can't drift apart.
+    if (body.status !== undefined && existing!.buildPhase?.status === "active") {
+      throw new BadRequestException(
+        `This Story's Build Phase "${existing!.buildPhase.name}" is Active — status can only be updated via a Build Sync File upload.`,
+      );
+    }
+
+    const updated = await this.updateVersioned("story", storyId, projectId, version, {
       ...(body.status !== undefined ? { status: String(body.status) } : {}),
       ...(body.position !== undefined ? { position: Number(body.position) } : {}),
       ...(body.priority !== undefined ? { priority: String(body.priority) } : {}),
+      ...(body.title !== undefined ? { title: String(body.title).trim() } : {}),
+      ...(body.description !== undefined ? { description: body.description ? String(body.description) : null } : {}),
     });
+    if (body.title !== undefined || body.description !== undefined) {
+      await this.contextAutomation.runLayer1AutoCapture(projectId).catch(() => undefined);
+    }
+    return updated;
   }
 
   async createRaid(projectId: string, userId: string, body: any) {

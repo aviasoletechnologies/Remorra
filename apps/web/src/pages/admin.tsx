@@ -296,7 +296,7 @@ export function AdminPage() {
         goals: [{ id: "goal-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
         personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", linkedStories: [{ id: "story-1", statement: "Clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
       }, null, 2));
-    } else if (template.id === "health-score" || template.id === "build-pack") {
+    } else if (template.id === "health-score") {
       setSampleJsonText(JSON.stringify({
         projectName: "Greenfield Analytics",
         overallScore: 78,
@@ -305,6 +305,28 @@ export function AdminPage() {
           { component: "problem_top", weight: 15, score: 85, rationale: "Goals are specific and measurable.", actions: ["Add a third measurable Goal."] },
         ],
       }, null, 2));
+    } else if (template.id === "build-pack") {
+      setSampleJsonText(JSON.stringify({
+        projectName: "Greenfield Analytics",
+        buildPhaseName: "Core Product Build",
+        buildPhaseDescription: "MVP scope for the initial release.",
+        stories: [
+          {
+            id: "story-1",
+            title: "Set low-stock threshold per product",
+            description: "As a shop owner, I want to set a low-stock threshold so I can act before running out.",
+            status: "ready",
+            priority: "high",
+            acceptance: [{ given: "a product is tracked", when: "quantity crosses threshold", then: "owner sees an alert" }],
+            epicTitle: "Low-stock alerts",
+            goalTitle: "Help shop owners manage stock proactively",
+            personaNames: ["Local shop owner Maria"],
+          },
+        ],
+        risks: [{ title: "Barcode hardware may not be available", type: "Risk", severity: "medium", status: "open" }],
+      }, null, 2));
+    } else if (template.id === "build-sync-instructions") {
+      setSampleJsonText(JSON.stringify({ buildPhaseId: "00000000-0000-0000-0000-000000000000" }, null, 2));
     } else {
       setSampleJsonText(JSON.stringify({
         title: "Sample Report",
