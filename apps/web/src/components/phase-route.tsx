@@ -47,8 +47,11 @@ export function PhaseRoute({
 
   // Team members always land in Venture — they skip DRI entirely
   const isTeamMember = (project as any).role === "team";
-  if (isTeamMember && !allowedPhases.includes("venture")) {
-    return <Navigate to="/venture" replace />;
+  if (isTeamMember) {
+    if (!allowedPhases.includes("venture")) {
+      return <Navigate to="/venture" replace />;
+    }
+    return <>{children}</>;
   }
 
   if (!allowedPhases.includes(project.phase)) {
