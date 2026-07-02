@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { AuthService } from "./auth.service.js";
@@ -32,5 +32,19 @@ export class AuthController {
   @Post("invitations/:token/accept")
   accept(@CurrentActor() actor: Actor, @Param("token") token: string) {
     return this.auth.accept(actor.userId, actor.email, token);
+  }
+
+  @Get("projects/:id/members")
+  listMembers(@CurrentActor() actor: Actor, @Param("id") projectId: string) {
+    return this.auth.listMembers(projectId, actor.userId);
+  }
+
+  @Delete("projects/:id/members/:userId")
+  removeMember(
+    @CurrentActor() actor: Actor,
+    @Param("id") projectId: string,
+    @Param("userId") targetUserId: string,
+  ) {
+    return this.auth.removeMember(projectId, actor.userId, targetUserId);
   }
 }
