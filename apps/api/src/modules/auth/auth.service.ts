@@ -98,11 +98,31 @@ export class AuthService {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
+    const acceptUrl = `${process.env.WEB_ORIGIN}/invitations/accept?token=${encodeURIComponent(token)}`;
     const { error } = await this.supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.WEB_ORIGIN}/invitations/accept?token=${encodeURIComponent(token)}`,
+      redirectTo: acceptUrl,
       data: { invitation_id: invitation.id, project_id: projectId },
     });
+
     if (error) {
+      if (error.message.includes("already been registered") || error.message.includes("already registered")) {
+        // User exists in Supabase Auth but has no Profile row in our DB yet
+        // (they've never made an authenticated request to Remorra).
+        // Send them a magic link pointing at the invitation acceptance URL — when they
+        // click it, Supabase logs them in, SupabaseAuthGuard creates their Profile,
+        // and the accept() handler creates the ProjectMembership.
+        const { error: linkError } = await this.supabase.auth.admin.generateLink({
+          type: "magiclink",
+          email,
+          options: { redirectTo: acceptUrl },
+        });
+        if (linkError) {
+          await this.prisma.client.invitation.delete({ where: { id: invitation.id } });
+          throw new BadRequestException(`Could not send invitation link: ${linkError.message}`);
+        }
+        // Invitation row is kept — accepted when they click the magic link
+        return { id: invitation.id, expiresAt: invitation.expiresAt };
+      }
       await this.prisma.client.invitation.delete({ where: { id: invitation.id } });
       throw new BadRequestException(error.message);
     }
