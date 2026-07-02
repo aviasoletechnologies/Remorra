@@ -345,7 +345,7 @@ export function VenturePage() {
                 }
                 extraControls={
                   <>
-                    <Select value={raidType} onValueChange={setRaidType}>
+                    <Select value={raidType} onValueChange={(v) => { if (v) setRaidType(v); }}>
                       <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Risk">Risk</SelectItem>
@@ -354,7 +354,7 @@ export function VenturePage() {
                         <SelectItem value="Dependency">Dependency</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={raidSeverity} onValueChange={setRaidSeverity}>
+                    <Select value={raidSeverity} onValueChange={(v) => { if (v) setRaidSeverity(v); }}>
                       <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="low">Low</SelectItem>

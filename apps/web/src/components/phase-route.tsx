@@ -42,11 +42,17 @@ export function PhaseRoute({
 
   const project = projects.find((p) => p.id === activeProjectId);
   if (!project) {
-    return <Navigate to="/workspace" replace />;
+    return <Navigate to="/venture" replace />;
+  }
+
+  // Team members always land in Venture — they skip DRI entirely
+  const isTeamMember = (project as any).role === "team";
+  if (isTeamMember && !allowedPhases.includes("venture")) {
+    return <Navigate to="/venture" replace />;
   }
 
   if (!allowedPhases.includes(project.phase)) {
-    const redirect = PHASE_HOME[project.phase] ?? "/workspace";
+    const redirect = PHASE_HOME[project.phase] ?? "/venture";
     return <Navigate to={redirect} replace />;
   }
 
