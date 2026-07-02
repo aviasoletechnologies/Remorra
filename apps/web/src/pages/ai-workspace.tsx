@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { ProductPackPanel } from "../components/product-pack-panel";
+import { RefineSummaryPanel } from "../components/refine-summary-panel";
 import type { ProductPackDto, Project } from "@remorra/contracts";
 import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
@@ -126,6 +127,7 @@ export function AiWorkspacePage() {
   const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [showProductPack, setShowProductPack] = useState(true);
+  const [showRefineSummary, setShowRefineSummary] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -349,7 +351,27 @@ export function AiWorkspacePage() {
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
           {/* Floating toggle button positioned to the left of the scrollbar */}
-          {projectId && (
+          {projectId && project?.phase === "refine" && (
+            <button
+              type="button"
+              onClick={() => setShowRefineSummary(prev => !prev)}
+              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
+              title={showRefineSummary ? "Hide entity summary" : "Show entity summary"}
+            >
+              {showRefineSummary ? (
+                <>
+                  <span>Hide Summary</span>
+                  <PanelRightClose size={13} />
+                </>
+              ) : (
+                <>
+                  <span>Show Summary</span>
+                  <PanelRightOpen size={13} />
+                </>
+              )}
+            </button>
+          )}
+          {projectId && project?.phase !== "refine" && (
             <button
               type="button"
               onClick={() => setShowProductPack(prev => !prev)}
@@ -574,9 +596,20 @@ export function AiWorkspacePage() {
           </div>
         </Card>
       </div>
-      {/* Product Pack panel with Smooth Slide Transition */}
+      {/* Refine phase: Live Entity Summary (HARDIK doc Q12). Other phases: Product Pack. */}
       <AnimatePresence>
-        {projectId && showProductPack && (
+        {projectId && project?.phase === "refine" && showRefineSummary && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
+          >
+            <RefineSummaryPanel projectId={projectId} onCollapse={() => setShowRefineSummary(false)} />
+          </motion.div>
+        )}
+        {projectId && project?.phase !== "refine" && showProductPack && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 320, opacity: 1 }}

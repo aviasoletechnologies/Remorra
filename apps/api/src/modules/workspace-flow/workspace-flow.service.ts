@@ -76,6 +76,63 @@ export class WorkspaceFlowService {
     return { ...this.serialize(conversation), phaseComplete };
   }
 
+  // HARDIK doc Q12 — Refine Summary Assembler. Server-side, no LLM call:
+  // queries current entity state and computes linkage/pass-criteria
+  // deterministically. Live entity summary panel reads this directly.
+  async getRefineSummary(projectId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+
+    const goals = await this.prisma.client.goal.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "asc" },
+      include: { epics: { include: { stories: true } } },
+    });
+    const personas = await this.prisma.client.persona.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "asc" },
+      include: { painPoints: true },
+    });
+
+    let epicCount = 0;
+    let storyCount = 0;
+    let completeThreads = 0;
+    const goalSummaries = goals.map((goal: any) => {
+      epicCount += goal.epics.length;
+      const epicSummaries = goal.epics.map((epic: any) => {
+        storyCount += epic.stories.length;
+        if (epic.stories.length > 0) completeThreads += 1;
+        return {
+          id: epic.id,
+          title: epic.title,
+          storyCount: epic.stories.length,
+          stories: epic.stories.map((story: any) => ({
+            id: story.id,
+            title: story.title,
+            hasAcceptance: Array.isArray(story.acceptance) && story.acceptance.length > 0,
+          })),
+        };
+      });
+      return { id: goal.id, title: goal.title, epics: epicSummaries };
+    });
+
+    const personaSummaries = personas.map((persona: any) => ({
+      id: persona.id,
+      name: persona.name,
+      painPointCount: persona.painPoints.length,
+    }));
+
+    return {
+      goalCount: goals.length,
+      epicCount,
+      storyCount,
+      personaCount: personas.length,
+      completeThreads,
+      passCriteriaMet: completeThreads >= 1,
+      goals: goalSummaries,
+      personas: personaSummaries,
+    };
+  }
+
   async message(projectId: string, userId: string, rawContent: string, file?: Express.Multer.File) {
     await this.access.require(projectId, userId, ["founder", "team"]);
     const content = rawContent.trim();

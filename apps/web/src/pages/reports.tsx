@@ -3,7 +3,7 @@ import { Download, FileChartColumn, LoaderCircle, Sparkles } from "lucide-react"
 import { api } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card } from "../components/ui";
-import { DisabledOverlay, EmptyState, Page, PageHeader, SectionCard } from "../components/app-ui";
+import { EmptyState, Page, PageHeader, SectionCard } from "../components/app-ui";
 
 export function ReportsPage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -27,7 +27,7 @@ export function ReportsPage() {
 
   return (
     <Page className="relative min-h-[400px]">
-      <div className="flex flex-col gap-6 pointer-events-none select-none opacity-75">
+      <div className="flex flex-col gap-6">
         <PageHeader
           eyebrow="On demand"
           tone="blue"
@@ -71,7 +71,6 @@ export function ReportsPage() {
           )}
         </SectionCard>
       </div>
-      <DisabledOverlay message="Admin has disabled report generation." />
     </Page>
   );
 }

@@ -36,4 +36,9 @@ export class WorkspaceFlowController {
   ) {
     return this.workspace.action(projectId, actor.userId, body);
   }
+
+  @Get("projects/:projectId/refine-summary")
+  refineSummary(@CurrentActor() actor: Actor, @Param("projectId") projectId: string) {
+    return this.workspace.getRefineSummary(projectId, actor.userId);
+  }
 }

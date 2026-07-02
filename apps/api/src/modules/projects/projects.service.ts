@@ -195,5 +195,45 @@ export class ProjectsService {
       assembledAt: new Date().toISOString(),
     };
   }
+
+  // Discover/Refine conversations are phase-scoped (workspace-flow routes
+  // are locked to discover/refine) — once the project moves on, there's
+  // otherwise no way to see that history again. Read-only, any phase.
+  async listConversationHistory(projectId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+    const conversations = await this.prisma.client.conversation.findMany({
+      where: { projectId, kind: { in: ["discover", "refine"] } },
+      orderBy: { createdAt: "asc" },
+      include: { _count: { select: { messages: true } } },
+    });
+    return conversations.map((c: any) => ({
+      id: c.id,
+      kind: c.kind,
+      status: c.status,
+      messageCount: c._count.messages,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
+  }
+
+  async getConversationTranscript(projectId: string, conversationId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+    const conversation = await this.prisma.client.conversation.findUnique({
+      where: { id: conversationId },
+      include: { messages: { orderBy: { createdAt: "asc" } } },
+    });
+    if (!conversation || conversation.projectId !== projectId) notFound("Conversation", conversationId);
+    return {
+      id: conversation!.id,
+      kind: conversation!.kind,
+      status: conversation!.status,
+      messages: conversation!.messages.map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    };
+  }
 }
 
