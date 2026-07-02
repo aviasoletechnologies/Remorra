@@ -48,7 +48,6 @@ export class AuthService {
       });
     });
   }
-
   async invite(projectId: string, actorId: string, input: unknown) {
     await this.access.require(projectId, actorId, ["founder"]);
     const data = invitationInputSchema.parse(input);
@@ -72,12 +71,12 @@ export class AuthService {
       await this.contextAutomation
         .runRosterCapture(projectId, existingProfile.preferredName ?? email, data.role)
         .catch(() => undefined);
+
       // Send a magic link so they can log in and land on /venture
-      const { error: linkError } = await this.supabase.auth.admin.generateLink({
-        type: "magiclink",
+      const { error: linkError } = await this.supabase.auth.signInWithOtp({
         email,
         options: {
-          redirectTo: `${process.env.WEB_ORIGIN}/venture`,
+          emailRedirectTo: `${process.env.WEB_ORIGIN}/venture`,
         },
       });
       if (linkError) {
@@ -111,10 +110,9 @@ export class AuthService {
         // Send them a magic link pointing at the invitation acceptance URL — when they
         // click it, Supabase logs them in, SupabaseAuthGuard creates their Profile,
         // and the accept() handler creates the ProjectMembership.
-        const { error: linkError } = await this.supabase.auth.admin.generateLink({
-          type: "magiclink",
+        const { error: linkError } = await this.supabase.auth.signInWithOtp({
           email,
-          options: { redirectTo: acceptUrl },
+          options: { emailRedirectTo: acceptUrl },
         });
         if (linkError) {
           await this.prisma.client.invitation.delete({ where: { id: invitation.id } });
