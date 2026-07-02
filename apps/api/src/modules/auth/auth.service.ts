@@ -52,6 +52,7 @@ export class AuthService {
     await this.access.require(projectId, actorId, ["founder"]);
     const data = invitationInputSchema.parse(input);
     const email = data.email.toLowerCase();
+    const webOrigin = (process.env.WEB_ORIGIN ?? "http://localhost:5173").split(",")[0]!;
 
     // Check if this person already has a Remorra account (Profile row)
     const existingProfile = await this.prisma.client.profile.findFirst({
@@ -76,7 +77,7 @@ export class AuthService {
       const { error: linkError } = await this.supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${process.env.WEB_ORIGIN}/venture`,
+          emailRedirectTo: `${webOrigin}/venture`,
         },
       });
       if (linkError) {
@@ -97,7 +98,7 @@ export class AuthService {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
-    const acceptUrl = `${process.env.WEB_ORIGIN}/invitations/accept?token=${encodeURIComponent(token)}`;
+    const acceptUrl = `${webOrigin}/invitations/accept?token=${encodeURIComponent(token)}`;
     const { error } = await this.supabase.auth.admin.inviteUserByEmail(email, {
       redirectTo: acceptUrl,
       data: { invitation_id: invitation.id, project_id: projectId },
