@@ -44,7 +44,6 @@ import { buttonVariants } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { EmptyState } from "./app-ui";
-import { EvolvePanel } from "./evolve-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import {
   Sidebar,
@@ -98,6 +97,7 @@ const pageNames: Record<string, string> = {
   "/workspace": "AI product guide",
   "/initiate": "Initiate",
   "/venture": "Delivery",
+  "/evolve": "Evolve",
   "/reports": "Reports & packs",
   "/team": "People & access",
   "/knowledge": "Product library",
@@ -126,7 +126,6 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
-  const [isEvolveOpen, setIsEvolveOpen] = useState(false);
   const { data: projects = [], error: projectsError } = useQuery({
     queryKey: ["projects"],
     queryFn: () => api<Project[]>("/projects"),
@@ -217,6 +216,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
       { to: "/initiate", label: "Initiate", icon: Gauge },
       { to: "/venture", label: "Delivery", icon: ListChecks },
+      { to: "/evolve", label: "Evolve", icon: Sparkles },
       { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
       { to: "/team", label: "People & access", icon: Users },
       { to: "/knowledge", label: "Product library", icon: BookOpen },
@@ -226,7 +226,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
     const filtered = items.filter((item) => {
       if (item.to === "/workspace") return ["discover", "refine"].includes(project.phase);
       if (item.to === "/initiate") return ["initiate"].includes(project.phase);
-      if (item.to === "/venture" || item.to === "/reports") return ["venture", "evolve"].includes(project.phase);
+      if (item.to === "/venture" || item.to === "/reports" || item.to === "/evolve") return ["venture", "evolve"].includes(project.phase);
       return true;
     });
 
@@ -431,17 +431,6 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                 <span className="absolute right-2.5 top-2.5 size-2 rounded-full border-2 border-card bg-destructive" />
               ) : null}
             </Button>
-            {project && ["venture", "evolve"].includes(project.phase) ? (
-              <Button
-                variant={isEvolveOpen ? "default" : "ghost"}
-                size="icon"
-                aria-label="Evolve"
-                onClick={() => setIsEvolveOpen((value) => !value)}
-                title="Evolve — AI strategy assistant"
-              >
-                <Sparkles size={17} />
-              </Button>
-            ) : null}
             {project?.role === "founder" ? (
               <Link to="/workspace" className={cn(buttonVariants(), "hidden sm:inline-flex")}>
                 <Sparkles size={14} /> Open AI guide
@@ -591,14 +580,6 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
               </div>
             )}
         </MovablePanel>
-
-        {project && isEvolveOpen && ["venture", "evolve"].includes(project.phase) ? (
-          <div
-            className="fixed right-4 top-[80px] z-50 flex h-[calc(100vh-100px)] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-          >
-            <EvolvePanel projectId={project.id} onClose={() => setIsEvolveOpen(false)} />
-          </div>
-        ) : null}
 
         {!project ? (
           <div className="page-container">
@@ -752,13 +733,15 @@ function RunningTimer({ streamState, logs }: { streamState: string; logs: LogEve
   );
 }
 
-function MovablePanel({
+export function MovablePanel({
   open,
   onClose,
   title,
   subtitle,
   children,
-  headerActions
+  headerActions,
+  initialWidth = 480,
+  initialHeight = 650,
 }: {
   open: boolean;
   onClose: () => void;
@@ -766,9 +749,11 @@ function MovablePanel({
   subtitle?: React.ReactNode;
   children: React.ReactNode;
   headerActions?: React.ReactNode;
+  initialWidth?: number;
+  initialHeight?: number;
 }) {
-  const [position, setPosition] = useState({ x: window.innerWidth - 520, y: 80 });
-  const [size, setSize] = useState({ width: 480, height: 650 });
+  const [position, setPosition] = useState({ x: window.innerWidth - initialWidth - 40, y: 80 });
+  const [size, setSize] = useState({ width: initialWidth, height: initialHeight });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<string | null>(null);
 

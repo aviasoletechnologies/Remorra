@@ -553,15 +553,17 @@ model BuildPack {
 }
 
 model BuildSyncUpload {
-  id                   String     @id @default(uuid()) @db.Uuid
-  buildPhaseId         String     @db.Uuid
-  uploadedById         String     @db.Uuid
-  storageObjectId      String     @db.Uuid
+  id                   String        @id @default(uuid()) @db.Uuid
+  buildPhaseId         String        @db.Uuid
+  uploadedById         String        @db.Uuid
+  storageObjectId      String        @db.Uuid
   buildPhaseIdentifier String
-  status               JobStatus  @default(queued)
+  status               JobStatus     @default(queued)
+  error                String?
   ingestedAt           DateTime?
-  createdAt            DateTime   @default(now())
-  buildPhase           BuildPhase @relation(fields: [buildPhaseId], references: [id], onDelete: Cascade)
+  createdAt            DateTime      @default(now())
+  buildPhase           BuildPhase    @relation(fields: [buildPhaseId], references: [id], onDelete: Cascade)
+  storageObject        StorageObject @relation(fields: [storageObjectId], references: [id])
 
   @@index([buildPhaseId])
 }
@@ -948,6 +950,7 @@ model StorageObject {
   project     Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   documents   GeneratedDocument[]
   dataExports DataExport[]
+  buildSyncUploads BuildSyncUpload[]
 }
 
 model JobRecord {

@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Download, Layers, ListChecks, Loader2, ShieldAlert, Sparkles, Trash2, Upload } from "lucide-react";
+import { Check, ChevronRight, Download, Layers, ListChecks, Loader2, Lock, Pencil, ShieldAlert, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { AppTabs, Page, PageHeader, SectionCard, TableSkeleton } from "../components/app-ui";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,7 +24,15 @@ export function VenturePage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<(typeof tabs)[number]>("board");
   const [raidTitle, setRaidTitle] = useState("");
+  const [raidType, setRaidType] = useState("Risk");
+  const [raidSeverity, setRaidSeverity] = useState("medium");
   const [newBuildPhaseName, setNewBuildPhaseName] = useState("");
+  const [newBuildPhaseDescription, setNewBuildPhaseDescription] = useState("");
+  const [editingStoryId, setEditingStoryId] = useState<string | null>(null);
+  const [editingStoryTitle, setEditingStoryTitle] = useState("");
+  const [editingBuildPhaseId, setEditingBuildPhaseId] = useState<string | null>(null);
+  const [editingBuildPhaseName, setEditingBuildPhaseName] = useState("");
+  const [editingBuildPhaseDescription, setEditingBuildPhaseDescription] = useState("");
   const [expandedBuildPhaseId, setExpandedBuildPhaseId] = useState<string | null>(null);
   const [generatingPack, setGeneratingPack] = useState(false);
   const [exportingSync, setExportingSync] = useState(false);
@@ -43,6 +53,7 @@ export function VenturePage() {
       return api(`/projects/${projectId}${path}`, options);
     },
     onSuccess: refresh,
+    onError: (err: any) => toast.error(err?.message || "That action failed."),
   });
 
   const { data: buildPhases = [], isLoading: loadingBuildPhases } = useQuery({
@@ -84,22 +95,32 @@ export function VenturePage() {
       refreshBuildPhases();
       void queryClient.invalidateQueries({ queryKey: ["build-phase", projectId, expandedBuildPhaseId] });
     },
+    onError: (err: any) => toast.error(err?.message || "That action failed."),
   });
 
   const uploadBuildPhaseFile = async (buildPhaseId: string, field: "brand-kit" | "user-flow", file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    await api(`/projects/${projectId}/build-phases/${buildPhaseId}/${field}`, { method: "PATCH", body: formData });
-    refreshBuildPhases();
-    void queryClient.invalidateQueries({ queryKey: ["build-phase", projectId, buildPhaseId] });
+    try {
+      await api(`/projects/${projectId}/build-phases/${buildPhaseId}/${field}`, { method: "PATCH", body: formData });
+      refreshBuildPhases();
+      void queryClient.invalidateQueries({ queryKey: ["build-phase", projectId, buildPhaseId] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to upload file.");
+    }
   };
 
   const uploadSyncFile = async (buildPhaseId: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    await api(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/upload`, { method: "POST", body: formData });
-    refreshBuildPhases();
-    void refetchSyncUploads();
+    try {
+      await api(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/upload`, { method: "POST", body: formData });
+      toast.success("Build Sync File uploaded — statuses will update once it's processed.");
+      refreshBuildPhases();
+      void refetchSyncUploads();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to upload Build Sync File.");
+    }
   };
 
   const generatePack = async (buildPhaseId: string) => {
@@ -108,6 +129,9 @@ export function VenturePage() {
       const job = await api<{ id: string }>(`/projects/${projectId}/build-phases/${buildPhaseId}/pack/generate`, { method: "POST" });
       await waitForJob(job.id);
       await refetchPack();
+      toast.success("Build Pack generated. Download the Build Sync Instructions below for the handoff steps.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to generate Build Pack.");
     } finally {
       setGeneratingPack(false);
     }
@@ -119,6 +143,8 @@ export function VenturePage() {
       const job = await api<{ id: string }>(`/projects/${projectId}/build-phases/${buildPhaseId}/sync/export`);
       const result = await waitForJob<{ downloadUrl?: string }>(job.id);
       if (result.downloadUrl) window.open(result.downloadUrl, "_blank", "noopener");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to export Build Sync File.");
     } finally {
       setExportingSync(false);
     }
@@ -193,29 +219,102 @@ export function VenturePage() {
                                   )}
                                 </div>
 
-                                <h3 className="text-xs font-bold text-foreground leading-relaxed font-sans min-h-[40px] flex items-center">
-                                  {story.title}
-                                </h3>
+                                {editingStoryId === story.id ? (
+                                  <div className="flex min-h-[40px] items-center gap-1.5">
+                                    <Input
+                                      autoFocus
+                                      className="h-8 flex-1 text-xs"
+                                      value={editingStoryTitle}
+                                      onChange={(event) => setEditingStoryTitle(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" && editingStoryTitle.trim().length >= 2) {
+                                          command.mutate({
+                                            path: `/stories/${story.id}`,
+                                            method: "PATCH",
+                                            version: story.version,
+                                            body: { title: editingStoryTitle.trim() },
+                                          });
+                                          setEditingStoryId(null);
+                                        }
+                                        if (event.key === "Escape") setEditingStoryId(null);
+                                      }}
+                                    />
+                                    <button
+                                      className="w-6 h-6 shrink-0 rounded-md text-primary hover:bg-accent-soft/40 flex items-center justify-center cursor-pointer"
+                                      aria-label="Save story title"
+                                      disabled={editingStoryTitle.trim().length < 2}
+                                      onClick={() => {
+                                        command.mutate({
+                                          path: `/stories/${story.id}`,
+                                          method: "PATCH",
+                                          version: story.version,
+                                          body: { title: editingStoryTitle.trim() },
+                                        });
+                                        setEditingStoryId(null);
+                                      }}
+                                    >
+                                      <Check size={13} />
+                                    </button>
+                                    <button
+                                      className="w-6 h-6 shrink-0 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center cursor-pointer"
+                                      aria-label="Cancel editing"
+                                      onClick={() => setEditingStoryId(null)}
+                                    >
+                                      <X size={13} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="group flex min-h-[40px] items-center justify-between gap-1.5">
+                                    <h3 className="text-xs font-bold text-foreground leading-relaxed font-sans">
+                                      {story.title}
+                                    </h3>
+                                    {founderOrTeam && (
+                                      <button
+                                        className="w-6 h-6 shrink-0 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent-soft/40 hover:text-primary flex items-center justify-center transition-all cursor-pointer"
+                                        aria-label="Edit story title"
+                                        onClick={() => {
+                                          setEditingStoryId(story.id);
+                                          setEditingStoryTitle(story.title);
+                                        }}
+                                      >
+                                        <Pencil size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
 
                                 <footer className="flex justify-between items-center border-t border-border pt-2.5 mt-1 text-[9px] text-muted-foreground">
                                   <span className="truncate max-w-[120px] font-semibold">
                                     {story.epic?.title ?? "Unassigned epic"}
                                   </span>
                                   {status !== "done" && founderOrTeam && (
-                                    <button
-                                      className="w-6 h-6 rounded-md hover:bg-accent-soft/40 text-primary flex items-center justify-center transition-colors cursor-pointer"
-                                      aria-label="Move story forward"
-                                      onClick={() =>
-                                        command.mutate({
-                                          path: `/stories/${story.id}`,
-                                          method: "PATCH",
-                                          version: story.version,
-                                          body: { status: columns[columns.indexOf(status) + 1] },
-                                        })
-                                      }
-                                    >
-                                      <ChevronRight size={14} />
-                                    </button>
+                                    story.buildPhase?.status === "active" || story.buildPhase?.status === "closed" ? (
+                                      <span
+                                        className="w-6 h-6 rounded-md text-muted-foreground flex items-center justify-center"
+                                        title={
+                                          story.buildPhase.status === "closed"
+                                            ? `Build Phase "${story.buildPhase.name}" is closed — no longer editable.`
+                                            : `Build Phase "${story.buildPhase.name}" is Active — status updates only via Build Sync upload.`
+                                        }
+                                      >
+                                        <Lock size={12} />
+                                      </span>
+                                    ) : (
+                                      <button
+                                        className="w-6 h-6 rounded-md hover:bg-accent-soft/40 text-primary flex items-center justify-center transition-colors cursor-pointer"
+                                        aria-label="Move story forward"
+                                        onClick={() =>
+                                          command.mutate({
+                                            path: `/stories/${story.id}`,
+                                            method: "PATCH",
+                                            version: story.version,
+                                            body: { status: columns[columns.indexOf(status) + 1] },
+                                          })
+                                        }
+                                      >
+                                        <ChevronRight size={14} />
+                                      </button>
+                                    )
                                   )}
                                 </footer>
                               </Card>
@@ -241,21 +340,62 @@ export function VenturePage() {
                 placeholder="Risk, assumption, issue, or dependency"
                 value={raidTitle}
                 onValue={setRaidTitle}
-                onAdd={() => submit("/raid", { type: "risk", title: raidTitle, severity: "amber" }, () => setRaidTitle(""))}
+                onAdd={() =>
+                  submit("/raid", { type: raidType, title: raidTitle, severity: raidSeverity }, () => setRaidTitle(""))
+                }
+                extraControls={
+                  <>
+                    <Select value={raidType} onValueChange={setRaidType}>
+                      <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Risk">Risk</SelectItem>
+                        <SelectItem value="Assumption">Assumption</SelectItem>
+                        <SelectItem value="Issue">Issue</SelectItem>
+                        <SelectItem value="Dependency">Dependency</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={raidSeverity} onValueChange={setRaidSeverity}>
+                      <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="critical">Critical</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </>
+                }
                 items={(data?.raid ?? []).map((item: any) => ({
                   ...item,
-                  subtitle: `${item.type} · ${item.status} · ${item.severity}`,
+                  subtitle: `${item.type} · ${item.severity}`,
                   action: founderOrTeam ? (
-                    <button
-                      className="w-6 h-6 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center justify-center transition-colors cursor-pointer"
-                      aria-label="Delete RAID item"
-                      onClick={() =>
-                        command.mutate({ path: `/raid/${item.id}`, method: "DELETE", version: item.version })
-                      }
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  ) : null,
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={item.status}
+                        onValueChange={(status) =>
+                          command.mutate({ path: `/raid/${item.id}`, method: "PATCH", version: item.version, body: { status } })
+                        }
+                      >
+                        <SelectTrigger className="h-7 w-28 text-[11px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="open">Open</SelectItem>
+                          <SelectItem value="mitigated">Mitigated</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <button
+                        className="w-6 h-6 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center justify-center transition-colors cursor-pointer"
+                        aria-label="Delete RAID item"
+                        onClick={() =>
+                          command.mutate({ path: `/raid/${item.id}`, method: "DELETE", version: item.version })
+                        }
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <Badge tone="neutral">{item.status}</Badge>
+                  ),
                 }))}
               />
             )}
@@ -263,20 +403,37 @@ export function VenturePage() {
             {tab === "build" && (
               <div className="flex flex-col gap-6">
                 <SectionCard title="New Build Phase" description="A container for a subset of Stories going to developers">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       className="flex-1"
                       value={newBuildPhaseName}
                       onChange={(event) => setNewBuildPhaseName(event.target.value)}
                       placeholder="e.g. Core Product Build"
                     />
+                    <Input
+                      className="flex-1"
+                      value={newBuildPhaseDescription}
+                      onChange={(event) => setNewBuildPhaseDescription(event.target.value)}
+                      placeholder="What does this Build Phase cover? (optional)"
+                    />
                     <Button
                       className="flex-shrink-0"
                       disabled={newBuildPhaseName.trim().length < 2 || buildPhaseCommand.isPending}
                       onClick={() =>
                         buildPhaseCommand.mutate(
-                          { path: "", body: { name: newBuildPhaseName } },
-                          { onSuccess: () => setNewBuildPhaseName("") },
+                          {
+                            path: "",
+                            body: {
+                              name: newBuildPhaseName,
+                              ...(newBuildPhaseDescription.trim() ? { description: newBuildPhaseDescription.trim() } : {}),
+                            },
+                          },
+                          {
+                            onSuccess: () => {
+                              setNewBuildPhaseName("");
+                              setNewBuildPhaseDescription("");
+                            },
+                          },
                         )
                       }
                     >
@@ -296,22 +453,130 @@ export function VenturePage() {
                     )}
                     {buildPhases.map((phase: any) => {
                       const expanded = expandedBuildPhaseId === phase.id;
+                      const editingName = editingBuildPhaseId === phase.id;
                       return (
                         <Card key={phase.id} className="p-0 overflow-hidden">
-                          <button
-                            className="w-full flex items-center justify-between gap-3 p-4 text-left cursor-pointer hover:bg-secondary/35"
-                            onClick={() => setExpandedBuildPhaseId(expanded ? null : phase.id)}
-                          >
-                            <div className="flex items-center gap-3">
-                              <strong className="text-xs font-bold">{phase.name}</strong>
-                              <Badge tone="neutral">{phase.status}</Badge>
-                              <span className="text-[10px] text-muted-foreground">{phase._count?.stories ?? 0} stories</span>
-                            </div>
-                            <ChevronRight size={14} className={expanded ? "rotate-90 transition-transform" : "transition-transform"} />
-                          </button>
+                          <div className="w-full flex items-center justify-between gap-3 p-4 hover:bg-secondary/35">
+                            {editingName ? (
+                              <div className="flex flex-1 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                <Input
+                                  autoFocus
+                                  className="h-8 flex-1 text-xs"
+                                  value={editingBuildPhaseName}
+                                  onChange={(event) => setEditingBuildPhaseName(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Escape") setEditingBuildPhaseId(null);
+                                  }}
+                                />
+                                <button
+                                  className="w-6 h-6 shrink-0 rounded-md text-primary hover:bg-accent-soft/40 flex items-center justify-center cursor-pointer"
+                                  aria-label="Save Build Phase name"
+                                  disabled={editingBuildPhaseName.trim().length < 2}
+                                  onClick={() => {
+                                    buildPhaseCommand.mutate({
+                                      path: `/${phase.id}`,
+                                      method: "PATCH",
+                                      version: phase.version,
+                                      body: { name: editingBuildPhaseName.trim() },
+                                    });
+                                    setEditingBuildPhaseId(null);
+                                  }}
+                                >
+                                  <Check size={13} />
+                                </button>
+                                <button
+                                  className="w-6 h-6 shrink-0 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center cursor-pointer"
+                                  aria-label="Cancel editing"
+                                  onClick={() => setEditingBuildPhaseId(null)}
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                className="flex flex-1 items-center gap-3 text-left cursor-pointer group"
+                                onClick={() => setExpandedBuildPhaseId(expanded ? null : phase.id)}
+                              >
+                                <strong className="text-xs font-bold">{phase.name}</strong>
+                                <Badge tone="neutral">{phase.status}</Badge>
+                                <span className="text-[10px] text-muted-foreground">{phase._count?.stories ?? 0} stories</span>
+                                <span
+                                  role="button"
+                                  aria-label="Edit Build Phase name"
+                                  className="w-6 h-6 shrink-0 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent-soft/40 hover:text-primary flex items-center justify-center transition-all cursor-pointer"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setEditingBuildPhaseId(phase.id);
+                                    setEditingBuildPhaseName(phase.name);
+                                    setEditingBuildPhaseDescription(phase.description ?? "");
+                                  }}
+                                >
+                                  <Pencil size={11} />
+                                </span>
+                              </button>
+                            )}
+                            <button
+                              className="cursor-pointer"
+                              aria-label="Toggle Build Phase details"
+                              onClick={() => setExpandedBuildPhaseId(expanded ? null : phase.id)}
+                            >
+                              <ChevronRight size={14} className={expanded ? "rotate-90 transition-transform" : "transition-transform"} />
+                            </button>
+                          </div>
 
                           {expanded && (
                             <div className="border-t border-border p-4 flex flex-col gap-5">
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</span>
+                                  {editingBuildPhaseId !== `${phase.id}-desc` && (
+                                    <button
+                                      className="text-[10px] text-primary hover:underline cursor-pointer flex items-center gap-1"
+                                      onClick={() => {
+                                        setEditingBuildPhaseId(`${phase.id}-desc`);
+                                        setEditingBuildPhaseDescription(phase.description ?? "");
+                                      }}
+                                    >
+                                      <Pencil size={10} /> Edit
+                                    </button>
+                                  )}
+                                </div>
+                                {editingBuildPhaseId === `${phase.id}-desc` ? (
+                                  <div className="mt-1.5 flex flex-col gap-2">
+                                    <textarea
+                                      autoFocus
+                                      className="w-full rounded-lg border border-input bg-card p-2 text-xs min-h-[70px]"
+                                      value={editingBuildPhaseDescription}
+                                      onChange={(event) => setEditingBuildPhaseDescription(event.target.value)}
+                                      placeholder="What does this Build Phase cover?"
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => {
+                                          buildPhaseCommand.mutate({
+                                            path: `/${phase.id}`,
+                                            method: "PATCH",
+                                            version: phase.version,
+                                            body: { description: editingBuildPhaseDescription.trim() },
+                                          });
+                                          setEditingBuildPhaseId(null);
+                                        }}
+                                      >
+                                        Save
+                                      </Button>
+                                      <Button size="sm" variant="outline" onClick={() => setEditingBuildPhaseId(null)}>
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {phase.description || "No description yet."}
+                                  </p>
+                                )}
+                              </div>
+
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Status</span>
                                 {buildPhaseStatuses.map((status) => (
@@ -337,6 +602,11 @@ export function VenturePage() {
                               <div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assign Stories</span>
                                 <div className="mt-2 flex flex-col gap-1.5 max-h-48 overflow-y-auto rounded-lg border border-border p-2">
+                                  {stories.length === 0 ? (
+                                    <p className="p-2 text-center text-[11px] text-muted-foreground">
+                                      No Stories in the backlog yet — build them out in Refine or ask Evolve to create one.
+                                    </p>
+                                  ) : null}
                                   {stories.map((story: any) => {
                                     const assignedHere = expandedPhase?.stories?.some((s: any) => s.id === story.id);
                                     const assignedElsewhere = story.buildPhaseId && story.buildPhaseId !== phase.id;
@@ -352,7 +622,12 @@ export function VenturePage() {
                                               : buildPhaseCommand.mutate({ path: `/${phase.id}/stories`, body: { storyIds: [story.id] } })
                                           }
                                         />
-                                        <span className={assignedElsewhere ? "text-muted-foreground line-through" : ""}>{story.title}</span>
+                                        <span className={assignedElsewhere ? "text-muted-foreground line-through" : ""}>
+                                          {story.title}
+                                          {story.epic?.title ? (
+                                            <span className="ml-1.5 text-[10px] text-muted-foreground">· {story.epic.title}</span>
+                                          ) : null}
+                                        </span>
                                       </label>
                                     );
                                   })}
@@ -392,9 +667,14 @@ export function VenturePage() {
 
                               <div className="flex flex-col gap-2 border-t border-border pt-4">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Pack</span>
+                                  <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Pack</span>
+                                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                      Generates a PRD, Brand Kit, User Flow, blank Build Sync File, and handoff instructions — everything your developer needs to start.
+                                    </p>
+                                  </div>
                                   <Button
-                                    className="h-8 text-[11px] flex items-center gap-1.5"
+                                    className="h-8 shrink-0 text-[11px] flex items-center gap-1.5"
                                     disabled={generatingPack || (phase.status !== "ready" && phase.status !== "active")}
                                     onClick={() => void generatePack(phase.id)}
                                   >
@@ -406,14 +686,21 @@ export function VenturePage() {
                                   <div className="flex flex-col gap-1 text-[11px]">
                                     <span className="text-muted-foreground">Status: {buildPack.status}</span>
                                     {buildPack.prdUrl && <a href={buildPack.prdUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> PRD</a>}
-                                    {buildPack.buildSyncFileUrl && <a href={buildPack.buildSyncFileUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync File</a>}
-                                    {buildPack.buildSyncInstructionsUrl && <a href={buildPack.buildSyncInstructionsUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync Instructions</a>}
+                                    {buildPack.buildSyncFileUrl && <a href={buildPack.buildSyncFileUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync File (blank — send this to your developer)</a>}
+                                    {buildPack.buildSyncInstructionsUrl && <a href={buildPack.buildSyncInstructionsUrl} target="_blank" rel="noopener" className="text-primary underline flex items-center gap-1"><Download size={11} /> Build Sync Instructions (read this first)</a>}
                                   </div>
                                 )}
                               </div>
 
                               <div className="flex flex-col gap-2 border-t border-border pt-4">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Sync</span>
+                                <div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Build Sync</span>
+                                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                    Once your developer fills in the status column on the Build Sync File and sends it back, upload it here — story
+                                    statuses in the backlog above will update automatically. Use "Pull fresh sync file" anytime to get a re-exported
+                                    copy reflecting the current backlog (e.g. if you've added Stories since the pack was generated).
+                                  </p>
+                                </div>
                                 <div className="flex items-center gap-3 flex-wrap">
                                   <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
                                     <Upload size={12} />
@@ -424,6 +711,7 @@ export function VenturePage() {
                                       onChange={(event) => {
                                         const file = event.target.files?.[0];
                                         if (file) void uploadSyncFile(phase.id, file);
+                                        event.target.value = "";
                                       }}
                                     />
                                   </label>
@@ -440,13 +728,18 @@ export function VenturePage() {
                                 {syncUploads.length > 0 && (
                                   <div className="mt-1 flex flex-col gap-1.5">
                                     {syncUploads.map((upload: any) => (
-                                      <div key={upload.id} className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                        <span>{new Date(upload.createdAt).toLocaleString()}</span>
-                                        <Badge
-                                          tone={upload.status === "completed" ? "green" : upload.status === "failed" ? "red" : "amber"}
-                                        >
-                                          {upload.status}
-                                        </Badge>
+                                      <div key={upload.id} className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                                        <div className="flex items-center justify-between">
+                                          <span>{new Date(upload.createdAt).toLocaleString()}</span>
+                                          <Badge
+                                            tone={upload.status === "completed" ? "green" : upload.status === "failed" ? "red" : "amber"}
+                                          >
+                                            {upload.status}
+                                          </Badge>
+                                        </div>
+                                        {upload.status === "failed" && upload.error && (
+                                          <p className="text-destructive">{upload.error}</p>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -468,10 +761,10 @@ export function VenturePage() {
   );
 }
 
-function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disabled = false }: any) {
+function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disabled = false, extraControls }: any) {
   return (
     <SectionCard title={title} action={<Badge tone="neutral">{items.length}</Badge>}>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Input
           className="flex-1"
           value={value}
@@ -479,6 +772,7 @@ function WorkspaceList({ title, placeholder, value, onValue, onAdd, items, disab
           placeholder={placeholder}
           disabled={disabled}
         />
+        {extraControls}
         <Button
           className="flex items-center gap-1"
           disabled={disabled || value.trim().length < 2}
