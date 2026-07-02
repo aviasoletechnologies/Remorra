@@ -228,8 +228,10 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       if (item.to === "/workspace") return project.role === "founder" && ["discover", "refine"].includes(project.phase);
       // Initiate — founders only, and only when in that phase
       if (item.to === "/initiate") return project.role === "founder" && ["initiate"].includes(project.phase);
-      // Venture/Evolve/Reports — any role, but only when the project has reached those phases
-      if (item.to === "/venture" || item.to === "/reports" || item.to === "/evolve") return ["venture", "evolve"].includes(project.phase);
+      // Venture/Evolve/Reports — any role, but only when the project has reached those phases OR user is a team member (since team skips DRI)
+      if (item.to === "/venture" || item.to === "/reports" || item.to === "/evolve") {
+        return project.role === "team" || ["venture", "evolve"].includes(project.phase);
+      }
       return true;
     });
 
