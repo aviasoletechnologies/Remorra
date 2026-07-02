@@ -286,7 +286,7 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
                         <div key={item.id} className="rounded-lg border border-border p-2 space-y-1">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium">{item.title}</span>
-                            <Badge tone={severityTone[item.severity]}>{item.severity}</Badge>
+                            <Badge tone={severityTone[item.severity] ?? "neutral"}>{item.severity}</Badge>
                           </div>
                           <p className="text-muted-foreground">{item.reasoning}</p>
                           {item.status === "pending" ? (
