@@ -108,7 +108,10 @@ export function buildSkillMessages(
       if (content.startsWith("<") && content.endsWith(">") && content.includes("\n")) {
         return content;
       }
-      return `<${s.tag} trust="${s.trust}">\n${content}\n</${s.tag}>`;
+      if (content.includes("\n")) {
+        return `<${s.tag} trust="${s.trust}">\n${content}\n</${s.tag}>`;
+      }
+      return `<${s.tag} trust="${s.trust}">${content}</${s.tag}>`;
     })
     .join("\n");
 
