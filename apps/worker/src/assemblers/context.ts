@@ -357,7 +357,7 @@ export async function assembleContext(
           where: { projectId, status: "active" },
           include: {
             stories: {
-              select: { id: true, title: true, workStatus: true, priority: true },
+              select: { id: true, title: true, status: true, priority: true },
             },
           },
         });
@@ -370,7 +370,7 @@ export async function assembleContext(
             stories: (phase as any).stories.map((s: any) => ({
               id: s.id,
               title: s.title,
-              status: s.workStatus,
+              status: s.status,
               priority: s.priority,
             })),
           };
