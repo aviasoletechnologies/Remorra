@@ -196,6 +196,7 @@ export async function invokeSkill(input: {
       sourceMap,
       input.previousSkillId,
       skillId,
+      input.userId,
     );
 
     if (input.onLog) {

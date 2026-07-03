@@ -125,6 +125,7 @@ export async function assembleContext(
   },
   previousSkillId?: string,
   currentSkillId?: string,
+  userId?: string,
 ) {
   const sections: { tag: string; trust: "trusted" | "application" | "user"; content: string }[] = [];
 
@@ -281,6 +282,119 @@ export async function assembleContext(
           trust: "application",
           content: `<raid_all>\n${formatted}\n</raid_all>`,
         });
+      } else if (tableName === "ProjectMembership") {
+        // project.team — members with names and roles
+        const members = await prisma.projectMembership.findMany({
+          where: { projectId },
+          include: { user: { select: { id: true, preferredName: true, email: true } } },
+        });
+        const formatted = members.map((m: any) => ({
+          userId: m.userId,
+          name: m.user.preferredName ?? m.user.email,
+          role: m.role,
+        })).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "project_team",
+          trust: "application",
+          content: `<project_team>\n${formatted}\n</project_team>`,
+        });
+      } else if (tableName === "HealthScore") {
+        // health_score.current — latest health score with components
+        const latest = await prisma.healthScore.findFirst({
+          where: { projectId },
+          orderBy: { calculatedAt: "desc" },
+          include: { components: true },
+        });
+        if (latest) {
+          const data = {
+            overallScore: latest.overallScore,
+            readinessAssessment: latest.readinessAssessment,
+            calculatedAt: latest.calculatedAt,
+            components: latest.components.map((c: any) => ({
+              component: c.component,
+              weight: c.weight,
+              score: c.score,
+              rationale: c.rationale,
+            })),
+          };
+          sections.push({
+            tag: "health_score_current",
+            trust: "application",
+            content: `<health_score_current>\n${toYaml(data)}\n</health_score_current>`,
+          });
+        }
+      } else if (tableName === "AuditEvent") {
+        // audit.recent — last 20 audit events with source attribution
+        const events = await prisma.auditEvent.findMany({
+          where: { projectId },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: {
+            eventType: true,
+            entityType: true,
+            entityId: true,
+            source: true,
+            createdAt: true,
+            metadata: true,
+          },
+        });
+        const formatted = events.map((e: any) => ({
+          eventType: e.eventType,
+          entityType: e.entityType ?? null,
+          entityId: e.entityId ?? null,
+          source: e.source ?? null,
+          createdAt: e.createdAt,
+          metadata: e.metadata,
+        })).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "audit_recent",
+          trust: "application",
+          content: `<audit_recent>\n${formatted}\n</audit_recent>`,
+        });
+      } else if (tableName === "BuildPhase") {
+        // build_phase.current — active build phase with stories and statuses
+        const phase = await prisma.buildPhase.findFirst({
+          where: { projectId, status: "active" },
+          include: {
+            stories: {
+              select: { id: true, title: true, workStatus: true, priority: true },
+            },
+          },
+        });
+        if (phase) {
+          const data = {
+            id: phase.id,
+            name: phase.name,
+            description: phase.description ?? null,
+            status: phase.status,
+            stories: (phase as any).stories.map((s: any) => ({
+              id: s.id,
+              title: s.title,
+              status: s.workStatus,
+              priority: s.priority,
+            })),
+          };
+          sections.push({
+            tag: "build_phase_current",
+            trust: "application",
+            content: `<build_phase_current>\n${toYaml(data)}\n</build_phase_current>`,
+          });
+        }
+      } else if (tableName === "UserPreferredName") {
+        // user.preferred_name — calling user's name for personalised responses
+        if (userId) {
+          const profile = await prisma.profile.findUnique({
+            where: { id: userId },
+            select: { preferredName: true, email: true },
+          });
+          if (profile) {
+            sections.push({
+              tag: "user_preferred_name",
+              trust: "application",
+              content: `<user_preferred_name>${profile.preferredName ?? profile.email}</user_preferred_name>`,
+            });
+          }
+        }
       } else {
         // Generic fallback for any other database tables
         const delegateName = tableName.charAt(0).toLowerCase() + tableName.slice(1);
