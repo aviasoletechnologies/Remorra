@@ -5,7 +5,6 @@ import { withRetry } from "../lib/retry";
 import { orchestrator, anthropic, modelFor } from "../services/llm";
 import { grokModelFor, invokeGrokStream } from "../services/providers/grok";
 import { injectKnowledgeBases, assembleContext } from "./context";
-import { jsonSchemaToTableConfig } from "@remorra/contracts";
 
 const ALLOWED_ENTITIES = new Set(["Project", "Goal", "Epic", "Story", "Persona", "PainPoint", "RaidItem"]);
 
@@ -55,15 +54,17 @@ async function appendInternalInstructions(systemPrompt: string | null, systemPro
     prompt += `\n<output_schema>\n`;
 
     if (outputSchema.type === "table") {
-      if (typeof outputSchema.value === "object" && outputSchema.value !== null) {
-        type TableEntry = { columns: string[]; actions: string[] } | string[];
-        // Stored value is the generated JSON schema (properties.operations...),
-        // not the raw per-entity map — reconstruct the map this function needs.
-        const tables = (jsonSchemaToTableConfig(outputSchema.value) ?? outputSchema.value) as Record<string, TableEntry>;
-        const normalize = (entry: TableEntry) => ({
-          columns: Array.isArray(entry) ? entry : ((entry as any).columns ?? []),
-          actions: Array.isArray(entry) ? ["create", "update", "delete"] : ((entry as any).actions ?? ["create", "update", "delete"]),
-        });
+      const schemaValue = outputSchema.value;
+      if (typeof schemaValue === "object" && schemaValue !== null) {
+        // Stored value is already the generated JSON schema — send it directly
+        // as the format spec instead of rebuilding an equivalent description.
+        // Only the entity names are pulled back out (from properties.entity.const
+        // per oneOf variant) to look up FK cross-reference hints below.
+        const items = (schemaValue as any)?.properties?.operations?.items;
+        const variants: any[] = items ? (Array.isArray(items.oneOf) ? items.oneOf : [items]) : [];
+        const entityNames = variants
+          .map((v) => v?.properties?.entity?.const)
+          .filter((name): name is string => typeof name === "string");
 
         // Build FK maps dynamically from information_schema (cached after first call)
         const allFks = await getEntityRelations();
@@ -76,28 +77,25 @@ async function appendInternalInstructions(systemPrompt: string | null, systemPro
           (REFERENCED_BY[fk.referenced_table] ??= []).push(`${fk.table_name}.${fk.column_name}`);
         }
 
-        const entityLines = Object.entries(tables).map(([tableName, entry]) => {
-          const { columns, actions } = normalize(entry);
-          const dataExample = Object.fromEntries(columns.map((c: string) => [c, ""]));
-          const parentRels = PARENT_RELATIONS[tableName];
-          const refBy = REFERENCED_BY[tableName];
-          const parts: string[] = [];
-          if (parentRels && Object.keys(parentRels).length > 0)
-            parts.push(`requires: ${Object.entries(parentRels).map(([fk, parent]) => `${fk} → ${parent} (use $ref)`).join(", ")}`);
-          if (refBy && refBy.length > 0)
-            parts.push(`referenced by: ${refBy.join(", ")} — add "ref" label when creating`);
-          return `- entity: "${tableName}"  allowed actions: [${actions.join(", ")}]  columns: ${JSON.stringify(dataExample)}${parts.length ? `  (${parts.join(" | ")})` : ""}`;
-        }).join("\n");
+        const relationHints = entityNames
+          .map((name) => {
+            const parentRels = PARENT_RELATIONS[name];
+            const refBy = REFERENCED_BY[name];
+            const parts: string[] = [];
+            if (parentRels && Object.keys(parentRels).length > 0)
+              parts.push(`requires: ${Object.entries(parentRels).map(([fk, parent]) => `${fk} → ${parent} (use $ref)`).join(", ")}`);
+            if (refBy && refBy.length > 0)
+              parts.push(`referenced by: ${refBy.join(", ")} — add "ref" label when creating`);
+            return parts.length > 0 ? `- "${name}": ${parts.join(" | ")}` : null;
+          })
+          .filter((line): line is string => line !== null)
+          .join("\n");
 
-        const firstEntry = Object.entries(tables)[0];
-        const exampleTable = firstEntry?.[0] ?? "Entity";
-        const { columns: exampleCols } = normalize(firstEntry?.[1] ?? []);
-        const exampleData = Object.fromEntries(exampleCols.map((c: string) => [c, ""]));
-        prompt += `Output an operations JSON inside <output_data> tags.\n`;
-        prompt += `Available entities:\n${entityLines}\n\n`;
-        prompt += `Format:\n${JSON.stringify({ operations: [{ ref: "<optional label>", action: "<allowed action for this entity>", entity: exampleTable, id: "<id — only for update/delete, omit for create>", data: exampleData }] }, null, 2)}\n\n`;
+        prompt += `Output an operations JSON inside <output_data> tags that strictly matches this schema:\n`;
+        prompt += `${JSON.stringify(schemaValue, null, 2)}\n\n`;
+        if (relationHints) prompt += `Entity relationships:\n${relationHints}\n\n`;
         prompt += `Cross-referencing: use "ref" to label a created record (e.g. "ref": "myPersona"), then use "$myPersona" as the FK value in later operations to reference its generated id.\n`;
-        prompt += `Rules: only use listed entities, columns, and allowed actions per entity. Omit id for create. Omit ref if not needed. Order operations so parent entities come before children.\n`;
+        prompt += `Rules: omit "id" for create. Omit "ref" if not needed. Order operations so parent entities come before children.\n`;
       }
     } else if (outputSchema.type === "custom") {
       prompt += `Follow this custom schema or structure exactly:\n${outputSchema.value}\n`;
