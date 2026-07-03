@@ -402,7 +402,9 @@ export function AiWorkspacePage() {
                   </div>
                 </div>
               ) : (
-                visibleMessages.map((item) => {
+                visibleMessages
+                  .filter((item) => cleanMessageContent(item.content).trim().length > 0)
+                  .map((item) => {
                   const isAssistant = item.role === "assistant";
                   const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
