@@ -33,6 +33,7 @@ export async function handleConversation(payload: Payload) {
   let sequence = 1;
   const jobId = payload.jobRecordId;
   let savedAssistantMsg: any = null;
+  let savedClosingMsg: any = null;
   let queue: Array<{
     type: string;
     delta?: string;
@@ -776,7 +777,7 @@ export async function handleConversation(payload: Payload) {
               "You've completed all the steps — great work! 🎉 " +
               "Everything has been saved. Feel free to ask me anything else.";
 
-            savedAssistantMsg = await prisma.conversationMessage.create({
+            savedClosingMsg = await prisma.conversationMessage.create({
               data: {
                 conversationId,
                 role: "assistant",
@@ -858,6 +859,12 @@ export async function handleConversation(payload: Payload) {
             role: "assistant",
             content: savedAssistantMsg.content,
             createdAt: savedAssistantMsg.createdAt.toISOString(),
+          } : null,
+          savedClosingMsg ? {
+            id: savedClosingMsg.id,
+            role: "assistant",
+            content: savedClosingMsg.content,
+            createdAt: savedClosingMsg.createdAt.toISOString(),
           } : null,
         ].filter(Boolean),
       },
