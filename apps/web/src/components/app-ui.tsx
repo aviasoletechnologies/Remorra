@@ -48,11 +48,15 @@ type PageHeaderProps = {
   tone?: "green" | "blue" | "neutral";
 };
 
-export function PageHeader({ eyebrow, actions, tone = "green" }: PageHeaderProps) {
-  if (!eyebrow && !actions) return null;
+export function PageHeader({ eyebrow, title, description, actions, tone = "green" }: PageHeaderProps) {
+  if (!eyebrow && !title && !actions) return null;
   return (
-    <header className={cn("page-header", !eyebrow && "justify-end")}>
-      {eyebrow ? <Badge tone={tone}>{eyebrow}</Badge> : null}
+    <header className={cn("page-header", !eyebrow && !title && "justify-end")}>
+      <div className="flex flex-col gap-2">
+        {eyebrow ? <Badge tone={tone}>{eyebrow}</Badge> : null}
+        {title ? <h1 className="text-2xl font-bold tracking-tight text-foreground">{title}</h1> : null}
+        {description ? <p className="m-0 text-sm text-muted-foreground">{description}</p> : null}
+      </div>
       {actions ? <div className="page-header-actions">{actions}</div> : null}
     </header>
   );

@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Download, Layers, ListChecks, Loader2, Lock, Pencil, ShieldAlert, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowRight, Check, ChevronRight, Download, Layers, ListChecks, Loader2, Lock, Pencil, ShieldAlert, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { Badge, Button, Card, Input } from "../components/ui";
+import { buttonVariants } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { AppTabs, Page, PageHeader, SectionCard, TableSkeleton } from "../components/app-ui";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "../lib/utils";
 
 const columns = ["ready", "in_progress", "review", "done"] as const;
 const buildPhaseStatuses = ["draft", "ready", "active", "closed"] as const;
@@ -165,6 +168,12 @@ export function VenturePage() {
           tone="blue"
           title="Delivery workspace"
           description="Backlog and risk register for this project."
+          actions={
+            <Link to="/evolve" className={cn(buttonVariants({ variant: "outline" }))}>
+              Go to Evolve
+              <ArrowRight size={14} />
+            </Link>
+          }
         />
 
         <AppTabs value={tab} items={tabItems} onChange={setTab} />

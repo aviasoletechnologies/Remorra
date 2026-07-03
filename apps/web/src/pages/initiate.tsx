@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ArrowRight, Gauge, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, ArrowLeft, ArrowRight, Gauge, Sparkles } from "lucide-react";
 import { Button, Card, Progress } from "../components/ui";
+import { buttonVariants } from "../components/ui/button";
+import { cn } from "../lib/utils";
 import { EmptyState, MetricCard, Page, PageHeader, SectionCard, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
 import { api, advancePhase, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
@@ -59,7 +62,12 @@ export function InitiatePage() {
               : "A one-time, evidence-based readiness snapshot: is this project well-defined enough to build?"
           }
           actions={
-            isReadOnly ? null : (
+            isReadOnly ? (
+              <Link to="/venture" className={cn(buttonVariants({ variant: "outline" }))}>
+                <ArrowLeft size={14} />
+                Back to Delivery
+              </Link>
+            ) : (
               <div className="flex gap-2">
                 <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
                   <Sparkles size={16} />

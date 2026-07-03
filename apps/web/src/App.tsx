@@ -13,6 +13,7 @@ const AiWorkspacePage = lazy(() => import("./pages/ai-workspace").then((module) 
 const InitiatePage = lazy(() => import("./pages/initiate").then((module) => ({ default: module.InitiatePage })));
 const InvitationAcceptPage = lazy(() => import("./pages/invitation-accept").then((module) => ({ default: module.InvitationAcceptPage })));
 const KnowledgePage = lazy(() => import("./pages/knowledge").then((module) => ({ default: module.KnowledgePage })));
+const HistoryPage = lazy(() => import("./pages/history").then((module) => ({ default: module.HistoryPage })));
 const EvolvePage = lazy(() => import("./pages/evolve").then((module) => ({ default: module.EvolvePage })));
 const OverviewPage = lazy(() => import("./pages/overview").then((module) => ({ default: module.OverviewPage })));
 const PrivacyPage = lazy(() => import("./pages/privacy").then((module) => ({ default: module.PrivacyPage })));
@@ -66,6 +67,7 @@ export function App() {
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/team" element={<TeamPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/history" element={<HistoryPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/invitations/accept" element={<InvitationAcceptPage />} />
