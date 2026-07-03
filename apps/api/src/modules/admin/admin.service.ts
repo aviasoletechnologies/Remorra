@@ -3,7 +3,18 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, type DrivePhase } from "@remorra/contracts";
+import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, tableConfigToJsonSchema, type DrivePhase } from "@remorra/contracts";
+
+// Skill Output Schema config UI sends the raw per-entity column/action map
+// for type "table" — convert it to the JSON schema shape before storing so
+// the stored outputSchema is always what generation/validation actually
+// consumes. Idempotent: a value that's already schema-shaped (has
+// properties.operations) passes through untouched.
+function normalizeOutputSchemaForStorage(outputSchema: any): any {
+  if (!outputSchema || outputSchema.type !== "table" || !outputSchema.value) return outputSchema;
+  if (outputSchema.value?.properties?.operations) return outputSchema;
+  return { type: "table", value: tableConfigToJsonSchema(outputSchema.value) };
+}
 
 async function generateKbEmbedding(text: string): Promise<number[]> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -186,7 +197,7 @@ export class AdminService {
           systemPrompt,
           modelTier: validatedModelTier,
           inputSourceMap: inputSourceMap ?? {},
-          outputSchema: outputSchema ?? null,
+          outputSchema: normalizeOutputSchemaForStorage(outputSchema) ?? null,
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -305,7 +316,7 @@ export class AdminService {
           systemPrompt: String(parsed.systemPrompt ?? current.systemPrompt),
           modelTier: parsed.modelTier ?? current.modelTier,
           inputSourceMap: parsed.inputSourceMap !== undefined ? parsed.inputSourceMap : current.inputSourceMap,
-          outputSchema: parsed.outputSchema !== undefined ? parsed.outputSchema : current.outputSchema,
+          outputSchema: parsed.outputSchema !== undefined ? normalizeOutputSchemaForStorage(parsed.outputSchema) : current.outputSchema,
           constraints: parsed.constraints ?? current.constraints,
           examples: parsed.examples ?? current.examples,
           retryPolicy: parsed.retryPolicy ?? current.retryPolicy,
@@ -362,7 +373,7 @@ export class AdminService {
         ...(parsed.systemPrompt !== undefined ? { systemPrompt: String(parsed.systemPrompt) } : {}),
         ...(parsed.modelTier !== undefined ? { modelTier: parsed.modelTier } : {}),
         ...(parsed.inputSourceMap !== undefined ? { inputSourceMap: parsed.inputSourceMap } : {}),
-        ...(parsed.outputSchema !== undefined ? { outputSchema: parsed.outputSchema } : {}),
+        ...(parsed.outputSchema !== undefined ? { outputSchema: normalizeOutputSchemaForStorage(parsed.outputSchema) } : {}),
         ...(parsed.constraints !== undefined ? { constraints: parsed.constraints } : {}),
         ...(parsed.examples !== undefined ? { examples: parsed.examples } : {}),
         ...(parsed.retryPolicy !== undefined ? { retryPolicy: parsed.retryPolicy } : {}),
