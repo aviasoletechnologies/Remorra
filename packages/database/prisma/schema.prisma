@@ -1059,6 +1059,13 @@ model TokenUsage {
   skillVersion   SkillVersion? @relation(fields: [skillVersionId], references: [id])
 }
 
+enum AuditEventSource {
+  evolve_session
+  build_sync
+  manual_edit
+  auto_detection
+}
+
 model AuditEvent {
   id         String   @id @default(uuid()) @db.Uuid
   projectId  String   @db.Uuid
@@ -1068,6 +1075,7 @@ model AuditEvent {
   entityId   String?  @db.Uuid
   before     Json?
   after      Json?
+  source     AuditEventSource?
   metadata   Json
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)

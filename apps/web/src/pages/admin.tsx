@@ -411,7 +411,7 @@ export function AdminPage() {
     enabled: activeTab === "system",
   });
 
-  const ALLOWED_TABLES = ["Project", "Goal", "Epic", "Story", "Persona", "PainPoint", "RaidItem"];
+  const ALLOWED_TABLES = ["Project", "Goal", "Epic", "Story", "Persona", "PainPoint", "RaidItem", "ProjectMembership", "HealthScore", "AuditEvent", "BuildPhase"];
   const ALWAYS_SENSITIVE = ["id", "projectId", "createdAt", "updatedAt", "embedding", "version", "position"];
   // FK columns pointing to tables NOT in ALLOWED_TABLES are system-managed (e.g. ownerId→Profile, cycleId→Cycle)
   const systemFkCols = new Set<string>(
