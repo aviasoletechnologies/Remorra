@@ -27,6 +27,7 @@ import {
   Activity,
   Plus,
   Loader2,
+  History,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation } from "react-router-dom";
@@ -100,6 +101,7 @@ const pageNames: Record<string, string> = {
   "/reports": "Reports & packs",
   "/team": "People & access",
   "/knowledge": "Product library",
+  "/history": "Conversation history",
   "/privacy": "Privacy & data",
   "/admin": "Platform admin",
 };
@@ -406,6 +408,16 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {project ? (
+              <Link
+                to="/history"
+                className="hidden h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View conversation history"
+              >
+                <History size={14} />
+                <span>History</span>
+              </Link>
+            ) : null}
             {project?.healthScore != null ? (
               <Link
                 to="/initiate"
@@ -417,7 +429,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
                 <strong className="text-foreground">{project.healthScore}</strong>
               </Link>
             ) : null}
-            {location.pathname === "/workspace" ? (
+            {project ? (
               <Button
                 variant="ghost"
                 size="icon"

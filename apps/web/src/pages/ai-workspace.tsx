@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X, PanelRightOpen, PanelRightClose, History } from "lucide-react";
+import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowUp, Copy, ThumbsUp, ThumbsDown, Upload, RotateCcw, MoreHorizontal, Paperclip, X, PanelRightOpen, PanelRightClose } from "lucide-react";
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
 import { RefineSummaryPanel } from "../components/refine-summary-panel";
-import { ConversationHistoryModal } from "../components/conversation-history-modal";
 import type { Project } from "@remorra/contracts";
 import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
@@ -126,7 +125,6 @@ export function AiWorkspacePage() {
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [showRefineSummary, setShowRefineSummary] = useState(true);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -367,18 +365,6 @@ export function AiWorkspacePage() {
               )}
             </button>
           )}
-          {projectId && (
-            <button
-              type="button"
-              onClick={() => setShowHistoryModal(true)}
-              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
-              style={project?.phase === "refine" ? { top: "3.25rem" } : undefined}
-              title="View conversation history"
-            >
-              <History size={13} />
-              <span>History</span>
-            </button>
-          )}
           {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete && (
             <button
               type="button"
@@ -597,12 +583,6 @@ export function AiWorkspacePage() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <ConversationHistoryModal
-        projectId={projectId}
-        open={showHistoryModal}
-        onOpenChange={setShowHistoryModal}
-      />
     </Page>
   );
 }
