@@ -6,6 +6,7 @@ import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
 import { assembleProductPackData } from "../assemblers/index.js";
 import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper.js";
 import { triggerChatReportPdf } from "../services/pdf.js";
+import { jsonSchemaToTableConfig } from "@remorra/contracts";
 
 function cleanJsonString(str: string): string {
   let cleaned = str.trim();
@@ -604,8 +605,11 @@ export async function handleConversation(payload: Payload) {
                 const rawSchema = (result.skill as any).outputSchema;
                 let allowedActionsMap: Record<string, string[]> | undefined;
                 if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+                  // Stored value is the generated JSON schema, not the raw
+                  // per-entity map — reconstruct it before reading actions.
+                  const tableConfig = jsonSchemaToTableConfig(rawSchema.value) ?? (rawSchema.value as Record<string, any>);
                   allowedActionsMap = {};
-                  for (const [entity, entry] of Object.entries(rawSchema.value as Record<string, any>)) {
+                  for (const [entity, entry] of Object.entries(tableConfig as Record<string, any>)) {
                     allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
                   }
                 }
