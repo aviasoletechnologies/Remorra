@@ -289,3 +289,71 @@ export const skillVersionInputSchema = z.object({
 });
 export type SkillVersionInput = z.infer<typeof skillVersionInputSchema>;
 
+// Admin-facing shape: what the Skill Output Schema config UI edits —
+// per-entity column + action selections. Stored form is the JSON schema
+// below; conversion happens at the API boundary (write) and in the admin
+// UI's parse step (read) so both sides share one definition of the mapping.
+export type TableOutputConfig = Record<string, { columns: string[]; actions: string[] }>;
+
+const ALL_TABLE_ACTIONS = ["create", "update", "delete"];
+
+export function tableConfigToJsonSchema(tableConfig: TableOutputConfig): Record<string, unknown> {
+  const variants = Object.entries(tableConfig).map(([entityName, entry]) => {
+    const columns = entry.columns ?? [];
+    const actions = entry.actions ?? ALL_TABLE_ACTIONS;
+    return {
+      required: ["action", "entity", "data"],
+      properties: {
+        ref: { type: "string" },
+        action: { enum: actions },
+        entity: { const: entityName },
+        id: { type: "string" },
+        data: {
+          type: "object",
+          required: columns,
+          properties: Object.fromEntries(columns.map((c) => [c, { type: "string" }])),
+        },
+      },
+    };
+  });
+
+  return {
+    type: "object",
+    required: ["operations"],
+    properties: {
+      operations: {
+        type: "array",
+        items: variants.length === 1 ? variants[0] : { oneOf: variants },
+      },
+    },
+  };
+}
+
+// Reverse of tableConfigToJsonSchema — reconstructs the admin's per-entity
+// column/action selections from a stored JSON schema so the config UI can
+// show what's actually set instead of appearing empty/broken. Returns null
+// if the value doesn't look like a schema produced by the function above.
+export function jsonSchemaToTableConfig(value: unknown): TableOutputConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const root = value as Record<string, any>;
+  const items = root?.properties?.operations?.items;
+  if (!items || typeof items !== "object") return null;
+
+  const variants: any[] = Array.isArray(items.oneOf) ? items.oneOf : [items];
+  const result: TableOutputConfig = {};
+
+  for (const variant of variants) {
+    const entityName = variant?.properties?.entity?.const;
+    if (typeof entityName !== "string") continue;
+    const actions = Array.isArray(variant?.properties?.action?.enum)
+      ? variant.properties.action.enum
+      : typeof variant?.properties?.action?.const === "string"
+        ? [variant.properties.action.const]
+        : [...ALL_TABLE_ACTIONS];
+    const columns = Object.keys(variant?.properties?.data?.properties ?? {});
+    result[entityName] = { columns, actions };
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+

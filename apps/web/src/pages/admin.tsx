@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { MODEL_TIERS } from "@remorra/contracts";
+import { MODEL_TIERS, jsonSchemaToTableConfig } from "@remorra/contracts";
 import {
   TrendingUp,
   Users,
@@ -95,8 +95,13 @@ function parseOutputSchema(val: any): { type: string; value: any } {
   }
   const result = { type: val.type || "text", value: val.value ?? "" };
   if (result.type === "table" && typeof result.value === "object" && result.value !== null) {
+    // Stored value is the generated JSON schema (properties.operations...) —
+    // reconstruct the per-entity column/action map the config UI edits,
+    // rather than treating the schema itself as the entity map.
+    const fromSchema = jsonSchemaToTableConfig(result.value);
+    const rawMap = fromSchema ?? (result.value as Record<string, any>);
     const migrated: Record<string, { columns: string[]; actions: string[] }> = {};
-    for (const [k, v] of Object.entries(result.value as Record<string, any>)) {
+    for (const [k, v] of Object.entries(rawMap)) {
       migrated[k] = normalizeTableEntry(v);
     }
     result.value = migrated;
