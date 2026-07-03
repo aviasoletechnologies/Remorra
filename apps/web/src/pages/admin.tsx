@@ -1709,9 +1709,24 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Project Tables & Columns selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground mb-3">
                   Select database tables and optionally check specific columns to include in the context.
                 </p>
+                <div className="mt-1 mb-4 rounded-lg border border-primary/20 bg-primary-soft/10 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground block mb-1">DRIVE Simplified Hierarchy Links:</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-foreground">Goal</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Epic</span> <span className="text-[10px] text-muted-foreground">(linked via goalId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Story</span> <span className="text-[10px] text-muted-foreground">(linked via epicId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Persona</span> <span className="text-[10px] text-muted-foreground">(linked via PersonaStory)</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground block mt-1.5">
+                    * Foreign key connections and linked Persona associations are automatically sent to the LLM when these tables are included.
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 mb-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                     <input
@@ -1881,9 +1896,24 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Project Tables & Columns selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground mb-3">
                   Select database tables and optionally check specific columns to include in the context.
                 </p>
+                <div className="mt-1 mb-4 rounded-lg border border-primary/20 bg-primary-soft/10 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground block mb-1">DRIVE Simplified Hierarchy Links:</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-foreground">Goal</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Epic</span> <span className="text-[10px] text-muted-foreground">(linked via goalId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Story</span> <span className="text-[10px] text-muted-foreground">(linked via epicId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Persona</span> <span className="text-[10px] text-muted-foreground">(linked via PersonaStory)</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground block mt-1.5">
+                    * Foreign key connections and linked Persona associations are automatically sent to the LLM when these tables are included.
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 mb-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                     <input
