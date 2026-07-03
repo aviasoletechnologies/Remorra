@@ -296,6 +296,7 @@ export class BuildPhaseService {
         eventType,
         entityType: "BuildPhase",
         entityId,
+        source: "manual_edit",
         before: before ?? undefined,
         after: after ?? undefined,
         metadata: {},

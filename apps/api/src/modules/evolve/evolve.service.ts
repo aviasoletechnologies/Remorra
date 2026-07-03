@@ -341,6 +341,7 @@ export class EvolveService {
         eventType,
         entityType,
         entityId,
+        source: "evolve_session",
         before: before ?? undefined,
         after: after ?? undefined,
         metadata: {},

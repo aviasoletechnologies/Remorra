@@ -82,6 +82,7 @@ export class EventRouterService {
           projectId,
           actorId: userId,
           eventType: "event_router.routed",
+          source: "auto_detection",
           metadata: { eventType, phase: projectPhase, skillId: mapping.skillId, queue: mapping.targetQueue, jobId: job.id },
         },
       });
