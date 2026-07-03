@@ -7,6 +7,7 @@ export async function logEntityAudit(input: {
   eventType: string;
   entityType: string;
   entityId: string;
+  source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
   before?: unknown;
   after?: unknown;
 }) {
@@ -18,12 +19,14 @@ export async function logEntityAudit(input: {
         eventType: input.eventType,
         entityType: input.entityType,
         entityId: input.entityId,
+        source: input.source ?? "evolve_session",
         before: input.before !== undefined ? jsonValue(input.before) : undefined,
         after: input.after !== undefined ? jsonValue(input.after) : undefined,
-        metadata: { source: "extract_mapper" },
+        metadata: {},
       },
     });
   } catch (err) {
     console.warn("[logEntityAudit] failed to write audit event", err);
   }
 }
+
