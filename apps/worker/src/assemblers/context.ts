@@ -95,20 +95,23 @@ export async function assembleContext(
 ) {
   const sections: { tag: string; trust: "trusted" | "application" | "user"; content: string }[] = [];
 
-  // 1. Fetch other skills' conversations if configured
-  if (inputSourceMap.skills && inputSourceMap.skills.length > 0) {
-    const resolvedSkills: string[] = [];
+  // 1. Fetch other skills' conversations.
+  // Baseline default (always on, no config needed): whichever skill actually
+  // triggered this turn (previousSkillId) is always included — this is the
+  // "previous skill output" the Skill editor's checkbox warns about when no
+  // extra sources are configured. inputSourceMap.skills is an ADDITIVE list
+  // of real skill IDs the Admin explicitly picked via "also use other skill
+  // output" — combined with the baseline, not a replacement for it (flow-issues.md
+  // #1/#29: the old code let an explicit list silently replace previousSkillId,
+  // or replaced previousSkillId's slot when the magic "@previous" string was
+  // used — neither is correct; both sources should combine, deduplicated).
+  const resolvedSkills = new Set<string>();
+  if (previousSkillId) resolvedSkills.add(previousSkillId);
+  for (const skillId of inputSourceMap.skills ?? []) {
+    if (skillId !== "@previous") resolvedSkills.add(skillId);
+  }
 
-    if (previousSkillId) {
-      resolvedSkills.push(previousSkillId);
-    } else {
-      for (const skillId of inputSourceMap.skills) {
-        if (skillId !== "@previous") {
-          resolvedSkills.push(skillId);
-        }
-      }
-    }
-
+  if (resolvedSkills.size > 0) {
     for (const skillId of resolvedSkills) {
       // Skip current skill — conversation_history in skills.ts already covers it
       if (skillId === currentSkillId) continue;

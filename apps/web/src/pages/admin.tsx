@@ -45,8 +45,11 @@ function parseInputSourceMap(val: any): any {
     }
   }
   if (typeof val === "object") {
+    // flow-issues.md #1 — preserve the real skill-ID list as saved. Previously
+    // this collapsed any non-empty list down to the literal "@previous",
+    // silently discarding which skills were actually selected.
     const rawSkills = Array.isArray(val.skills) ? val.skills : [];
-    const skills = rawSkills.length > 0 ? ["@previous"] : [];
+    const skills = rawSkills.filter((s: unknown) => typeof s === "string" && s !== "@previous");
     return {
       skills,
       tables: val.tables && typeof val.tables === "object" ? val.tables : {}
@@ -61,8 +64,7 @@ function describeSkillInputRequirement(version: any): string {
   const skills = sourceMap.skills;
   const tables = Object.keys(sourceMap.tables);
   if (skills.length > 0) {
-    const skillLabels = skills.map((s: string) => s === "@previous" ? "Previous Skill" : s);
-    parts.push(`Skills: ${skillLabels.join(", ")}`);
+    parts.push(`Skills: ${skills.join(", ")}`);
   }
   if (tables.length > 0) {
     parts.push(`Tables: ${tables.join(", ")}`);
@@ -141,6 +143,29 @@ function describeInputSourceMap(sourceMap: any): string {
   return `Configured: ${parts.join(" and ")}`;
 }
 
+// flow-issues.md #1 — is this skill ever actually triggered as a "next skill"
+// by an active event mapping? If not, any "previous skill output" sources
+// selected on it are speculative — nothing guarantees they'll be populated
+// when this skill runs, since nothing is confirmed to run before it.
+function findTriggeringMapping(skillId: string, mappings: any[]): any | null {
+  return mappings.find((m: any) => m.skillId === skillId && m.active) ?? null;
+}
+
+// Human-readable description of what actually triggers a skill's "previous
+// skill output" baseline right now — resolved against both skill-completed-event
+// mappings and db-event mappings, so the admin can see exactly what this skill's
+// default input will be without any extra sources configured.
+function describeTriggerMapping(mapping: any | null, allSkills: any[]): string {
+  if (!mapping) {
+    return "Nothing currently triggers this skill via an active event mapping — the baseline previous-skill-output will be empty until one is configured.";
+  }
+  const completedMatch = String(mapping.eventType ?? "").match(/^skill\.(.+)\.completed$/);
+  if (completedMatch) {
+    const sourceSkill = allSkills.find((s: any) => s.id === completedMatch[1]);
+    return `Triggered when skill "${sourceSkill?.name ?? completedMatch[1]}" completes — that skill's output is this skill's default input.`;
+  }
+  return `Triggered by database event "${mapping.eventType}" — no skill output feeds this skill by default; only the database event's own data is available.`;
+}
 
 export function AdminPage() {
   const confirm = useConfirm();
@@ -180,6 +205,7 @@ export function AdminPage() {
   const [newSkillPhase, setNewSkillPhase] = useState("discover");
   const [newSkillModelTier, setNewSkillModelTier] = useState("standard");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [createUseOtherSkillOutput, setCreateUseOtherSkillOutput] = useState(false);
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [newSkillCustomSchemaError, setNewSkillCustomSchemaError] = useState<string | null>(null);
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
@@ -195,6 +221,7 @@ export function AdminPage() {
   const [editSkillPhase, setEditSkillPhase] = useState("discover");
   const [editSkillModelTier, setEditSkillModelTier] = useState("standard");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [editUseOtherSkillOutput, setEditUseOtherSkillOutput] = useState(false);
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [editCustomSchemaError, setEditCustomSchemaError] = useState<string | null>(null);
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
@@ -362,6 +389,16 @@ export function AdminPage() {
     enabled: activeTab === "system",
   });
   const allSkills = allSkillsData?.items ?? [];
+
+  // flow-issues.md #1 — used to warn when a skill's "previous skill output"
+  // sources are configured but no event mapping actually triggers this skill
+  // after anything, so those sources would be empty at runtime.
+  const { data: allMappingsData } = useQuery<any>({
+    queryKey: ["admin-all-event-mappings"],
+    queryFn: () => api("/admin/event-mappings?page=1&limit=200"),
+    enabled: activeTab === "system",
+  });
+  const allMappings = allMappingsData?.items ?? [];
 
   const { data: dbSchemaData = { tables: {}, relations: {} } } = useQuery<{ tables: Record<string, string[]>; relations: Record<string, { column: string; referencedTable: string }[]> }>({
     queryKey: ["admin-db-schema"],
@@ -661,6 +698,7 @@ export function AdminPage() {
       setNewSkillPhase("discover");
       setNewSkillModelTier("standard");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
+      setCreateUseOtherSkillOutput(false);
       setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
       setIsCreateContextConfigOpen(false);
@@ -946,7 +984,9 @@ export function AdminPage() {
                   setEditKbEligible(skill.kbEligible ?? false);
                   setEditSkillPhase(skill.phase ?? "discover");
                   setEditSkillModelTier(currentVer?.modelTier ?? "standard");
-                  setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
+                  const parsedInputSourceMap = parseInputSourceMap(currentVer?.inputSourceMap);
+                  setEditInputSourceMap(parsedInputSourceMap);
+                  setEditUseOtherSkillOutput((parsedInputSourceMap?.skills?.length ?? 0) > 0);
                   setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
                 }}
@@ -1027,7 +1067,9 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
           setEditSkillModelTier(version.modelTier ?? "standard");
-          setEditInputSourceMap(parseInputSourceMap(version.inputSourceMap));
+          const selectedInputSourceMap = parseInputSourceMap(version.inputSourceMap);
+          setEditInputSourceMap(selectedInputSourceMap);
+          setEditUseOtherSkillOutput((selectedInputSourceMap?.skills?.length ?? 0) > 0);
           setEditOutputSchema(parseOutputSchema(version.outputSchema));
           setSkillEditError(null);
         };
@@ -1406,6 +1448,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
           if (e.target === e.currentTarget) {
             setIsCreateSkillOpen(false);
             setNewSkillInputSourceMap({ skills: [], tables: {} });
+            setCreateUseOtherSkillOutput(false);
             setSkillCreateError(null);
             setIsCreateContextConfigOpen(false);
           }
@@ -1416,6 +1459,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               <Button variant="ghost" onClick={() => {
                 setIsCreateSkillOpen(false);
                 setNewSkillInputSourceMap({ skills: [], tables: {} });
+                setCreateUseOtherSkillOutput(false);
                 setSkillCreateError(null);
                 setIsCreateContextConfigOpen(false);
               }}>
@@ -1610,29 +1654,56 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Output</span>
+                  <span>Skill Output Sources</span>
                 </h4>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's output should be passed as input context. Can be combined with tables.
+                <p className="text-xs text-muted-foreground mb-3">
+                  By default, this skill's input is always whichever skill actually triggers it — no configuration needed.
                 </p>
-                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  <label className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
-                    <input
-                      type="checkbox"
-                      checked={editInputSourceMap?.skills?.includes("@previous") || false}
-                      onChange={(e) => {
-                        const skills = [...(editInputSourceMap?.skills || [])].filter(s => s !== "@previous");
-                        if (e.target.checked) skills.push("@previous");
-                        setEditInputSourceMap({ ...editInputSourceMap, skills });
-                      }}
-                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="font-medium text-foreground">Previous skill Output</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
-                    </div>
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-sm p-1.5 mb-2 rounded cursor-pointer hover:bg-secondary/10 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={editUseOtherSkillOutput}
+                    onChange={(e) => {
+                      setEditUseOtherSkillOutput(e.target.checked);
+                      if (!e.target.checked) {
+                        setEditInputSourceMap({ ...editInputSourceMap, skills: [] });
+                      }
+                    }}
+                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Also use other skill output</span>
+                </label>
+
+                {editUseOtherSkillOutput ? (
+                  <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1 pl-1 border-l-2 border-border ml-1 mt-2">
+                    {allSkills.filter((s: any) => s.id !== editingSkill?.id).map((s: any) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
+                        <input
+                          type="checkbox"
+                          checked={editInputSourceMap?.skills?.includes(s.id) || false}
+                          onChange={(e) => {
+                            const skills = [...(editInputSourceMap?.skills || [])].filter((id: string) => id !== s.id);
+                            if (e.target.checked) skills.push(s.id);
+                            setEditInputSourceMap({ ...editInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name ?? s.id}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    ))}
+                    {allSkills.length <= 1 ? (
+                      <p className="text-xs text-muted-foreground p-1.5">No other skills exist yet to select as a source.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-1 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                    This skill's input is always the previous (triggering) skill's output.{" "}
+                    {editingSkill ? describeTriggerMapping(findTriggeringMapping(editingSkill.id, allMappings), allSkills) : ""}
+                  </div>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}
@@ -1755,29 +1826,56 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Output</span>
+                  <span>Skill Output Sources</span>
                 </h4>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's output should be passed as input context. Can be combined with tables.
+                <p className="text-xs text-muted-foreground mb-3">
+                  By default, this skill's input is always whichever skill actually triggers it — no configuration needed.
                 </p>
-                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  <label className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
-                    <input
-                      type="checkbox"
-                      checked={newSkillInputSourceMap?.skills?.includes("@previous") || false}
-                      onChange={(e) => {
-                        const skills = [...(newSkillInputSourceMap?.skills || [])].filter(s => s !== "@previous");
-                        if (e.target.checked) skills.push("@previous");
-                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
-                      }}
-                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="font-medium text-foreground">Previous skill Output</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
-                    </div>
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-sm p-1.5 mb-2 rounded cursor-pointer hover:bg-secondary/10 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={createUseOtherSkillOutput}
+                    onChange={(e) => {
+                      setCreateUseOtherSkillOutput(e.target.checked);
+                      if (!e.target.checked) {
+                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills: [] });
+                      }
+                    }}
+                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Also use other skill output</span>
+                </label>
+
+                {createUseOtherSkillOutput ? (
+                  <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1 pl-1 border-l-2 border-border ml-1 mt-2">
+                    {allSkills.map((s: any) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
+                        <input
+                          type="checkbox"
+                          checked={newSkillInputSourceMap?.skills?.includes(s.id) || false}
+                          onChange={(e) => {
+                            const skills = [...(newSkillInputSourceMap?.skills || [])].filter((id: string) => id !== s.id);
+                            if (e.target.checked) skills.push(s.id);
+                            setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name ?? s.id}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    ))}
+                    {allSkills.length === 0 ? (
+                      <p className="text-xs text-muted-foreground p-1.5">No other skills exist yet to select as a source.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-1 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                    This skill's input is always the previous (triggering) skill's output. Once created, wire an Event
+                    Mapping so something actually triggers it — otherwise this baseline will be empty at runtime.
+                  </div>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}

@@ -78,24 +78,65 @@ describe("assembleContext Service Tests", () => {
     expect(sections).toHaveLength(0);
   });
 
-  it("resolves @previous skill from explicit previousSkillId", async () => {
+  it("always includes the triggering skill's output as a baseline default (previousSkillId)", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst).mockResolvedValueOnce({ conversationId: "conv-1" } as any);
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { result: "extracted data" },
+    } as any);
+
+    // No explicit sources configured at all — the skill that triggered this
+    // turn is still resolved automatically, no config required.
+    const sections = await assembleContext("p1", {}, "first-skill");
+
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "first-skill" }) }),
+    );
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tag).toBe("skill_output_first_skill");
+  });
+
+  it("combines the baseline previous-skill output with explicitly configured extra sources (flow-issues.md #1/#29)", async () => {
     vi.mocked(prisma.conversationMessage.findFirst)
       .mockResolvedValueOnce({ conversationId: "conv-1" } as any)
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce({ conversationId: "conv-2" } as any);
 
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { result: "extracted data" },
+    } as any);
+
+    // Admin explicitly selected one extra source ("skill-a") via "also use
+    // other skill output" — it must combine with the baseline (previousSkillId),
+    // not replace it, and not be silently dropped by whichever configured
+    // second.
+    const sections = await assembleContext("p1", { skills: ["skill-a"] }, "triggering-skill");
+
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "triggering-skill" }) }),
+    );
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "skill-a" }) }),
+    );
+    expect(sections).toHaveLength(2);
+  });
+
+  it("filters out the legacy @previous keyword without double-adding the baseline", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst).mockResolvedValueOnce({ conversationId: "conv-1" } as any);
     vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
       payload: { result: "extracted data" },
     } as any);
 
     const sections = await assembleContext("p1", { skills: ["@previous"] }, "first-skill");
 
-    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ skillId: "first-skill" }) }),
-    );
-
+    // Resolves via the baseline default, not the literal "@previous" string —
+    // exactly one call, not two.
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledTimes(1);
     expect(sections).toHaveLength(1);
-    expect(sections[0]!.tag).toBe("skill_output_first_skill");
-    expect(sections[0]!.content).toContain("Output from skill first-skill:");
+  });
+
+  it("resolves nothing when there is no triggering skill and no explicit sources configured", async () => {
+    const sections = await assembleContext("p1", {}, undefined);
+    expect(prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(sections).toHaveLength(0);
   });
 
   it("filters project tables and specific columns dynamically", async () => {
