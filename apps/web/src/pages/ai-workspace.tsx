@@ -3,9 +3,8 @@ import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowU
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
-import { ProductPackPanel } from "../components/product-pack-panel";
 import { RefineSummaryPanel } from "../components/refine-summary-panel";
-import type { ProductPackDto, Project } from "@remorra/contracts";
+import type { Project } from "@remorra/contracts";
 import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion, AnimatePresence } from "framer-motion";
@@ -124,9 +123,7 @@ export function AiWorkspacePage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
-  const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
-  const [showProductPack, setShowProductPack] = useState(true);
   const [showRefineSummary, setShowRefineSummary] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -262,9 +259,6 @@ export function AiWorkspacePage() {
                     });
                     setStreamedReply("");
                   }
-                  if (event.type === "product_pack_update" && event.metadata?.productPack) {
-                    setLiveProductPack(event.metadata.productPack as ProductPackDto);
-                  }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
                       sequence: event.sequence,
@@ -371,27 +365,6 @@ export function AiWorkspacePage() {
               )}
             </button>
           )}
-          {projectId && project?.phase !== "refine" && (
-            <button
-              type="button"
-              onClick={() => setShowProductPack(prev => !prev)}
-              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
-              title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
-            >
-              {showProductPack ? (
-                <>
-                  <span>Hide Pack</span>
-                  <PanelRightClose size={13} />
-                </>
-              ) : (
-                <>
-                  <span>Show Pack</span>
-                  <PanelRightOpen size={13} />
-                </>
-              )}
-            </button>
-          )}
-
           {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete && (
             <button
               type="button"
@@ -607,21 +580,6 @@ export function AiWorkspacePage() {
             className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
           >
             <RefineSummaryPanel projectId={projectId} onCollapse={() => setShowRefineSummary(false)} />
-          </motion.div>
-        )}
-        {projectId && project?.phase !== "refine" && showProductPack && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 320, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
-          >
-            <ProductPackPanel
-              projectId={projectId}
-              externalPack={liveProductPack}
-              onCollapse={() => setShowProductPack(false)}
-            />
           </motion.div>
         )}
       </AnimatePresence>
