@@ -152,6 +152,26 @@ function describeInputSourceMap(sourceMap: any): string {
 // by an active event mapping? If not, any "previous skill output" sources
 // selected on it are speculative — nothing guarantees they'll be populated
 // when this skill runs, since nothing is confirmed to run before it.
+// Advisory only (non-blocking) — the model already gets <skill_done/> and,
+// when Output Schema is configured, the exact <output_data> format appended
+// automatically by appendInternalInstructions() at runtime. Hand-writing the
+// same instructions in the System Prompt sends them to the model twice and
+// can drift out of sync with the real config.
+function detectFormatDuplicationWarnings(prompt: string): string[] {
+  const warnings: string[] = [];
+  if (!prompt) return warnings;
+  if (/<skill_done\s*\/?>/i.test(prompt)) {
+    warnings.push(`Mentions "<skill_done/>" — this tag is always appended automatically. Remove it from the prompt.`);
+  }
+  if (/<output_data>|<\/output_data>/i.test(prompt)) {
+    warnings.push(`Mentions "<output_data>" tags — these are auto-injected from the Output Schema config below. Describing them here duplicates that instruction.`);
+  }
+  if (/```json|"operations"\s*:\s*\[/i.test(prompt)) {
+    warnings.push(`Contains a hand-written JSON example — if Output Schema is configured, the exact format is already auto-appended; a hand-written example here can drift out of sync and conflict with it.`);
+  }
+  return warnings;
+}
+
 function findTriggeringMapping(skillId: string, mappings: any[]): any | null {
   return mappings.find((m: any) => m.skillId === skillId && m.active) ?? null;
 }
@@ -1279,6 +1299,11 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         onChange={(e) => setEditPromptText(e.target.value)}
                         disabled={!isAdmin || !currentVer}
                       />
+                      {detectFormatDuplicationWarnings(editPromptText).map((warning, i) => (
+                        <div key={i} className="mt-2 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                          {warning}
+                        </div>
+                      ))}
                     </div>
 
 
@@ -1557,6 +1582,11 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                     value={newSkillPrompt}
                     onChange={(e) => setNewSkillPrompt(e.target.value)}
                   />
+                  {detectFormatDuplicationWarnings(newSkillPrompt).map((warning, i) => (
+                    <div key={i} className="mt-2 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                      {warning}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="editor-section mt-6 border-t pt-6">
