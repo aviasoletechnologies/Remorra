@@ -407,11 +407,15 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             {project?.healthScore != null ? (
-              <div className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs sm:flex">
+              <Link
+                to="/initiate"
+                className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View Health Score breakdown"
+              >
                 <Gauge size={14} className="text-primary" />
                 <span>Health Score</span>
                 <strong className="text-foreground">{project.healthScore}</strong>
-              </div>
+              </Link>
             ) : null}
             {location.pathname === "/workspace" ? (
               <Button

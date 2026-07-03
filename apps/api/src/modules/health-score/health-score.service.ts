@@ -36,11 +36,16 @@ export class HealthScoreService {
         `Health Score can only be calculated during the Initiate phase. Current phase: ${project!.phase}.`,
       );
     }
+    // No idempotencyKey — recalculation must always run fresh (e.g. after
+    // editing Goals/Epics/Stories post-calculation). A day-scoped key here
+    // previously made "Recalculate" silently return the stale job for the
+    // rest of the day. The FE already disables the button while a
+    // calculation is in flight, which is all the double-submit protection
+    // this action needs.
     return this.queue.enqueue({
       queue: QUEUES.healthScoreCalculate,
       projectId,
       userId,
-      idempotencyKey: `health-score:${projectId}:${new Date().toISOString().slice(0, 10)}`,
       payload: { projectId },
     });
   }

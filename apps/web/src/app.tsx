@@ -42,7 +42,7 @@ export function App() {
               <Route
                 path="/initiate"
                 element={
-                  <PhaseRoute allowedPhases={["initiate"]}>
+                  <PhaseRoute allowedPhases={["initiate", "venture", "evolve"]}>
                     <InitiatePage />
                   </PhaseRoute>
                 }
