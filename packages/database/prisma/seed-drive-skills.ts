@@ -315,13 +315,36 @@ Identify anything that should be added or corrected in project context (tech dec
   },
 ];
 
-// No skill.discover-facilitator.completed mapping — Discover -> Refine is a
-// manual "Continue" button in the FE, gated on the discover_complete flag
-// (HARDIK doc Q10 / ai-workspace.tsx phaseComplete), not an auto-chain.
-// Phase-to-phase advances generally go through the manual advance() endpoint,
-// not event mappings. Configure real routing per-project in Admin > Event
-// Routing once you decide which skill-to-skill/db-event chains you want.
-const mappings: Array<{ eventType: string; skillId: string; targetQueue: string }> = [];
+// Intra-phase auto-chains only — phase-to-phase advances (Discover -> Refine,
+// Refine -> Initiate, etc.) stay manual via the FE "Continue"/advance()
+// endpoint, not event mappings (HARDIK doc Q10 / ai-workspace.tsx
+// phaseComplete).
+//
+// DB-writing skills (table-type outputSchema) route via the DB event their
+// own write produces, never via their own skill.<id>.completed — otherwise
+// the entity-write step for that turn gets silently skipped (flow-issues.md
+// #12: applyOperationsExtract only runs when NO skill-completed mapping
+// matches). See admin-event-router.tsx's sourceSkillWritesDb warning.
+//
+// evolve-facilitator, impact-screener (apps/worker/src/handlers/evolve.ts)
+// and health-score-calculator (apps/worker/src/handlers/health-score.ts) are
+// invoked directly by dedicated handlers and never consult SkillEventMapping
+// at all — mappings involving them would be dead rows, intentionally omitted.
+const mappings: Array<{ eventType: string; skillId: string; targetQueue: string }> = [
+  // Discover
+  { eventType: "skill.discover-facilitator.completed", skillId: "market-competitor-analyst", targetQueue: "ai.conversation" },
+  { eventType: "skill.market-competitor-analyst.completed", skillId: "user-research-planner", targetQueue: "ai.conversation" },
+  // Refine — refine-facilitator and goal-epic-builder both write DB, so their
+  // forward chain routes via the entity event, not skill.completed.
+  { eventType: "goal.create", skillId: "goal-epic-builder", targetQueue: "ai.conversation" },
+  { eventType: "epic.create", skillId: "story-spec-writer", targetQueue: "ai.conversation" },
+  // Initiate — health-score-calculator is excluded (see comment above)
+  { eventType: "skill.readiness-gap-analyzer.completed", skillId: "architecture-outline-generator", targetQueue: "ai.conversation" },
+  // Venture — raid-risk-manager writes DB, so its forward chain routes via
+  // the entity event, not skill.completed.
+  { eventType: "skill.venture-facilitator.completed", skillId: "raid-risk-manager", targetQueue: "ai.conversation" },
+  { eventType: "raid_item.create", skillId: "release-planner", targetQueue: "ai.conversation" },
+];
 
 async function main() {
   for (const s of skills) {
