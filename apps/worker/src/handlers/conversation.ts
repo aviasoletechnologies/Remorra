@@ -7,6 +7,7 @@ import { assembleProductPackData } from "../assemblers/index.js";
 import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper.js";
 import { triggerChatReportPdf } from "../services/pdf.js";
 import { jsonSchemaToTableConfig } from "@remorra/contracts";
+import Ajv from "ajv";
 
 function cleanJsonString(str: string): string {
   let cleaned = str.trim();
@@ -256,6 +257,28 @@ export async function handleConversation(payload: Payload) {
             skillIsDone = true;
             displayText = (trailingMatch[1] ?? "").trim();
           }
+        }
+      }
+    }
+
+    // ── Validate parsed JSON against skill outputSchema (fail-closed) ─────────
+    if (jsonParsed !== null) {
+      const rawSchema = (result.skill as any).outputSchema;
+      if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+        try {
+          const ajv = new Ajv({ allErrors: true });
+          const validate = ajv.compile(rawSchema.value);
+          const valid = validate(jsonParsed);
+          if (!valid) {
+            console.warn(
+              `[worker:conversation] outputSchema validation failed skillId=${result.skill.id}`,
+              ajv.errorsText(validate.errors),
+            );
+            jsonParsed = null; // discard — do not write invalid data to DB
+            skillIsDone = false;
+          }
+        } catch (schemaErr) {
+          console.warn("[worker:conversation] outputSchema compile error — skipping validation", schemaErr);
         }
       }
     }

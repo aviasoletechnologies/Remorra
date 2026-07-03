@@ -71,6 +71,7 @@ export interface AuditLogger {
     projectId: string;
     actorId: string;
     type: string;
+    source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
     skillId?: string;
     skillVersion?: number;
     payload: unknown;
@@ -112,6 +113,7 @@ export class AiOrchestrator {
       projectId: input.projectId,
       actorId: input.userId,
       type: "ai.invoked",
+      source: "evolve_session",
       skillId: skill.id,
       skillVersion: skill.version,
       payload: { requestId: input.requestId, usage: result.usage },
@@ -207,6 +209,7 @@ export class PrismaAuditLogger implements AuditLogger {
     projectId: string;
     actorId: string;
     type: string;
+    source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
     skillId?: string;
     skillVersion?: number;
     payload: unknown;
@@ -216,6 +219,7 @@ export class PrismaAuditLogger implements AuditLogger {
         projectId: event.projectId,
         actorId: event.actorId,
         eventType: event.type,
+        source: event.source ?? null,
         metadata: {
           ...(typeof event.payload === "object" && event.payload !== null
             ? (event.payload as Record<string, unknown>)
