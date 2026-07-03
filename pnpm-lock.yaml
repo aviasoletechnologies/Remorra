@@ -214,6 +214,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 0.104.1
         version: 0.104.1(zod@4.4.3)
+      '@remorra/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@remorra/database':
         specifier: workspace:*
         version: link:../../packages/database

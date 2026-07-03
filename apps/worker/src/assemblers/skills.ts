@@ -5,6 +5,7 @@ import { withRetry } from "../lib/retry";
 import { orchestrator, anthropic, modelFor } from "../services/llm";
 import { grokModelFor, invokeGrokStream } from "../services/providers/grok";
 import { injectKnowledgeBases, assembleContext } from "./context";
+import { jsonSchemaToTableConfig } from "@remorra/contracts";
 
 const ALLOWED_ENTITIES = new Set(["Project", "Goal", "Epic", "Story", "Persona", "PainPoint", "RaidItem"]);
 
@@ -56,7 +57,9 @@ async function appendInternalInstructions(systemPrompt: string | null, systemPro
     if (outputSchema.type === "table") {
       if (typeof outputSchema.value === "object" && outputSchema.value !== null) {
         type TableEntry = { columns: string[]; actions: string[] } | string[];
-        const tables = outputSchema.value as Record<string, TableEntry>;
+        // Stored value is the generated JSON schema (properties.operations...),
+        // not the raw per-entity map — reconstruct the map this function needs.
+        const tables = (jsonSchemaToTableConfig(outputSchema.value) ?? outputSchema.value) as Record<string, TableEntry>;
         const normalize = (entry: TableEntry) => ({
           columns: Array.isArray(entry) ? entry : ((entry as any).columns ?? []),
           actions: Array.isArray(entry) ? ["create", "update", "delete"] : ((entry as any).actions ?? ["create", "update", "delete"]),
