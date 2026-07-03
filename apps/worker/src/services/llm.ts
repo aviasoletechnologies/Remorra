@@ -90,7 +90,10 @@ export function buildSkillMessages(
   const userSections = nonHistorySections.filter((s) => s.tag !== "skill_constraints");
 
   const trustedContext = trustedSections
-    .map((s) => `<${s.tag}>\n${s.content}\n</${s.tag}>`)
+    .map((s) => {
+      const baseTag = (s.tag.split(" ")[0] ?? s.tag);
+      return `<${s.tag}>\n${s.content}\n</${baseTag}>`;
+    })
     .join("\n");
 
   const contextStr = userSections
@@ -108,10 +111,11 @@ export function buildSkillMessages(
       if (content.startsWith("<") && content.endsWith(">") && content.includes("\n")) {
         return content;
       }
+      const baseTag = (s.tag.split(" ")[0] ?? s.tag);
       if (content.includes("\n")) {
-        return `<${s.tag} trust="${s.trust}">\n${content}\n</${s.tag}>`;
+        return `<${s.tag} trust="${s.trust}">\n${content}\n</${baseTag}>`;
       }
-      return `<${s.tag} trust="${s.trust}">${content}</${s.tag}>`;
+      return `<${s.tag} trust="${s.trust}">${content}</${baseTag}>`;
     })
     .join("\n");
 
