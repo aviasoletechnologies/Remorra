@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Badge, Card } from "../components/ui";
-import { Page, PageHeader, EmptyState, TableSkeleton } from "../components/app-ui";
+import { Badge, Card } from "./ui";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
+import { EmptyState, TableSkeleton } from "./app-ui";
 import { api } from "../lib/api";
-import { useWorkspaceStore } from "../lib/store";
 import { cn } from "../lib/utils";
 
 type ConversationSummary = {
@@ -22,37 +22,41 @@ type ConversationTranscript = {
   messages: Array<{ id: string; role: "user" | "assistant" | "system"; content: string; createdAt: string }>;
 };
 
-// Discover/Refine chat is only reachable while the project is in that phase
-// (/workspace route is phase-gated) — this is the read-only archive so
-// founders/team can still review it after the project has moved on.
-export function HistoryPage() {
-  const projectId = useWorkspaceStore((state) => state.activeProjectId);
+// Read-only archive of Discover/Refine conversations, since the /workspace
+// chat is only reachable while the project is still in that phase.
+export function ConversationHistoryModal({
+  projectId,
+  open,
+  onOpenChange,
+}: {
+  projectId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: conversations = [], isLoading } = useQuery({
     queryKey: ["conversation-history", projectId],
     queryFn: () => api<ConversationSummary[]>(`/projects/${projectId}/conversations`),
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && open,
   });
 
   const { data: transcript, isLoading: loadingTranscript } = useQuery({
     queryKey: ["conversation-transcript", projectId, selectedId],
     queryFn: () => api<ConversationTranscript>(`/projects/${projectId}/conversations/${selectedId}`),
-    enabled: Boolean(projectId && selectedId),
+    enabled: Boolean(projectId && selectedId) && open,
   });
 
   return (
-    <Page>
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          eyebrow="Archive"
-          tone="blue"
-          title="Conversation history"
-          description="Read-only record of your Discover and Refine conversations."
-        />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Conversation history</DialogTitle>
+          <DialogDescription>Read-only record of your Discover and Refine conversations.</DialogDescription>
+        </DialogHeader>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-          <Card className="p-3">
+          <Card className="max-h-[60vh] overflow-y-auto p-3">
             {isLoading ? (
               <TableSkeleton rows={3} columns={1} />
             ) : conversations.length === 0 ? (
@@ -79,7 +83,7 @@ export function HistoryPage() {
             )}
           </Card>
 
-          <Card className="min-h-[400px] p-4">
+          <Card className="max-h-[60vh] min-h-[300px] overflow-y-auto p-4">
             {!selectedId ? (
               <EmptyState
                 title="Select a conversation"
@@ -104,7 +108,7 @@ export function HistoryPage() {
             )}
           </Card>
         </div>
-      </div>
-    </Page>
+      </DialogContent>
+    </Dialog>
   );
 }
