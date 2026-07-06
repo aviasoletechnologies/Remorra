@@ -45,7 +45,7 @@ export class BuildPhaseService {
   }
 
   async create(projectId: string, userId: string, body: unknown) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const data = createBuildPhaseSchema.parse(body);
     const buildPhase = await this.prisma.client.buildPhase.create({
       data: { projectId, name: data.name, description: data.description ?? null },
@@ -61,7 +61,7 @@ export class BuildPhaseService {
     version: number,
     body: unknown,
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const data = updateBuildPhaseSchema.parse(body);
 
     const before = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
@@ -84,7 +84,7 @@ export class BuildPhaseService {
   }
 
   async assignStories(projectId: string, buildPhaseId: string, userId: string, body: unknown) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const { storyIds } = assignBuildPhaseStoriesSchema.parse(body);
 
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
@@ -104,7 +104,7 @@ export class BuildPhaseService {
   }
 
   async unassignStory(projectId: string, buildPhaseId: string, storyId: string, userId: string) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
     if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
 
@@ -134,7 +134,7 @@ export class BuildPhaseService {
     kind: "brand-kit" | "user-flow",
     field: "brandKitObjectId" | "userFlowObjectId",
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
     if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
 
@@ -169,7 +169,7 @@ export class BuildPhaseService {
   }
 
   async generatePack(projectId: string, buildPhaseId: string, userId: string) {
-    await this.access.require(projectId, userId, ["founder"]);
+    await this.access.require(projectId, userId, ["founder"], true);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
     if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
     if (buildPhase.status !== "ready" && buildPhase.status !== "active") {
@@ -221,7 +221,7 @@ export class BuildPhaseService {
   }
 
   async uploadSync(projectId: string, buildPhaseId: string, userId: string, file: Express.Multer.File) {
-    await this.access.require(projectId, userId, ["founder"]);
+    await this.access.require(projectId, userId, ["founder"], true);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
     if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
 
@@ -269,7 +269,7 @@ export class BuildPhaseService {
   }
 
   async exportSync(projectId: string, buildPhaseId: string, userId: string) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const buildPhase = await this.prisma.client.buildPhase.findUnique({ where: { id: buildPhaseId } });
     if (!buildPhase || buildPhase.projectId !== projectId) notFound("BuildPhase", buildPhaseId);
 

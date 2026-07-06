@@ -134,7 +134,7 @@ export class WorkspaceFlowService {
   }
 
   async message(projectId: string, userId: string, rawContent: string, file?: Express.Multer.File) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const content = rawContent.trim();
     if (!content) throw new BadRequestException("Message content is required.");
 
@@ -256,7 +256,7 @@ export class WorkspaceFlowService {
     userId: string,
     body: { outputs?: Record<string, unknown>; note?: string },
   ) {
-    await this.access.require(projectId, userId, ["founder"]);
+    await this.access.require(projectId, userId, ["founder"], true);
     const note = body.note?.trim();
     if (!note) {
       throw new BadRequestException("Workspace actions now use message routing. Send a message instead.");
@@ -333,11 +333,17 @@ export class WorkspaceFlowService {
   }
 
   private async createConversation(projectId: string, kind: "discover" | "refine") {
+    const policy = await this.prisma.client.retentionPolicy.findUnique({
+      where: { id: "active-conversations" },
+    });
+    const retentionDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 90;
+    const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+
     const conversation = await this.prisma.client.conversation.create({
       data: {
         projectId,
         kind,
-        retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        retentionUntil,
       },
       include: {
         activeSkill: true,

@@ -136,21 +136,7 @@ export async function handleGdprDelete(payload: Payload) {
     await supabase.storage.from(bucket).remove(objects.map((item: any) => item.path));
   }
   await prisma.$transaction(async (tx: any) => {
-    await tx.project.deleteMany({ where: { ownerId: request.userId } });
-    await tx.projectMembership.deleteMany({ where: { userId: request.userId } });
-    await tx.conversationMessage.updateMany({
-      where: { actorId: request.userId },
-      data: { actorId: null, content: "[deleted]" },
-    });
-    await tx.profile.update({
-      where: { id: request.userId },
-      data: {
-        email: `deleted-${request.userId}@invalid`,
-        preferredName: null,
-        status: "deleted",
-        deletedAt: new Date(),
-      },
-    });
+    await tx.$executeRawUnsafe(`SELECT public.wipe_user($1::uuid)`, request.userId);
     await tx.deletionRequest.update({
       where: { id: requestId },
       data: { status: "completed", completedAt: new Date() },

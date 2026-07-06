@@ -32,7 +32,7 @@ export class VentureService {
     version: number,
     body: any,
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
 
     // A closed Build Phase means the handoff is finished — its Stories become
     // a frozen record rather than editable, so a founder can't accidentally
@@ -71,7 +71,7 @@ export class VentureService {
   }
 
   async createRaid(projectId: string, userId: string, body: any) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const created = await this.prisma.client.raidItem.create({
       data: {
         projectId,
@@ -94,7 +94,7 @@ export class VentureService {
     version: number,
     body: any,
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     return this.updateVersioned("raidItem", id, projectId, version, {
       ...(body.type !== undefined ? { type: String(body.type) } : {}),
       ...(body.title !== undefined ? { title: String(body.title) } : {}),
@@ -117,7 +117,7 @@ export class VentureService {
     userId: string,
     version: number,
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     return this.deleteVersioned("raidItem", id, projectId, version);
   }
 

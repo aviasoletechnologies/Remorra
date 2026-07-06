@@ -66,7 +66,11 @@ export class GdprService {
   }
 
   async requestDeletion(userId: string) {
-    const executeAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const policy = await this.prisma.client.retentionPolicy.findUnique({
+      where: { id: "deletion-grace" },
+    });
+    const graceDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 30;
+    const executeAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
     const request = await this.prisma.client.$transaction(async (tx: any) => {
       await tx.deletionRequest.updateMany({
         where: { userId, status: "scheduled" },
@@ -184,5 +188,34 @@ export class GdprService {
         },
       };
     });
+  }
+
+  async cancelSubscription(userId: string, body: any) {
+    if (!body || typeof body.reason !== "string" || !body.reason.trim()) {
+      throw new Error("Reason is required to cancel your subscription.");
+    }
+    const reason = body.reason.trim();
+    const profile = await this.prisma.client.profile.findUniqueOrThrow({
+      where: { id: userId },
+    });
+
+    const durationDays = Math.max(0, Math.floor((Date.now() - profile.createdAt.getTime()) / (24 * 60 * 60 * 1000)));
+
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      const cancellation = await tx.cancellation.create({
+        data: {
+          userId,
+          reason,
+          subscriberDuration: durationDays,
+          tierAtCancellation: profile.tier,
+        },
+      });
+      const updatedProfile = await tx.profile.update({
+        where: { id: userId },
+        data: { tier: "free" },
+      });
+      return { cancellation, profile: updatedProfile };
+    });
+    return result;
   }
 }

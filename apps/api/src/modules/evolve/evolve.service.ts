@@ -22,8 +22,14 @@ export class EvolveService {
   ) {}
 
   async createSession(projectId: string, userId: string, body: unknown) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const data = createEvolveSessionSchema.parse(body);
+
+    const policy = await this.prisma.client.retentionPolicy.findUnique({
+      where: { id: "active-conversations" },
+    });
+    const retentionDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 90;
+    const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
 
     return this.prisma.client.evolveSession.create({
       data: {
@@ -34,7 +40,7 @@ export class EvolveService {
           create: {
             project: { connect: { id: projectId } },
             kind: "evolve",
-            retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+            retentionUntil,
           },
         },
       },
@@ -56,7 +62,7 @@ export class EvolveService {
     userId: string,
     body: unknown,
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const { status } = updateEvolveSessionStatusSchema.parse(body);
 
     const session = await this.prisma.client.evolveSession.findUnique({
@@ -87,7 +93,7 @@ export class EvolveService {
   }
 
   async sendMessage(projectId: string, sessionId: string, userId: string, body: unknown) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const session = await this.requireSession(projectId, sessionId);
     if (session.status === "completed") {
       forbidden("This Evolve session is already completed and is read-only.");
@@ -149,11 +155,11 @@ export class EvolveService {
     userId: string,
     body: { decision?: "confirmed" | "rejected" },
   ) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const action = await this.prisma.client.evolveAction.findUnique({ where: { id: actionId } });
     if (!action || action.projectId !== projectId) notFound("EvolveAction", actionId);
     if (action!.entityType === "Goal") {
-      await this.access.require(projectId, userId, ["founder"]);
+      await this.access.require(projectId, userId, ["founder"], true);
     }
     const item = await this.prisma.client.evolveImpactItem.findUnique({ where: { id: itemId } });
     if (!item || item.evolveActionId !== actionId) notFound("EvolveImpactItem", itemId);
@@ -180,7 +186,7 @@ export class EvolveService {
       throw new BadRequestException(`This action has already been ${action!.status}.`);
     }
 
-    await this.access.require(projectId, userId, action!.entityType === "Goal" ? ["founder"] : ["founder", "team"]);
+    await this.access.require(projectId, userId, action!.entityType === "Goal" ? ["founder"] : ["founder", "team"], true);
 
     if (action!.requiresScreening) {
       const undecided = action!.impactItems.filter((item: any) => item.status === "pending");
@@ -240,7 +246,7 @@ export class EvolveService {
     if (action!.status !== "pending") {
       throw new BadRequestException(`This action has already been ${action!.status}.`);
     }
-    await this.access.require(projectId, userId, action!.entityType === "Goal" ? ["founder"] : ["founder", "team"]);
+    await this.access.require(projectId, userId, action!.entityType === "Goal" ? ["founder"] : ["founder", "team"], true);
     await this.prisma.client.evolveAction.delete({ where: { id: actionId } });
     return { id: actionId, deleted: true };
   }
@@ -254,7 +260,7 @@ export class EvolveService {
   }
 
   async approveContextProposal(projectId: string, proposalId: string, userId: string) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const proposal = await this.prisma.client.contextProposal.findUnique({ where: { id: proposalId } });
     if (!proposal || proposal.projectId !== projectId) notFound("ContextProposal", proposalId);
     if (proposal!.status !== "pending") {
@@ -282,7 +288,7 @@ export class EvolveService {
 
   // Doc: "Rejections are not saved anywhere."
   async rejectContextProposal(projectId: string, proposalId: string, userId: string) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const proposal = await this.prisma.client.contextProposal.findUnique({ where: { id: proposalId } });
     if (!proposal || proposal.projectId !== projectId) notFound("ContextProposal", proposalId);
     if (proposal!.status !== "pending") {

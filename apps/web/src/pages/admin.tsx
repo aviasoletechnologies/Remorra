@@ -848,6 +848,34 @@ export function AdminPage() {
     },
   });
 
+  const freezeProject = useMutation({
+    mutationFn: (id: string) => api(`/admin/projects/${id}/freeze`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-projects"] });
+      if (selectedSupportProjectId) {
+        void queryClient.invalidateQueries({ queryKey: ["admin-support-project-details", selectedSupportProjectId] });
+      }
+      toast.success("Project frozen successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to freeze project.");
+    },
+  });
+
+  const unfreezeProject = useMutation({
+    mutationFn: (id: string) => api(`/admin/projects/${id}/unfreeze`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-projects"] });
+      if (selectedSupportProjectId) {
+        void queryClient.invalidateQueries({ queryKey: ["admin-support-project-details", selectedSupportProjectId] });
+      }
+      toast.success("Project unfrozen successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to unfreeze project.");
+    },
+  });
+
   const previewSelectedTemplate = () => {
     if (!selectedTemplate) return;
     try {
@@ -930,6 +958,8 @@ export function AdminPage() {
           totalPages={supportTotalPages}
           setPage={setSupportPage}
           isLoading={loadingSupport}
+          onFreezeProject={(id) => freezeProject.mutate(id)}
+          onUnfreezeProject={(id) => unfreezeProject.mutate(id)}
         />
       )}
 
