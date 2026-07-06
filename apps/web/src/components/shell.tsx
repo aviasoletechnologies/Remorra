@@ -220,7 +220,6 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
       { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
       { to: "/team", label: "People & access", icon: Users },
       { to: "/knowledge", label: "Product library", icon: BookOpen },
-      { to: "/history", label: "Conversation history", icon: History },
     ];
 
     const filtered = items.filter((item) => {
@@ -409,14 +408,28 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {project ? (
+              <Link
+                to="/history"
+                className="hidden h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View conversation history"
+              >
+                <History size={14} />
+                <span>History</span>
+              </Link>
+            ) : null}
             {project?.healthScore != null ? (
-              <div className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs sm:flex">
+              <Link
+                to="/initiate"
+                className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View Health Score breakdown"
+              >
                 <Gauge size={14} className="text-primary" />
                 <span>Health Score</span>
                 <strong className="text-foreground">{project.healthScore}</strong>
-              </div>
+              </Link>
             ) : null}
-            {location.pathname === "/workspace" ? (
+            {project ? (
               <Button
                 variant="ghost"
                 size="icon"

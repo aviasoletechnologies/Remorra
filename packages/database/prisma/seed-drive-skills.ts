@@ -51,7 +51,7 @@ Group competitors into tiers (Direct Competitors, Indirect Competitors, Status Q
 
 Structure your response as: (1) Executive Summary — 2-paragraph synthesis of competitive threat and market entry points, (2) Competitive Matrix — markdown table vs 2-3 key competitors, (3) Strategic Recommendations — 3 actionable items to maximize defensibility.`,
     inputSourceMap: { tables: { Project: ["name", "summary"] } },
-    outputSchema: { type: "custom" as const, value: "Structured markdown: Executive Summary, Competitive Matrix table, Strategic Recommendations." },
+    outputSchema: { type: "text" as const, value: "Structured markdown: Executive Summary, Competitive Matrix table, Strategic Recommendations." },
   },
   {
     id: "user-research-planner",
@@ -65,7 +65,7 @@ Focus entirely on discovering actual past behavior rather than speculative futur
 
 Structure your response as: (1) Research Goals, (2) Screener Criteria, (3) Interview Script (word-for-word questions and interviewer guidance).`,
     inputSourceMap: { tables: { Project: ["name", "summary"] } },
-    outputSchema: { type: "custom" as const, value: "Structured markdown: Research Goals, Screener Criteria, Interview Script." },
+    outputSchema: { type: "text" as const, value: "Structured markdown: Research Goals, Screener Criteria, Interview Script." },
   },
   // ── Refine Phase ──────────────────────────────────────────────────────────
   {
@@ -163,7 +163,7 @@ Structure your response as: (1) Gap Audit Ledger — markdown table listing each
         PainPoint: ["statement"],
       },
     },
-    outputSchema: { type: "custom" as const, value: "Structured markdown: Gap Audit Ledger table, Remediation Roadmap." },
+    outputSchema: { type: "text" as const, value: "Structured markdown: Gap Audit Ledger table, Remediation Roadmap." },
   },
   {
     id: "architecture-outline-generator",
@@ -177,7 +177,7 @@ Recommend Relational (SQL) vs Document (NoSQL) based on the core Epics, with a h
 
 Structure your response as: (1) Architecture Overview — narrative, (2) Component Breakdown — server-side/client-side/storage, (3) Entity Diagram — markdown-represented schemas.`,
     inputSourceMap: { tables: { Project: ["name", "summary"], Goal: ["title", "detail"], Epic: ["title", "description"] } },
-    outputSchema: { type: "custom" as const, value: "Structured markdown: Architecture Overview, Component Breakdown, Entity Diagram." },
+    outputSchema: { type: "text" as const, value: "Structured markdown: Architecture Overview, Component Breakdown, Entity Diagram." },
   },
   // ── Venture Phase ─────────────────────────────────────────────────────────
   {
@@ -296,7 +296,7 @@ Structure your response as: (1) Document Title, (2) Strategic Goals, (3) User Pr
         PainPoint: ["statement"],
       },
     },
-    outputSchema: { type: "custom" as const, value: "Formatted PRD markdown: Document Title, Strategic Goals, User Profile, Functional Specifications." },
+    outputSchema: { type: "text" as const, value: "Formatted PRD markdown: Document Title, Strategic Goals, User Profile, Functional Specifications." },
   },
   {
     id: "project-context-reviewer",

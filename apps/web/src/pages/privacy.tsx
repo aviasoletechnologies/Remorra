@@ -139,7 +139,7 @@ export function PrivacyPage() {
               <Undo2 className="rotate-180" size={21} />
             </div>
             <p className="m-0 text-sm leading-6 text-muted-foreground">
-              This will permanently delete all message histories, AI invocation logs, token usage, and background jobs across your projects. Your account details and projects will remain intact.
+              This will permanently delete all message histories, AI invocation logs, token usage, background jobs, and all product/delivery data (Goals, Epics, Stories, Personas, RAID items, Build Phases, Health Scores, audit history) across your projects. Each project resets to the Discover phase. Only your account and the project itself remain.
             </p>
             <div className="mt-auto">
               <AlertDialog>
@@ -150,7 +150,7 @@ export function PrivacyPage() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Clean chat history and data?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This action cannot be undone. All active chat messages, AI outputs, and background run logs will be permanently deleted across your projects.
+                      This action cannot be undone. All chat messages, AI outputs, background run logs, and all product/delivery data (Goals, Epics, Stories, Personas, RAID items, Build Phases, Health Scores, audit history) will be permanently deleted, and each project resets to the Discover phase.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

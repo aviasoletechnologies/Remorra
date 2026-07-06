@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { Badge, Card } from "../components/ui";
-import { Page, PageHeader, EmptyState, TableSkeleton } from "../components/app-ui";
+import { buttonVariants } from "../components/ui/button";
+import { EmptyState, Page, PageHeader, TableSkeleton } from "../components/app-ui";
 import { api } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { cn } from "../lib/utils";
@@ -22,9 +25,8 @@ type ConversationTranscript = {
   messages: Array<{ id: string; role: "user" | "assistant" | "system"; content: string; createdAt: string }>;
 };
 
-// Discover/Refine chat is only reachable while the project is in that phase
-// (/workspace route is phase-gated) — this is the read-only archive so
-// founders/team can still review it after the project has moved on.
+// Read-only archive of Discover/Refine conversations, since the /workspace
+// chat is only reachable while the project is still in that phase.
 export function HistoryPage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -49,6 +51,12 @@ export function HistoryPage() {
           tone="blue"
           title="Conversation history"
           description="Read-only record of your Discover and Refine conversations."
+          actions={
+            <Link to="/" className={cn(buttonVariants({ variant: "outline" }))}>
+              <ArrowLeft size={14} />
+              Back
+            </Link>
+          }
         />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">

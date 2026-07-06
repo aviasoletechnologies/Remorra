@@ -3,9 +3,8 @@ import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowU
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
-import { ProductPackPanel } from "../components/product-pack-panel";
 import { RefineSummaryPanel } from "../components/refine-summary-panel";
-import type { ProductPackDto, Project } from "@remorra/contracts";
+import type { Project } from "@remorra/contracts";
 import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion, AnimatePresence } from "framer-motion";
@@ -124,9 +123,7 @@ export function AiWorkspacePage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
-  const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
-  const [showProductPack, setShowProductPack] = useState(true);
   const [showRefineSummary, setShowRefineSummary] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -262,9 +259,6 @@ export function AiWorkspacePage() {
                     });
                     setStreamedReply("");
                   }
-                  if (event.type === "product_pack_update" && event.metadata?.productPack) {
-                    setLiveProductPack(event.metadata.productPack as ProductPackDto);
-                  }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
                       sequence: event.sequence,
@@ -350,67 +344,27 @@ export function AiWorkspacePage() {
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
-          {/* Floating toggle button positioned to the left of the scrollbar */}
           {projectId && project?.phase === "refine" && (
-            <button
-              type="button"
-              onClick={() => setShowRefineSummary(prev => !prev)}
-              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
-              title={showRefineSummary ? "Hide entity summary" : "Show entity summary"}
-            >
-              {showRefineSummary ? (
-                <>
-                  <span>Hide Summary</span>
-                  <PanelRightClose size={13} />
-                </>
-              ) : (
-                <>
-                  <span>Show Summary</span>
-                  <PanelRightOpen size={13} />
-                </>
-              )}
-            </button>
-          )}
-          {projectId && project?.phase !== "refine" && (
-            <button
-              type="button"
-              onClick={() => setShowProductPack(prev => !prev)}
-              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
-              title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
-            >
-              {showProductPack ? (
-                <>
-                  <span>Hide Pack</span>
-                  <PanelRightClose size={13} />
-                </>
-              ) : (
-                <>
-                  <span>Show Pack</span>
-                  <PanelRightOpen size={13} />
-                </>
-              )}
-            </button>
-          )}
-
-          {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete && (
-            <button
-              type="button"
-              disabled={advance.isPending}
-              onClick={() => advance.mutate()}
-              className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-4.5 py-1.5 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold disabled:opacity-50"
-            >
-              {advance.isPending
-                ? "Advancing..."
-                : `Continue to ${
-                    project.phase === "discover"
-                      ? "Refine"
-                      : project.phase === "refine"
-                      ? "Initiate"
-                      : project.phase === "initiate"
-                      ? "Venture"
-                      : "Evolve"
-                  } →`}
-            </button>
+            <div className="flex items-center justify-end gap-2 px-4 sm:px-6 pt-4 pb-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowRefineSummary(prev => !prev)}
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm transition-all cursor-pointer text-xs font-semibold"
+                title={showRefineSummary ? "Hide entity summary" : "Show entity summary"}
+              >
+                {showRefineSummary ? (
+                  <>
+                    <span>Hide Summary</span>
+                    <PanelRightClose size={13} />
+                  </>
+                ) : (
+                  <>
+                    <span>Show Summary</span>
+                    <PanelRightOpen size={13} />
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
@@ -429,7 +383,9 @@ export function AiWorkspacePage() {
                   </div>
                 </div>
               ) : (
-                visibleMessages.map((item) => {
+                visibleMessages
+                  .filter((item) => cleanMessageContent(item.content).trim().length > 0)
+                  .map((item) => {
                   const isAssistant = item.role === "assistant";
                   const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
@@ -482,6 +438,35 @@ export function AiWorkspacePage() {
                   <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cleanMessageContent(streamedReply)}</ReactMarkdown>
                   </div>
+                </motion.div>
+              ) : null}
+
+              {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete ? (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
+                  className="flex justify-center w-full py-2"
+                >
+                  <button
+                    type="button"
+                    disabled={advance.isPending}
+                    onClick={() => advance.mutate()}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary shadow-sm transition-all cursor-pointer text-sm font-semibold disabled:opacity-50"
+                  >
+                    {advance.isPending
+                      ? "Advancing..."
+                      : `Continue to ${
+                          project.phase === "discover"
+                            ? "Refine"
+                            : project.phase === "refine"
+                            ? "Initiate"
+                            : project.phase === "initiate"
+                            ? "Venture"
+                            : "Evolve"
+                        } →`}
+                  </button>
                 </motion.div>
               ) : null}
 
@@ -607,21 +592,6 @@ export function AiWorkspacePage() {
             className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
           >
             <RefineSummaryPanel projectId={projectId} onCollapse={() => setShowRefineSummary(false)} />
-          </motion.div>
-        )}
-        {projectId && project?.phase !== "refine" && showProductPack && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 320, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
-          >
-            <ProductPackPanel
-              projectId={projectId}
-              externalPack={liveProductPack}
-              onCollapse={() => setShowProductPack(false)}
-            />
           </motion.div>
         )}
       </AnimatePresence>
