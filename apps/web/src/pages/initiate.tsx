@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ArrowRight, Gauge, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, ArrowLeft, ArrowRight, Gauge, Sparkles } from "lucide-react";
 import { Button, Card, Progress } from "../components/ui";
+import { buttonVariants } from "../components/ui/button";
+import { cn } from "../lib/utils";
 import { EmptyState, MetricCard, Page, PageHeader, SectionCard, MetricGridSkeleton, CardSkeleton } from "../components/app-ui";
 import { api, advancePhase, waitForJob } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
@@ -44,6 +47,7 @@ export function InitiatePage() {
 
   const components = score?.components ?? [];
   const actions = components.flatMap((c: any) => (Array.isArray(c.actions) ? c.actions : []));
+  const isReadOnly = project ? project.phase !== "initiate" : false;
 
   return (
     <Page>
@@ -52,24 +56,35 @@ export function InitiatePage() {
           eyebrow="Initiate"
           tone="blue"
           title="Health Score readiness"
-          description="A one-time, evidence-based readiness snapshot: is this project well-defined enough to build?"
+          description={
+            isReadOnly
+              ? "Read-only record of the readiness snapshot calculated before this project moved on."
+              : "A one-time, evidence-based readiness snapshot: is this project well-defined enough to build?"
+          }
           actions={
-            <div className="flex gap-2">
-              <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
-                <Sparkles size={16} />
-                {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate Health Score"}
-              </Button>
-              {score ? (
-                <Button
-                  variant="outline"
-                  disabled={proceedToVenture.isPending || !project}
-                  onClick={() => proceedToVenture.mutate()}
-                >
-                  {proceedToVenture.isPending ? "Advancing..." : "Continue to Venture"}
-                  <ArrowRight size={14} />
+            isReadOnly ? (
+              <Link to="/venture" className={cn(buttonVariants({ variant: "outline" }))}>
+                <ArrowLeft size={14} />
+                Back to Delivery
+              </Link>
+            ) : (
+              <div className="flex gap-2">
+                <Button disabled={calculate.isPending} onClick={() => calculate.mutate()}>
+                  <Sparkles size={16} />
+                  {calculate.isPending ? "Calculating..." : score ? "Recalculate" : "Calculate Health Score"}
                 </Button>
-              ) : null}
-            </div>
+                {score ? (
+                  <Button
+                    variant="outline"
+                    disabled={proceedToVenture.isPending || !project}
+                    onClick={() => proceedToVenture.mutate()}
+                  >
+                    {proceedToVenture.isPending ? "Advancing..." : "Continue to Venture"}
+                    <ArrowRight size={14} />
+                  </Button>
+                ) : null}
+              </div>
+            )
           }
         />
 

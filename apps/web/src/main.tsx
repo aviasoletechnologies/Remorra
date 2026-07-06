@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { LazyMotion, MotionConfig, domAnimation } from "framer-motion";
-import { App } from "./app";
+import { App } from "./App";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "./components/ui/sonner";
 import { ConfirmProvider } from "./components/confirm-dialog";

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { App } from "./app";
+import { App } from "./App";
 
 describe("App", () => {
   it("starts behind the secure authentication gate", () => {

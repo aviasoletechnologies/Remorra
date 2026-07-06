@@ -19,7 +19,12 @@ export async function logEntityAudit(input: {
         eventType: input.eventType,
         entityType: input.entityType,
         entityId: input.entityId,
-        source: input.source ?? "evolve_session",
+        // Default matches the actual caller population: extract-mapper.ts's
+        // ~13 call sites (Discover/Refine/Venture entity writes) never pass
+        // source explicitly, and those are skill-extracted writes, not
+        // Evolve-session ones (see event-router.service.ts for the same
+        // "auto_detection" tag on skill-driven writes).
+        source: input.source ?? "auto_detection",
         before: input.before !== undefined ? jsonValue(input.before) : undefined,
         after: input.after !== undefined ? jsonValue(input.after) : undefined,
         metadata: {},

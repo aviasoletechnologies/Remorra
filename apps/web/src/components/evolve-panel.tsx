@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Sparkles, Send, Check, X, History, Loader2 } from "lucide-react";
@@ -61,7 +61,7 @@ const sourceLabel: Record<ContextProposal["source"], string> = {
 
 const severityTone: Record<string, "red" | "amber" | "green"> = { red: "red", amber: "amber", green: "green" };
 
-export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose?: () => void }) {
+export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: string; onClose?: () => void; headerExtra?: ReactNode }) {
   const queryClient = useQueryClient();
   const location = useLocation();
   const confirm = useConfirm();
@@ -212,6 +212,7 @@ export function EvolvePanel({ projectId, onClose }: { projectId: string; onClose
           <Sparkles size={16} className="text-primary" /> Evolve
         </div>
         <div className="flex items-center gap-1">
+          {headerExtra}
           <Button variant="ghost" size="icon-xs" onClick={() => setShowHistory((v) => !v)} title="Session history">
             <History size={14} />
           </Button>
