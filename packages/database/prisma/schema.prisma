@@ -165,6 +165,7 @@ model Profile {
   aiInvocations        AiInvocation[]
   streamEvents         JobStreamEvent[]
   flowVersionsCreated  FlowVersion[]         @relation("FlowVersionCreator")
+  cancellations        Cancellation[]
 }
 
 model Project {
@@ -175,6 +176,7 @@ model Project {
   phase         DrivePhase          @default(discover)
   context       Json?
   version       Int                 @default(1)
+  frozen        Boolean             @default(false)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
   owner         Profile             @relation("ProjectOwner", fields: [ownerId], references: [id])
@@ -1141,4 +1143,14 @@ model JobStreamEvent {
   @@index([projectId, createdAt])
   @@index([userId, createdAt])
   @@index([jobId, sequence])
+}
+
+model Cancellation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid
+  cancelledAt        DateTime @default(now())
+  reason             String
+  subscriberDuration Int
+  tierAtCancellation String
+  user               Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

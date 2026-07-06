@@ -393,11 +393,17 @@ export async function handleConversation(payload: Payload) {
             where: { projectId, kind: nextPhase as any, status: "active" },
           });
           if (!nextConversation) {
+            const policy = await prisma.retentionPolicy.findUnique({
+              where: { id: "active-conversations" },
+            });
+            const retentionDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 90;
+            const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+
             nextConversation = await prisma.conversation.create({
               data: {
                 projectId,
                 kind: nextPhase as any,
-                retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+                retentionUntil,
               },
             });
           }

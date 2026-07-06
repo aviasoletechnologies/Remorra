@@ -415,4 +415,14 @@ export class AdminController {
   getSupportProjectDetails(@CurrentActor() actor: Actor, @Param("id") id: string) {
     return this.admin.getSupportProjectDetails(actor, id);
   }
+
+  @Post("projects/:id/freeze")
+  freezeProject(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.freezeProject(actor, id);
+  }
+
+  @Post("projects/:id/unfreeze")
+  unfreezeProject(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.unfreezeProject(actor, id);
+  }
 }

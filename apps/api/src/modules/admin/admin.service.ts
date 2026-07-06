@@ -1025,6 +1025,94 @@ export class AdminService {
       }),
     ]);
 
+    const activeUsersGroup = await this.prisma.client.tokenUsage.groupBy({
+      by: ["userId"],
+      where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined,
+    });
+    const activeUsersCount = activeUsersGroup.length;
+
+    const tiers = await this.prisma.client.profile.groupBy({
+      by: ["tier"],
+      _count: true,
+    });
+    const tierBreakdown = Object.fromEntries(tiers.map((t: any) => [t.tier, t._count]));
+
+    const allProfiles = await this.prisma.client.profile.findMany({
+      include: {
+        ownedProjects: {
+          select: { phase: true, conversations: { take: 1, select: { id: true } } },
+        },
+      },
+    });
+
+    let signedUpCount = 0;
+    let inceptionCount = 0;
+    let deliveryCount = 0;
+
+    for (const profile of allProfiles) {
+      if (profile.ownedProjects.length === 0) {
+        signedUpCount++;
+      } else {
+        const hasReachedDelivery = profile.ownedProjects.some((p: any) => p.phase === "venture" || p.phase === "evolve");
+        const hasStartedDRI = profile.ownedProjects.some((p: any) => p.conversations.length > 0);
+        if (hasReachedDelivery) {
+          deliveryCount++;
+        } else if (hasStartedDRI) {
+          inceptionCount++;
+        } else {
+          signedUpCount++;
+        }
+      }
+    }
+
+    const statusBreakdown = {
+      signedUp: signedUpCount,
+      inception: inceptionCount,
+      delivery: deliveryCount,
+    };
+
+    const tokenExtremes = await this.prisma.client.tokenUsage.groupBy({
+      by: ["userId"],
+      where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined,
+      _sum: { costMinor: true },
+      orderBy: { _sum: { costMinor: "desc" } },
+    });
+
+    let highestUser: any = null;
+    let lowestUser: any = null;
+
+    if (tokenExtremes.length > 0) {
+      const highestId = tokenExtremes[0]!.userId;
+      const lowestId = tokenExtremes[tokenExtremes.length - 1]!.userId;
+
+      const [highestProfile, lowestProfile] = await Promise.all([
+        this.prisma.client.profile.findUnique({ where: { id: highestId }, select: { email: true, preferredName: true } }),
+        this.prisma.client.profile.findUnique({ where: { id: lowestId }, select: { email: true, preferredName: true } }),
+      ]);
+
+      highestUser = {
+        userId: highestId,
+        email: highestProfile?.email ?? "unknown",
+        name: highestProfile?.preferredName ?? "unknown",
+        costMinor: tokenExtremes[0]!._sum.costMinor ?? 0,
+      };
+
+      lowestUser = {
+        userId: lowestId,
+        email: lowestProfile?.email ?? "unknown",
+        name: lowestProfile?.preferredName ?? "unknown",
+        costMinor: tokenExtremes[tokenExtremes.length - 1]!._sum.costMinor ?? 0,
+      };
+    }
+
+    const tokenUsageExtremes = { highest: highestUser, lowest: lowestUser };
+
+    const cancellations = await this.prisma.client.cancellation.findMany({
+      where: dateRange.createdAt ? { cancelledAt: dateRange.createdAt } : undefined,
+      include: { user: { select: { email: true, preferredName: true } } },
+      orderBy: { cancelledAt: "desc" },
+    });
+
     const pdfConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "pdf-render" } });
     const storageConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "storage-per-mb" } });
     
@@ -1052,6 +1140,11 @@ export class AdminService {
       configuredRevenue,
       margin,
       riskProjectsCount,
+      activeUsersCount,
+      tierBreakdown,
+      statusBreakdown,
+      tokenUsageExtremes,
+      cancellations,
     };
   }
 
@@ -1266,6 +1359,7 @@ export class AdminService {
         latestHealthScore: healthScores.get(p.id) ?? null,
         isSupportRisk: isRisk,
         createdAt: p.createdAt,
+        frozen: p.frozen,
       };
     });
 
@@ -1355,10 +1449,66 @@ export class AdminService {
       include: { components: { orderBy: [{ weight: "desc" }, { component: "asc" }] } },
     });
 
+    const tokenUsageRecords = await this.prisma.client.tokenUsage.findMany({
+      where: { projectId },
+      include: {
+        user: { select: { email: true, preferredName: true } },
+        skillVersion: { select: { skillId: true } },
+      },
+    });
+
+    const userBreakdownMap = new Map<string, { email: string; name: string | null; costMinor: number; inputTokens: number; outputTokens: number }>();
+    let systemCostMinor = 0;
+    let systemInputTokens = 0;
+    let systemOutputTokens = 0;
+    const systemSkillIds = ["project-context-reviewer", "health-score-calculator"];
+
+    for (const record of tokenUsageRecords) {
+      const isSystem = record.skillVersion && systemSkillIds.includes(record.skillVersion.skillId);
+      if (isSystem) {
+        systemCostMinor += record.costMinor;
+        systemInputTokens += record.inputTokens;
+        systemOutputTokens += record.outputTokens;
+      } else {
+        const uId = record.userId;
+        let existing = userBreakdownMap.get(uId);
+        if (!existing) {
+          existing = {
+            email: record.user?.email ?? "unknown",
+            name: record.user?.preferredName ?? null,
+            costMinor: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+          };
+          userBreakdownMap.set(uId, existing);
+        }
+        existing.costMinor += record.costMinor;
+        existing.inputTokens += record.inputTokens;
+        existing.outputTokens += record.outputTokens;
+      }
+    }
+
+    const tokenBreakdown = {
+      users: Array.from(userBreakdownMap.entries()).map(([userId, data]) => ({
+        userId,
+        email: data.email,
+        name: data.name,
+        costMinor: data.costMinor,
+        inputTokens: data.inputTokens,
+        outputTokens: data.outputTokens,
+      })),
+      system: {
+        costMinor: systemCostMinor,
+        inputTokens: systemInputTokens,
+        outputTokens: systemOutputTokens,
+      },
+    };
+
     return {
       id: project.id,
       name: project.name,
       ownerEmail: project.owner.email,
+      frozen: project.frozen,
       members: project.memberships.map((m: any) => ({
         userId: m.user.id,
         email: m.user.email,
@@ -1369,6 +1519,7 @@ export class AdminService {
       recentJobs: redactedJobs,
       recentAudits: redactedAudits,
       usageSpikePercent,
+      tokenBreakdown,
     };
   }
 
@@ -1567,6 +1718,44 @@ export class AdminService {
     });
     await this.auditPlatform(actor, "platform.event_mapping.deleted", "event_mapping", id, { eventType: mapping.eventType });
     return { success: true };
+  }
+
+  async freezeProject(actor: Actor, projectId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const updated = await this.prisma.client.project.update({
+      where: { id: projectId },
+      data: { frozen: true },
+    });
+    await this.prisma.client.platformAuditEvent.create({
+      data: {
+        actorId: actor.userId,
+        eventType: "platform.project.frozen",
+        targetType: "project",
+        targetId: projectId,
+        metadata: { projectId, frozen: true },
+      },
+    });
+    return updated;
+  }
+
+  async unfreezeProject(actor: Actor, projectId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const updated = await this.prisma.client.project.update({
+      where: { id: projectId },
+      data: { frozen: false },
+    });
+    await this.prisma.client.platformAuditEvent.create({
+      data: {
+        actorId: actor.userId,
+        eventType: "platform.project.unfrozen",
+        targetType: "project",
+        targetId: projectId,
+        metadata: { projectId, frozen: false },
+      },
+    });
+    return updated;
   }
 
   private auditPlatform(

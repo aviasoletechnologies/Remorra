@@ -10,10 +10,15 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [acceptedConsent, setAcceptedConsent] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!supabase) return;
+    if (mode === "signup" && !acceptedConsent) {
+      setMessage("You must agree to the Terms of Service and Privacy Policy to register.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -136,6 +141,22 @@ export function AuthPage() {
                           placeholder="••••••••"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {mode === "signup" && (
+                    <div className="flex items-start gap-3 mt-4">
+                      <input
+                        type="checkbox"
+                        id="consent-checkbox"
+                        required
+                        checked={acceptedConsent}
+                        onChange={(e) => setAcceptedConsent(e.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-accent"
+                      />
+                      <label htmlFor="consent-checkbox" className="text-xs text-muted-foreground select-none leading-normal">
+                        I agree to the <a href="/privacy" target="_blank" className="font-semibold text-primary underline hover:text-accent-dark">Terms of Service and Privacy Policy</a>.
+                      </label>
                     </div>
                   )}
 

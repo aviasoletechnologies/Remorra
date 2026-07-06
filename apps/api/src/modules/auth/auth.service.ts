@@ -49,7 +49,7 @@ export class AuthService {
     });
   }
   async invite(projectId: string, actorId: string, input: unknown) {
-    await this.access.require(projectId, actorId, ["founder"]);
+    await this.access.require(projectId, actorId, ["founder"], true);
     const data = invitationInputSchema.parse(input);
     const email = data.email.toLowerCase();
     const webOrigin = (process.env.WEB_ORIGIN ?? "http://localhost:5173").split(",")[0]!;
@@ -209,7 +209,7 @@ export class AuthService {
   }
 
   async removeMember(projectId: string, actorId: string, targetUserId: string) {
-    await this.access.require(projectId, actorId, ["founder"]);
+    await this.access.require(projectId, actorId, ["founder"], true);
     // Cannot remove yourself
     if (actorId === targetUserId) {
       throw new BadRequestException("You cannot remove yourself from the project.");
