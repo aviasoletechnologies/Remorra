@@ -156,25 +156,30 @@ export function streamTextJob(
 
           lastSequence = event.sequence;
 
-          if (onEvent) {
-            onEvent(event);
-          }
-
           if (event.type === "token" && event.delta) {
             currentText += event.delta;
             onToken(currentText);
+            if (onEvent) onEvent(event);
           } else if (event.type === "snapshot" && event.snapshot) {
             currentText = event.snapshot;
             onToken(currentText);
+            if (onEvent) onEvent(event);
           } else if (event.type === "completed") {
             if (event.snapshot) {
               currentText = event.snapshot;
             }
             onToken(currentText);
+            // onEvent last: it merges the final message into cache and clears
+            // streamedReply — must win over the onToken call above, or the
+            // message renders twice (committed bubble + stale streaming bubble).
+            if (onEvent) onEvent(event);
             onStateChange?.("done");
             return;
           } else if (event.type === "failed") {
+            if (onEvent) onEvent(event);
             throw new Error(event.delta ?? "Stream failed.");
+          } else {
+            if (onEvent) onEvent(event);
           }
         }
       }

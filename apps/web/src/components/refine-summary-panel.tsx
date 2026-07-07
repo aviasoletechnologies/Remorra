@@ -18,15 +18,42 @@ type RefineSummary = {
   personas: Array<{ id: string; name: string; painPointCount: number }>;
 };
 
+type DraftGoal = { title?: string; detail?: string };
+type DraftPersona = { name?: string; description?: string; painPoints?: string[] };
+type DraftSummary = {
+  problem?: string;
+  idea?: string;
+  user?: string;
+  goals?: DraftGoal[];
+  personas?: DraftPersona[];
+};
+
 // HARDIK doc Q12 — Live Entity Summary. Server-side, non-LLM: polls the
 // Refine Summary Assembler and renders confirmed entities + linkage/pass
 // criteria in real time as the conversation progresses.
-export function RefineSummaryPanel({ projectId, onCollapse }: { projectId: string; onCollapse: () => void }) {
+//
+// `draft` is a separate, ephemeral source — refine-facilitator emits a
+// <draft_data> snapshot every turn (see conversation.ts), before anything is
+// actually confirmed or inserted. Refine-facilitator itself never writes
+// entities; only goal-epic-builder/story-spec-writer do, after handoff. So
+// this panel shows both: the live in-progress draft (this turn's captured
+// fields, not yet saved) above the DB-backed confirmed entities below.
+export function RefineSummaryPanel({
+  projectId,
+  draft,
+  onCollapse,
+}: {
+  projectId: string;
+  draft?: Record<string, unknown> | null;
+  onCollapse: () => void;
+}) {
   const { data: summary, isLoading } = useQuery<RefineSummary>({
     queryKey: ["refine-summary", projectId],
     queryFn: () => api(`/workspace/projects/${projectId}/refine-summary`),
     refetchInterval: 4000,
   });
+
+  const draftSummary = draft as DraftSummary | null | undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -38,6 +65,26 @@ export function RefineSummaryPanel({ projectId, onCollapse }: { projectId: strin
           <X size={14} />
         </Button>
       </div>
+
+      {draftSummary && (draftSummary.goals?.length || draftSummary.personas?.length || draftSummary.problem || draftSummary.idea || draftSummary.user) ? (
+        <div className="border-b border-dashed border-amber-400/50 bg-amber-50/60 p-3 text-xs space-y-2">
+          <p className="font-semibold uppercase tracking-wide text-[10px] text-amber-700">
+            Draft — not yet saved
+          </p>
+          {draftSummary.goals?.map((g, i) => (
+            <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
+              <p className="font-medium">{g.title}</p>
+              {g.detail ? <p className="mt-0.5 text-muted-foreground">{g.detail}</p> : null}
+            </div>
+          ))}
+          {draftSummary.personas?.map((p, i) => (
+            <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
+              <p className="font-medium">{p.name}</p>
+              {p.description ? <p className="mt-0.5 text-muted-foreground">{p.description}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {isLoading || !summary ? (
         <p className="p-4 text-xs text-muted-foreground">Loading...</p>

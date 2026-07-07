@@ -72,6 +72,7 @@ type WorkspaceConversation = {
   activeSkill: WorkspaceActiveSkill | null;
   messages: { id: string; role: "user" | "assistant"; content: string; createdAt: string }[];
   phaseComplete: boolean;
+  kickoffJobId: string | null;
 };
 
 type PendingMessage = { id: string; role: "user"; content: string };
@@ -112,6 +113,7 @@ export function AiWorkspacePage() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
       toast.success("Project advanced to the next phase!");
     },
     onError: (err: any) => {
@@ -125,6 +127,7 @@ export function AiWorkspacePage() {
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [showRefineSummary, setShowRefineSummary] = useState(true);
+  const [draftSummary, setDraftSummary] = useState<Record<string, unknown> | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -133,6 +136,7 @@ export function AiWorkspacePage() {
   const inputWrapperRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const completedMessageIdRef = useRef<string | null>(null);
+  const consumedKickoffJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!inputWrapperRef.current) return;
@@ -152,6 +156,53 @@ export function AiWorkspacePage() {
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
   });
+
+  // A brand-new phase conversation (e.g. just advanced into Refine) comes
+  // back with a kickoffJobId — the backend already enqueued the skill's
+  // first turn. Follow it the same way a real send does, so the greeting/
+  // first question streams in instead of leaving an empty chat.
+  useEffect(() => {
+    const kickoffJobId = conversation?.kickoffJobId;
+    if (!kickoffJobId || consumedKickoffJobIdRef.current === kickoffJobId) return;
+    consumedKickoffJobIdRef.current = kickoffJobId;
+
+    const stop = streamTextJob(
+      kickoffJobId,
+      setStreamedReply,
+      (state) => {
+        if (state === "connecting" || state === "reconnecting" || state === "connected") {
+          setStreamState(state);
+          useWorkspaceStore.getState().setStreamState(state);
+        }
+        if (state === "done" || state === "failed") {
+          setStreamState("idle");
+          useWorkspaceStore.getState().setStreamState("idle");
+        }
+      },
+      () => {
+        setStreamState("idle");
+        useWorkspaceStore.getState().setStreamState("idle");
+      },
+      (event) => {
+        if (event.type === "completed" && event.metadata?.messages) {
+          const sseMessages = event.metadata.messages as any[];
+          const assistantMsg = sseMessages.find((m) => m.role === "assistant");
+          if (assistantMsg) completedMessageIdRef.current = assistantMsg.id;
+          queryClient.setQueryData(["workspace-flow", projectId], (oldData: any) => {
+            if (!oldData) return oldData;
+            const existingIds = new Set(oldData.messages.map((m: any) => m.id));
+            const newMessages = sseMessages.filter((m) => !existingIds.has(m.id));
+            return { ...oldData, messages: [...oldData.messages, ...newMessages] };
+          });
+          setStreamedReply("");
+        }
+        if (event.type === "completed" && event.metadata?.draft) {
+          setDraftSummary(event.metadata.draft as Record<string, unknown>);
+        }
+      },
+    );
+    return () => stop();
+  }, [conversation?.kickoffJobId, projectId, queryClient]);
 
 
 
@@ -241,6 +292,9 @@ export function AiWorkspacePage() {
                 (event) => {
                   if (event.type === "skill_transition" && event.metadata?.nextJobId) {
                     nextJobId = event.metadata.nextJobId as string;
+                    // Next skill is about to write real entities from this draft — drop
+                    // the draft once the DB-backed summary panel is about to take over.
+                    setDraftSummary(null);
                   }
                   if (event.type === "completed" && event.metadata?.messages) {
                     const sseMessages = event.metadata.messages as any[];
@@ -258,6 +312,9 @@ export function AiWorkspacePage() {
                       };
                     });
                     setStreamedReply("");
+                  }
+                  if (event.type === "completed" && event.metadata?.draft) {
+                    setDraftSummary(event.metadata.draft as Record<string, unknown>);
                   }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
@@ -591,7 +648,7 @@ export function AiWorkspacePage() {
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
           >
-            <RefineSummaryPanel projectId={projectId} onCollapse={() => setShowRefineSummary(false)} />
+            <RefineSummaryPanel projectId={projectId} draft={draftSummary} onCollapse={() => setShowRefineSummary(false)} />
           </motion.div>
         )}
       </AnimatePresence>
