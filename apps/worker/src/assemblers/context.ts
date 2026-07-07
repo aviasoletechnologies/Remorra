@@ -224,7 +224,12 @@ export async function assembleContext(
         });
       } else if (tableName === "Epic") {
         const records = await prisma.epic.findMany({ where: { projectId } });
-        const formatted = records.map((rec: any) => filterColumns(rec, columns, ["goalId"])).map(toYaml).join("\n---\n");
+        // No forced "goalId" — unlike Story/PainPoint, no current skill needs it,
+        // and force-including it alongside "id" caused a real bug: a skill asking
+        // for Epic "id" (to link a Story to it) saw two UUID-looking fields per
+        // Epic and grabbed the wrong one (goalId instead of id). Only include a
+        // field here if a skill's own inputSourceMap explicitly asks for it.
+        const formatted = records.map((rec: any) => filterColumns(rec, columns)).map(toYaml).join("\n---\n");
         sections.push({
           tag: "epics_all",
           trust: "application",

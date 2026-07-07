@@ -30,8 +30,18 @@ export async function handleConversation(payload: Payload) {
     `[worker:conversation] start project=${projectId} conversation=${conversationId} user=${userId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${String(payload.skillId ?? "none")} skillVersionId=${String(payload.skillVersionId ?? "none")}`,
   );
 
-  let sequence = 1;
   const jobId = payload.jobRecordId;
+  // A pg-boss retry re-invokes this handler for the same jobId — resume the
+  // sequence counter from where the prior (failed) attempt left off instead
+  // of restarting at 1, or the first createMany collides on (jobId, sequence).
+  const maxEvent = jobId
+    ? await prisma.jobStreamEvent.findFirst({
+        where: { jobId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+    : null;
+  let sequence = (maxEvent?.sequence ?? 0) + 1;
   let savedAssistantMsg: any = null;
   let savedClosingMsg: any = null;
   let queue: Array<{
