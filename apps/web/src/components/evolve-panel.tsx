@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
+import { useRef, useState, useEffect, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Sparkles, Send, Check, X, History, Loader2 } from "lucide-react";
@@ -30,6 +30,7 @@ type ImpactItem = {
   severity: "red" | "amber" | "green";
   title: string;
   reasoning: string;
+  suggestedAction: "update" | "delete" | "create" | null;
   status: "pending" | "confirmed" | "rejected";
 };
 
@@ -77,18 +78,60 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
     queryFn: () => api<EvolveSession[]>(`/projects/${projectId}/evolve/sessions`),
   });
 
+  // Navigating away auto-saves the active session as a Draft (see effect
+  // below) — without resuming it here, every remount looked blank even
+  // though the conversation still exists, only reachable via History.
+  useEffect(() => {
+    if (sessionId || sessions.length === 0) return;
+    // listSessions() orders by updatedAt desc, so [0] is the most recent.
+    const mostRecent = sessions.find((s) => s.status !== "completed");
+    if (mostRecent) {
+      setSessionId(mostRecent.id);
+      setCurrentSessionStatus(mostRecent.status);
+    }
+  }, [sessions, sessionId]);
+
+  // Switching away from an active session with messages must save it as a
+  // Draft first — otherwise it's left dangling "active" with no auto-save
+  // trigger (that only runs on unmount), and it won't show up in History.
+  const saveCurrentAsDraft = async () => {
+    const { projectId: pid, sessionId: sid, currentSessionStatus: status, messageCount } = autoSaveRef.current;
+    if (sid && status === "active" && messageCount > 0) {
+      await api(`/projects/${pid}/evolve/sessions/${sid}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "draft" }),
+      }).catch(() => undefined);
+    }
+  };
+
   const createSession = useMutation({
-    mutationFn: () =>
-      api<EvolveSession>(`/projects/${projectId}/evolve/sessions`, {
+    mutationFn: async () => {
+      await saveCurrentAsDraft();
+      return api<EvolveSession>(`/projects/${projectId}/evolve/sessions`, {
         method: "POST",
         body: JSON.stringify({ launchedFrom: location.pathname }),
-      }),
+      });
+    },
     onSuccess: (session) => {
       setSessionId(session.id);
       setCurrentSessionStatus(session.status);
       queryClient.invalidateQueries({ queryKey: ["evolve-sessions", projectId] });
     },
     onError: (err: any) => toast.error(err?.message || "Failed to start Evolve session."),
+  });
+
+  const completeSession = useMutation({
+    mutationFn: () =>
+      api<EvolveSession>(`/projects/${projectId}/evolve/sessions/${sessionId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed" }),
+      }),
+    onSuccess: (session) => {
+      setCurrentSessionStatus(session.status);
+      queryClient.invalidateQueries({ queryKey: ["evolve-sessions", projectId] });
+      toast.success("Session marked as completed — it's now read-only.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to complete session."),
   });
 
   const { data: messages = [] } = useQuery({
@@ -132,11 +175,13 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  const pendingActions = useMemo(() => actions.filter((a) => a.status === "pending"), [actions]);
-
   const send = async () => {
     const content = draft.trim();
     if (!content || !sessionId || sending) return;
+    if (currentSessionStatus === "completed") {
+      toast.error("This session is completed and read-only — start a new one to keep chatting.");
+      return;
+    }
     setSending(true);
     setDraft("");
     setCurrentSessionStatus((status) => (status === "draft" ? "active" : status));
@@ -213,6 +258,26 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
         </div>
         <div className="flex items-center gap-1">
           {headerExtra}
+          {sessionId && currentSessionStatus !== "completed" && messages.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => completeSession.mutate()}
+              disabled={completeSession.isPending}
+              title="Mark session as completed (read-only)"
+            >
+              {completeSession.isPending ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => createSession.mutate()}
+            disabled={createSession.isPending}
+            title="Start a new Evolve session"
+          >
+            {createSession.isPending ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+          </Button>
           <Button variant="ghost" size="icon-xs" onClick={() => setShowHistory((v) => !v)} title="Session history">
             <History size={14} />
           </Button>
@@ -248,10 +313,13 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
       {showHistory ? (
         <div className="border-b border-border/70 p-3 max-h-48 overflow-y-auto space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Past sessions</p>
-          {sessions.filter((s) => s.status === "draft" || s.status === "completed").map((session) => (
+          {sessions
+            .filter((s) => (s.status === "draft" || s.status === "completed") && s.id !== sessionId)
+            .map((session) => (
             <button
               key={session.id}
               onClick={() => {
+                void saveCurrentAsDraft();
                 setSessionId(session.id);
                 setCurrentSessionStatus(session.status);
                 setShowHistory(false);
@@ -262,7 +330,9 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
               <Badge tone={session.status === "completed" ? "green" : "amber"}>{session.status}</Badge>
             </button>
           ))}
-          {sessions.length === 0 ? <p className="text-xs text-muted-foreground">No past sessions yet.</p> : null}
+          {sessions.filter((s) => (s.status === "draft" || s.status === "completed") && s.id !== sessionId).length === 0 ? (
+            <p className="text-xs text-muted-foreground">No other past sessions.</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -291,7 +361,19 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
               </div>
             ))}
 
-            {pendingActions.map((action) => (
+            {actions.map((action) =>
+              action.status !== "pending" ? (
+                <div key={action.id} className="flex items-center gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+                  {action.status === "confirmed" ? (
+                    <Check size={13} className="text-green-600" />
+                  ) : (
+                    <X size={13} className="text-red-600" />
+                  )}
+                  <span>
+                    {action.actionType} {action.entityType} — {action.status === "confirmed" ? "applied" : "rejected"}
+                  </span>
+                </div>
+              ) : (
               <Card key={action.id} className="p-3 text-xs space-y-2 border-primary/30">
                 <p className="font-semibold">
                   Proposed {action.actionType} on {action.entityType}
@@ -315,6 +397,11 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
                             <Badge tone={severityTone[item.severity] ?? "neutral"}>{item.severity}</Badge>
                           </div>
                           <p className="text-muted-foreground">{item.reasoning}</p>
+                          {item.suggestedAction ? (
+                            <Badge tone="neutral">
+                              suggests: {item.suggestedAction} {item.affectedEntityType}
+                            </Badge>
+                          ) : null}
                           {item.status === "pending" ? (
                             <div className="flex gap-2 pt-1">
                               <Button
@@ -354,28 +441,39 @@ export function EvolvePanel({ projectId, onClose, headerExtra }: { projectId: st
                   </Button>
                 </div>
               </Card>
-            ))}
+              ),
+            )}
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="flex items-center gap-2 border-t border-border/70 p-3">
-            <input
-              className="h-9 flex-1 rounded-lg border border-input bg-card px-3 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-              placeholder="Ask Evolve..."
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
-              disabled={sending}
-            />
-            <Button size="icon" onClick={() => void send()} disabled={sending || !draft.trim()}>
-              {sending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
-            </Button>
-          </div>
+          {currentSessionStatus === "completed" ? (
+            <div className="flex items-center justify-between gap-2 border-t border-border/70 bg-secondary/30 p-3 text-xs text-muted-foreground">
+              <span>This session is completed and read-only.</span>
+              <Button size="sm" onClick={() => createSession.mutate()} disabled={createSession.isPending}>
+                {createSession.isPending ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+                New session
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 border-t border-border/70 p-3">
+              <input
+                className="h-9 flex-1 rounded-lg border border-input bg-card px-3 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                placeholder="Ask Evolve..."
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void send();
+                  }
+                }}
+                disabled={sending}
+              />
+              <Button size="icon" onClick={() => void send()} disabled={sending || !draft.trim()}>
+                {sending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

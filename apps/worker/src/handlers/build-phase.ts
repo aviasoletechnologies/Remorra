@@ -81,7 +81,10 @@ export async function handleBuildSyncExport(payload: Payload) {
   const buildPhaseId = String(payload.buildPhaseId);
   const buildPhase = await prisma.buildPhase.findUniqueOrThrow({ where: { id: buildPhaseId } });
 
-  const csv = await assembleBuildSyncCsv(buildPhaseId, true);
+  // Unlike the initial Build Pack export (always blank, for first handoff),
+  // "Pull fresh sync file" is meant to reflect the current backlog state —
+  // including statuses already synced back — not wipe them again.
+  const csv = await assembleBuildSyncCsv(buildPhaseId, false);
   const path = `${buildPhase.projectId}/build-phases/${buildPhaseId}/build-sync-export-${Date.now()}.csv`;
   const { error } = await supabase.storage
     .from(bucket)
@@ -134,10 +137,14 @@ export async function handleBuildSyncIngest(payload: Payload) {
     const validStatuses = new Set(["ready", "in_progress", "review", "done"]);
     let updated = 0;
     for (const row of rows) {
-      if (!row.status || !validStatuses.has(row.status)) continue;
+      // Developers hand-editing the CSV commonly type "Done"/"In Progress" —
+      // normalize case/spacing before matching instead of silently dropping
+      // the row with no feedback in the upload result.
+      const normalizedStatus = row.status?.trim().toLowerCase().replace(/\s+/g, "_");
+      if (!normalizedStatus || !validStatuses.has(normalizedStatus)) continue;
       const result = await prisma.story.updateMany({
         where: { id: row.storyId, buildPhaseId: upload.buildPhaseId },
-        data: { status: row.status as any },
+        data: { status: normalizedStatus as any },
       });
       updated += result.count;
     }
@@ -154,10 +161,45 @@ export async function handleBuildSyncIngest(payload: Payload) {
   }
 }
 
+// Splits one CSV line respecting double-quoted fields (which may contain
+// commas or escaped "" quotes) — mirrors csvEscape()'s quoting convention
+// used when the Build Sync File is exported, so titles like "As a user, I
+// want..." round-trip correctly instead of shifting later columns out of
+// position.
+function parseCsvLine(line: string): string[] {
+  const cols: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      cols.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cols.push(current);
+  return cols;
+}
+
 function parseBuildSyncCsv(text: string): Array<{ buildPhaseIdentifier: string; storyId: string; status: string }> {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length === 0) return [];
-  const header = lines[0]!.split(",").map((h) => h.trim());
+  const header = parseCsvLine(lines[0]!).map((h) => h.trim());
   const idIdx = header.indexOf("buildPhaseIdentifier");
   const storyIdx = header.indexOf("storyId");
   const statusIdx = header.indexOf("status");
@@ -165,7 +207,7 @@ function parseBuildSyncCsv(text: string): Array<{ buildPhaseIdentifier: string; 
     throw new Error("Build Sync File is missing required columns: buildPhaseIdentifier, storyId, status.");
   }
   return lines.slice(1).filter(Boolean).map((line) => {
-    const cols = line.split(",");
+    const cols = parseCsvLine(line);
     return {
       buildPhaseIdentifier: (cols[idIdx] ?? "").trim(),
       storyId: (cols[storyIdx] ?? "").trim(),
