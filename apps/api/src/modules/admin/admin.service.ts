@@ -3,7 +3,7 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, tableConfigToJsonSchema, type DrivePhase } from "@remorra/contracts";
+import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, tableConfigToJsonSchema, jsonSchemaToTableConfig, type DrivePhase } from "@remorra/contracts";
 
 // Skill Output Schema config UI sends the raw per-entity column/action map
 // for type "table" — convert it to the JSON schema shape before storing so
@@ -1605,10 +1605,43 @@ export class AdminService {
     };
   }
 
+  // Detects cycles in the skill-completion routing chain (skill.<id>.completed → skill),
+  // AND the entity-event self-loop class that caused a real incident: a skill mapped to
+  // fire on "<entity>.<action>" whose own outputSchema can write that same entity+action
+  // re-fires its own trigger every run — confirmed live as 19 duplicate Goal rows created
+  // in one minute before an external API rate limit accidentally broke the loop.
+  private async assertNoEntityEventSelfLoop(eventType: string, skillId: string) {
+    const entityMatch = eventType.match(/^([a-z_]+)\.(create|update|delete)$/);
+    if (!entityMatch) return;
+    const [, entitySnakeCase, action] = entityMatch;
+
+    const version = await this.prisma.client.skillVersion.findFirst({
+      where: { skillId, active: true },
+      select: { outputSchema: true },
+    });
+    const schema = version?.outputSchema as any;
+    if (!schema || schema.type !== "table") return;
+
+    const tableConfig = jsonSchemaToTableConfig(schema.value);
+    if (!tableConfig) return;
+
+    for (const [entityName, entry] of Object.entries(tableConfig)) {
+      const delegateName = entityName.charAt(0).toLowerCase() + entityName.slice(1);
+      const snakeCase = delegateName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+      if (snakeCase === entitySnakeCase && entry.actions?.includes(action as any)) {
+        throw new BadRequestException(
+          `Circular mapping: skill "${skillId}" can itself ${action} "${entityName}" — mapping it to fire on "${eventType}" ` +
+          `would let every run re-trigger itself (this exact bug created 19 duplicate rows once). ` +
+          `Remove "${action}" access to "${entityName}" from this skill's output schema, or trigger it from a different event.`,
+        );
+      }
+    }
+  }
+
   // Detects cycles in the skill-completion routing chain (skill.<id>.completed → skill).
-  // Entity-creation events (e.g. "goal.create") aren't checked here — which skill
-  // produces which entity event is data-dependent, not a static config fact.
   private async assertNoCircularMapping(eventType: string, skillId: string, excludeMappingId?: string) {
+    await this.assertNoEntityEventSelfLoop(eventType, skillId);
+
     const completionMatch = eventType.match(/^skill\.(.+)\.completed$/);
     if (!completionMatch) return;
     const sourceSkillId = completionMatch[1]!;
