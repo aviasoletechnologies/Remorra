@@ -1,3 +1,44 @@
+function getApiKeys(): string[] {
+  const list = process.env.GROQ_API_KEYS || process.env.GROK_API_KEYS;
+  if (list) {
+    const keys = list.split(",").map(k => k.trim()).filter(Boolean);
+    if (keys.length) return keys;
+  }
+  const single = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+  return single ? [single] : [];
+}
+
+let keyCursor = 0;
+
+function baseUrlFor(apiKey: string): string {
+  const isGroq = !!process.env.GROQ_API_KEY || apiKey.startsWith("gsk_");
+  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
+  return process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
+}
+
+// Tries each key in turn, rotating past ones returning 429, until one succeeds or all are exhausted.
+async function fetchWithKeyRotation(payload: unknown): Promise<Response> {
+  const keys = getApiKeys();
+  if (!keys.length) throw new Error("GROK_API_KEY, XAI_API_KEY, or GROQ_API_KEY environment variable is required");
+
+  let lastRes: Response | undefined;
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const apiKey = keys[keyCursor % keys.length]!;
+    keyCursor++;
+    const res = await fetch(`${baseUrlFor(apiKey)}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.status !== 429) return res;
+    lastRes = res;
+  }
+  return lastRes!;
+}
+
 export function grokModelFor(tier: string): string {
   const envKey = tier.toUpperCase().replace(/[:.-]/g, "_");
   if (process.env[envKey]) return process.env[envKey]!;
@@ -25,11 +66,6 @@ export async function* streamGrok(input: {
   messages: Array<{ role: string; content: string }>;
   temperature?: number;
 }): AsyncGenerator<string, void, unknown> {
-  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
-  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
-  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
-  const baseUrl = process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
-
   const payload = {
     model: input.model,
     max_tokens: input.max_tokens ? Math.min(input.max_tokens, 32768) : undefined,
@@ -41,14 +77,7 @@ export async function* streamGrok(input: {
     stream: true,
   };
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetchWithKeyRotation(payload);
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => "");
@@ -126,11 +155,6 @@ export async function invokeGrok(input: {
   messages: Array<{ role: string; content: string }>;
   temperature?: number;
 }) {
-  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
-  const isGroq = !!process.env.GROQ_API_KEY || (typeof apiKey === "string" && apiKey.startsWith("gsk_"));
-  const defaultBaseUrl = isGroq ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
-  const baseUrl = process.env.GROK_BASE_URL || process.env.GROQ_BASE_URL || defaultBaseUrl;
-
   const payload = {
     model: input.model,
     max_tokens: input.max_tokens ? Math.min(input.max_tokens, 32768) : undefined,
@@ -141,14 +165,7 @@ export async function invokeGrok(input: {
     ],
   };
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetchWithKeyRotation(payload);
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => "");

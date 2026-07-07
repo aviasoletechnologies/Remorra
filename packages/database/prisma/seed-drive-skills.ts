@@ -25,6 +25,17 @@ function outputSchemaTable(tableConfig: TableOutputConfig) {
   return { type: "table" as const, value: tableConfigToJsonSchema(tableConfig) };
 }
 
+// "custom" type means a real, user-defined JSON Schema — the Admin UI's
+// Custom Schema editor hard-validates via JSON.parse() and rejects anything
+// that isn't syntactically valid JSON (admin.tsx: "Invalid JSON: ..."). Loose
+// pseudo-JSON shape descriptions (e.g. {"x": boolean}) fail that check.
+// Behavioral rules that aren't part of the shape itself (when to emit,
+// default-empty cases) go in JSON Schema's own "description" fields instead
+// of prose outside the JSON — keeps the whole value valid, parseable JSON.
+function outputSchemaCustom(schema: Record<string, unknown>) {
+  return { type: "custom" as const, value: JSON.stringify(schema, null, 2) };
+}
+
 const skills = [
   // ── Discover Phase ────────────────────────────────────────────────────────
   {
@@ -34,10 +45,17 @@ const skills = [
     phase: "discover",
     kbEligible: false,
     systemPrompt: `You are the Discover Facilitator. Ask exactly one focused question at a time to extract: (1) What problem are we solving? (2) What is the idea? (3) Who is the user? Probe vague answers for specifics. Do not invent details on the user's behalf.`,
-    outputSchema: {
-      type: "custom" as const,
-      value: `{"discover_complete": boolean, "problem": string, "idea": string, "user": string} — emit only once all 3 areas are captured; until then, omit this JSON entirely and keep asking questions.`,
-    },
+    outputSchema: outputSchemaCustom({
+      type: "object",
+      description: "Emit this JSON only once all 3 areas (problem, idea, user) have been captured. Until then, omit it entirely and keep asking questions.",
+      required: ["discover_complete", "problem", "idea", "user"],
+      properties: {
+        discover_complete: { type: "boolean", description: "true only once all 3 areas are captured." },
+        problem: { type: "string", description: "Summary of the problem being solved." },
+        idea: { type: "string", description: "Summary of the product idea." },
+        user: { type: "string", description: "Summary of the target user." },
+      },
+    }),
   },
   {
     id: "market-competitor-analyst",
@@ -71,33 +89,69 @@ Structure your response as: (1) Research Goals, (2) Screener Criteria, (3) Inter
   {
     id: "refine-facilitator",
     name: "Refine Facilitator",
-    description: "Builds Goal/Epic/Story/Persona entities from the Discover summary, tracks pass criteria.",
+    description: "Validates the Discover summary with the founder and drills into detail. Never writes entities itself — hands confirmed detail to Goal & Epic Builder / Story & Spec Writer to insert.",
     phase: "refine",
     kbEligible: false,
-    systemPrompt: `You are the Refine Facilitator. Drill into the Discover summary: Problem -> detailed Goals, Idea -> Epics broken into Stories with Gherkin acceptance criteria, User -> Personas with Pain Points. Ask focused questions, one at a time, before creating entities — do not invent unconfirmed details.
+    systemPrompt: `You are the Refine Facilitator. The founder has already completed Discover — their problem/idea/user summary is available to you as prior context. You never create, update, or delete any entity yourself — you only validate and gather detail; Goal & Epic Builder and Story & Spec Writer do the actual writing once you hand off.
 
-Once at least one connected Goal -> Epic -> Story thread exists, include "pass_criteria_met": true at the top level of your structured output, alongside "operations".`,
-    inputSourceMap: { tables: { Project: ["name", "summary"] } },
-    outputSchema: outputSchemaTable({
-      Goal: { columns: ["title", "detail"], actions: ["create", "update", "delete"] },
-      Epic: { columns: ["title", "description"], actions: ["create", "update", "delete"] },
-      Story: { columns: ["title", "description", "acceptance", "priority", "estimatePoints"], actions: ["create", "update", "delete"] },
-      Persona: { columns: ["name", "description"], actions: ["create", "update", "delete"] },
-      PainPoint: { columns: ["statement"], actions: ["create", "update", "delete"] },
+Phase 1 — Discover Validation: present each captured area (Problem, Idea, User) back to the founder in your own words and ask them to confirm or correct it.
+
+Phase 2 — Entity Building: once confirmed, drill into each area to build detail — Problem -> detailed Goal(s), Idea -> Epic(s) with enough detail to break into Stories, User -> Persona(s) with Pain Points. Ask focused questions, one at a time. Do not invent unconfirmed details.
+
+On every turn, include a "draft_data" JSON block (wrapped in <draft_data></draft_data> tags, separate from your structured output) with whatever fields are captured/confirmed so far: {"problem": "...", "idea": "...", "user": "...", "goals": [{"title": "...", "detail": "..."}], "personas": [{"name": "...", "description": "...", "painPoints": ["..."]}]}. Omit fields not yet captured. This is a live progress snapshot only — it does not insert anything.
+
+Once at least one Goal is fully detailed with enough Epic/Persona material to hand off, emit your final structured output (per the schema below) with "pass_criteria_met": true and the same goals/personas detail, confirmed and complete.`,
+    inputSourceMap: { skills: ["discover-facilitator"], tables: { Project: ["name", "summary"] } },
+    outputSchema: outputSchemaCustom({
+      type: "object",
+      description: "Emit only once Phase 2 detail is confirmed and ready to hand off for insertion. Never include entity actions — this skill never writes entities directly.",
+      required: ["pass_criteria_met", "goals"],
+      properties: {
+        pass_criteria_met: { type: "boolean" },
+        problem: { type: "string" },
+        idea: { type: "string" },
+        user: { type: "string" },
+        goals: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["title", "detail"],
+            properties: { title: { type: "string" }, detail: { type: "string" } },
+          },
+        },
+        personas: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["name", "description"],
+            properties: {
+              name: { type: "string" },
+              description: { type: "string" },
+              painPoints: { type: "array", items: { type: "string" } },
+            },
+          },
+        },
+      },
     }),
   },
   {
     id: "goal-epic-builder",
     name: "Goal & Epic Builder",
-    description: "Creates high-level product Goals and groups features into Epics based on the project concept.",
+    description: "Inserts Goal(s) and groups features into Epics, from Refine Facilitator's confirmed detail.",
     phase: "refine",
     kbEligible: false,
-    systemPrompt: `You are the Goal & Epic Builder. Process the product strategy conversation and produce structured Goal and Epic entities.
+    systemPrompt: `You are the Goal & Epic Builder. Refine Facilitator has already validated the Goal detail conversationally and confirmed it with the founder — nothing has been inserted yet. Create the Goal(s) exactly as confirmed, then group the associated feature material into Epics under each Goal.
 
-Goal "title": max 120 chars, action-oriented (e.g. "Streamline Inventory Auditing"). Goal "detail": clear description of the strategic outcome. Epic "title": high-level feature set (e.g. "Real-time Stock Scanner"). Epic "description": functionality and dependencies.
+Epic "title": high-level feature set (e.g. "Real-time Stock Scanner"). Epic "description": functionality and dependencies.
 
-Do NOT invent placeholder goals. Only output entities discussed and agreed upon during the Refine Facilitator conversation.`,
+Do NOT invent placeholder Goals or Epics. Only create what Refine Facilitator's confirmed output describes.`,
     inputSourceMap: { skills: ["refine-facilitator"], tables: { Project: ["name", "summary"] } },
+    // Safe to write Goal here (unlike before): this skill now triggers off
+    // skill.refine-facilitator.completed, not off goal.create — and
+    // refine-facilitator itself never writes Goal, so there is no self-loop.
+    // (Previously this fired on "goal.create" while also being able to write
+    // Goal itself — an unbounded self-triggering loop, confirmed live: 19
+    // duplicate Goals in one minute before Groq's rate limit broke it.)
     outputSchema: outputSchemaTable({
       Goal: { columns: ["title", "detail"], actions: ["create", "update", "delete"] },
       Epic: { columns: ["title", "description"], actions: ["create", "update", "delete"] },
@@ -136,10 +190,32 @@ Persona "name" (e.g. "Warehouse manager Harry"), "description" (role, goals, fru
         Persona: ["name", "description"],
       },
     },
-    outputSchema: {
-      type: "custom" as const,
-      value: `{"readinessAssessment": string (2-3 sentence overall assessment), "components": [{"component": "problem_top"|"idea_top"|"user_top"|"problem_detail"|"idea_detail"|"user_detail"|"cohesion", "score": 0-100, "rationale": string, "actions": string[]}]} — exactly 7 components, all keys required.`,
-    },
+    outputSchema: outputSchemaCustom({
+      type: "object",
+      required: ["readinessAssessment", "components"],
+      properties: {
+        readinessAssessment: { type: "string", description: "2-3 sentence overall assessment." },
+        components: {
+          type: "array",
+          description: "Exactly 7 items, one per component below, all required.",
+          minItems: 7,
+          maxItems: 7,
+          items: {
+            type: "object",
+            required: ["component", "score", "rationale", "actions"],
+            properties: {
+              component: {
+                type: "string",
+                enum: ["problem_top", "idea_top", "user_top", "problem_detail", "idea_detail", "user_detail", "cohesion"],
+              },
+              score: { type: "integer", minimum: 0, maximum: 100 },
+              rationale: { type: "string" },
+              actions: { type: "array", items: { type: "string" } },
+            },
+          },
+        },
+      },
+    }),
   },
   {
     id: "readiness-gap-analyzer",
@@ -272,10 +348,28 @@ If the conversation surfaces a project-level decision worth remembering (tech st
         Persona: ["name", "description"],
       },
     },
-    outputSchema: {
-      type: "custom" as const,
-      value: `{"items": [{"affectedEntityType": "Epic"|"Story"|"Persona", "affectedEntityId": string|null (uuid if a specific existing entity, else null), "severity": "red"|"amber"|"green", "title": string, "reasoning": string, "suggestedChange": {"<field>": "<value>"}|null}]} — return {"items": []} if nothing is affected.`,
-    },
+    outputSchema: outputSchemaCustom({
+      type: "object",
+      required: ["items"],
+      description: "Return {\"items\": []} if nothing is affected.",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["affectedEntityType", "severity", "title", "reasoning"],
+            properties: {
+              affectedEntityType: { type: "string", enum: ["Epic", "Story", "Persona"] },
+              affectedEntityId: { type: ["string", "null"], description: "UUID if a specific existing entity, else null." },
+              severity: { type: "string", enum: ["red", "amber", "green"] },
+              title: { type: "string" },
+              reasoning: { type: "string" },
+              suggestedChange: { type: ["object", "null"], description: "Field/value pairs to change on the affected entity, or null." },
+            },
+          },
+        },
+      },
+    }),
   },
   {
     id: "prd-document-generator",
@@ -308,17 +402,27 @@ Structure your response as: (1) Document Title, (2) Strategic Goals, (3) User Pr
 
 Identify anything that should be added or corrected in project context (tech decisions, scale changes, new constraints implied by recent activity) that isn't already reflected. Do not repeat anything already present in the current context.`,
     inputSourceMap: { tables: {} },
-    outputSchema: {
-      type: "custom" as const,
-      value: `{"proposals": string[]} — return {"proposals": []} if nothing new stands out.`,
-    },
+    outputSchema: outputSchemaCustom({
+      type: "object",
+      required: ["proposals"],
+      description: "Return {\"proposals\": []} if nothing new stands out.",
+      properties: {
+        proposals: { type: "array", items: { type: "string" } },
+      },
+    }),
   },
 ];
 
-// Intra-phase auto-chains only — phase-to-phase advances (Discover -> Refine,
-// Refine -> Initiate, etc.) stay manual via the FE "Continue"/advance()
-// endpoint, not event mappings (HARDIK doc Q10 / ai-workspace.tsx
-// phaseComplete).
+// Mostly intra-phase auto-chains — one exception below (Discover -> Refine).
+// Actual phase advancement (project.phase changing) always stays a manual,
+// founder-gated "Continue" click (HARDIK doc Q10) — conversation.ts's worker
+// event-chaining NEVER auto-advances phase on its own, regardless of what
+// mappings exist. The Discover -> Refine mapping below exists purely so
+// workspace-flow.service.ts's getOrCreate() can look up "which skill starts
+// Refine" the same config-driven way it looks up intra-phase chains,
+// instead of a separate hardcoded/flagged kickoff skill. It is never
+// auto-executed by the worker — see conversation.ts's nextMapping search,
+// scoped to currentPhase only.
 //
 // DB-writing skills (table-type outputSchema) route via the DB event their
 // own write produces, never via their own skill.<id>.completed — otherwise
@@ -334,9 +438,14 @@ const mappings: Array<{ eventType: string; skillId: string; targetQueue: string 
   // Discover
   { eventType: "skill.discover-facilitator.completed", skillId: "market-competitor-analyst", targetQueue: "ai.conversation" },
   { eventType: "skill.market-competitor-analyst.completed", skillId: "user-research-planner", targetQueue: "ai.conversation" },
-  // Refine — refine-facilitator and goal-epic-builder both write DB, so their
-  // forward chain routes via the entity event, not skill.completed.
-  { eventType: "goal.create", skillId: "goal-epic-builder", targetQueue: "ai.conversation" },
+  // Cross-phase (config-lookup only, never auto-executed — see comment above)
+  { eventType: "skill.user-research-planner.completed", skillId: "refine-facilitator", targetQueue: "ai.conversation" },
+  // Refine — refine-facilitator never writes any entity (validate-only), so
+  // chaining off its own skill.completed event is safe: it can't re-fire
+  // itself. goal-epic-builder writes Goal+Epic; its own forward chain
+  // (epic.create -> story-spec-writer) is safe too, since story-spec-writer
+  // can't produce an Epic itself.
+  { eventType: "skill.refine-facilitator.completed", skillId: "goal-epic-builder", targetQueue: "ai.conversation" },
   { eventType: "epic.create", skillId: "story-spec-writer", targetQueue: "ai.conversation" },
   // Initiate — health-score-calculator is excluded (see comment above)
   { eventType: "skill.readiness-gap-analyzer.completed", skillId: "architecture-outline-generator", targetQueue: "ai.conversation" },
