@@ -32,6 +32,17 @@ function registerRef(
   }
 }
 
+// LLMs often emit numeric fields as strings (e.g. "8" instead of 8). Prisma
+// rejects that with a validation error for Int/Float columns, silently
+// dropping the whole create/update op — coerce pure-digit strings up front,
+// skipping *Id-suffixed keys (UUIDs) and $ref placeholders.
+function coerceNumericStrings(key: string, val: unknown): unknown {
+  if (typeof val === "string" && !val.startsWith("$") && !/id$/i.test(key) && /^-?\d+(\.\d+)?$/.test(val)) {
+    return Number(val);
+  }
+  return val;
+}
+
 function resolveRef(
   refMap: Map<string, string>,
   normalizedRefMap: Map<string, string | null>,
@@ -111,7 +122,7 @@ export async function applyOperationsExtract(projectId: string, actorId: string,
             }
             resolvedData[key] = resolved;
           } else {
-            resolvedData[key] = val;
+            resolvedData[key] = coerceNumericStrings(key, val);
           }
         }
         if (refFailed) continue;
@@ -158,7 +169,7 @@ export async function applyOperationsExtract(projectId: string, actorId: string,
             }
             resolvedData[key] = resolved;
           } else {
-            resolvedData[key] = val;
+            resolvedData[key] = coerceNumericStrings(key, val);
           }
         }
         if (refFailed) continue;

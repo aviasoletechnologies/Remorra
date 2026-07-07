@@ -59,6 +59,7 @@ export type ImpactItemInput = {
   severity: "red" | "amber" | "green";
   title: string;
   reasoning: string;
+  suggestedAction?: "update" | "delete" | "create" | null;
   suggestedChange?: unknown;
 };
 
@@ -72,6 +73,7 @@ export async function attachImpactItems(evolveActionId: string, items: ImpactIte
       severity: item.severity,
       title: item.title,
       reasoning: item.reasoning,
+      suggestedAction: item.suggestedAction ?? null,
       suggestedChange: item.suggestedChange !== undefined ? jsonValue(item.suggestedChange) : undefined,
     })),
   });

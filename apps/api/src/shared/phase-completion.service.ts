@@ -31,14 +31,15 @@ export class PhaseCompletionService {
     });
     if (!conversation) return false;
 
+    // Any turn emitting the flag marks the phase done — later auto-chained
+    // skills (goal-epic-builder, story-spec-writer, ...) also save their own
+    // StructuredExtract rows with no such flag, so checking only the most
+    // recent row would bury an earlier true reading under those.
     const extract = await this.prisma.client.structuredExtract.findFirst({
-      where: { conversationId: conversation.id },
+      where: { conversationId: conversation.id, payload: { path: [flagKey], equals: true } },
       orderBy: { createdAt: "desc" },
       select: { payload: true },
     });
-    if (!extract) return false;
-
-    const payload = extract.payload as Record<string, unknown> | null;
-    return Boolean(payload && payload[flagKey] === true);
+    return Boolean(extract);
   }
 }

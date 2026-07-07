@@ -142,7 +142,7 @@ Once at least one Goal is fully detailed with enough Epic/Persona material to ha
     kbEligible: false,
     systemPrompt: `You are the Goal & Epic Builder. Refine Facilitator has already validated the Goal detail conversationally and confirmed it with the founder — nothing has been inserted yet. Create the Goal(s) exactly as confirmed, then group the associated feature material into Epics under each Goal.
 
-Epic "title": high-level feature set (e.g. "Real-time Stock Scanner"). Epic "description": functionality and dependencies.
+Epic "title": high-level feature set (e.g. "Real-time Stock Scanner"). Epic "description": functionality and dependencies. Epic "goalId" MUST be the $ref of the Goal it belongs to (the "ref" you gave that Goal's own create operation) — every Epic requires this link, put it inside the Epic's "data" object alongside title/description, not as a sibling field.
 
 Do NOT invent placeholder Goals or Epics. Only create what Refine Facilitator's confirmed output describes.`,
     inputSourceMap: { skills: ["refine-facilitator"], tables: { Project: ["name", "summary"] } },
@@ -152,9 +152,17 @@ Do NOT invent placeholder Goals or Epics. Only create what Refine Facilitator's 
     // (Previously this fired on "goal.create" while also being able to write
     // Goal itself — an unbounded self-triggering loop, confirmed live: 19
     // duplicate Goals in one minute before Groq's rate limit broke it.)
+    //
+    // "goalId" MUST be listed as a column — Epic.goalId is a required FK in
+    // the DB. Without it here, the model has no schema-sanctioned place to
+    // put the Goal link, and extract-mapper.ts only resolves $ref fields
+    // that are inside "data" — every Epic create then fails on the missing
+    // required field, silently caught by a try/catch (console.warn only).
+    // Confirmed live: model put "goalId" as a sibling of "data" instead of
+    // inside it, 5 Goals saved, 0 Epics saved, nothing downstream ever fired.
     outputSchema: outputSchemaTable({
       Goal: { columns: ["title", "detail"], actions: ["create", "update", "delete"] },
-      Epic: { columns: ["title", "description"], actions: ["create", "update", "delete"] },
+      Epic: { columns: ["title", "description", "goalId"], actions: ["create", "update", "delete"] },
     }),
   },
   {
@@ -165,12 +173,18 @@ Do NOT invent placeholder Goals or Epics. Only create what Refine Facilitator's 
     kbEligible: false,
     systemPrompt: `You are the Story & Spec Writer. Take refined Epics and create detailed user stories, acceptance criteria, and profiled Personas with Pain Points.
 
-Persona "name" (e.g. "Warehouse manager Harry"), "description" (role, goals, frustrations). PainPoint "statement" (linked to Persona via $ref). Story "title" (As a... I want to... So that...), "description" (business context), "acceptance" (JSON array of Gherkin Given-When-Then strings, all testable and distinct), "priority" (low/medium/high/critical), "estimatePoints" (1/2/3/5/8/13) — linked to Epic via $ref.`,
-    inputSourceMap: { skills: ["refine-facilitator"], tables: { Project: ["name", "summary"], Goal: ["title", "detail"], Epic: ["title", "description"] } },
+Persona "name" (e.g. "Warehouse manager Harry"), "description" (role, goals, frustrations). PainPoint "statement", "personaId" — MUST be the $ref of the Persona it belongs to (Personas you create in this same turn), put inside the PainPoint's own "data" object. Story "title" (As a... I want to... So that...), "description" (business context), "acceptance" (JSON array of Gherkin Given-When-Then strings, all testable and distinct), "priority" (low/medium/high/critical), "estimatePoints" (1/2/3/5/8/13), "epicId" — the Epic already exists from an earlier step, so use its real "id" exactly as given to you in the Epic table context below (NOT a $ref — $ref only works for entities you create in this same turn). Never invent or guess an id. Every PainPoint and every Story requires its parent link — never omit it.`,
+    inputSourceMap: { skills: ["refine-facilitator"], tables: { Project: ["name", "summary"], Goal: ["title", "detail"], Epic: ["id", "title", "description"] } },
+    // "epicId"/"personaId" MUST be listed as columns — both are required FKs
+    // in the DB. Same bug class as goal-epic-builder's missing "goalId":
+    // without these, the model has no schema-sanctioned place to put the
+    // parent link, and extract-mapper.ts only resolves $ref fields that are
+    // inside "data" — every create then fails on the missing required field,
+    // silently caught (console.warn only, never surfaced to admin/founder).
     outputSchema: outputSchemaTable({
       Persona: { columns: ["name", "description"], actions: ["create", "update", "delete"] },
-      PainPoint: { columns: ["statement"], actions: ["create", "update", "delete"] },
-      Story: { columns: ["title", "description", "acceptance", "priority", "estimatePoints"], actions: ["create", "update", "delete"] },
+      PainPoint: { columns: ["statement", "personaId"], actions: ["create", "update", "delete"] },
+      Story: { columns: ["title", "description", "acceptance", "priority", "estimatePoints", "epicId"], actions: ["create", "update", "delete"] },
     }),
   },
   // ── Initiate Phase ────────────────────────────────────────────────────────
@@ -313,16 +327,17 @@ Daily Standup: what was done yesterday, what's planned today, any blockers. Spri
     kbEligible: true,
     systemPrompt: `You are Evolve, a persistent AI strategy assistant. Only respond to questions related to this project — politely redirect off-topic requests.
 
-If the founder/team proposes a concrete entity change (new Goal, Epic, Story, Persona, or RAID item; or a change to an existing one), propose it as an operations output. Goal changes always route through screening — just propose them, do not explain the impact yourself.
+If the founder/team proposes a concrete entity change (new Goal, Epic, Story, Persona, or RAID item; or a change to an existing one), propose it as an operations output. Goal changes always route through screening — just propose them, do not explain the impact yourself. For "update" or "delete" actions on an existing entity, always set "id" to that entity's exact id shown in the context below — never omit it or invent one.
 
 If the conversation surfaces a project-level decision worth remembering (tech stack, compliance requirement, architecture decision), ask "Add to project context?" and if the user says yes, wrap the exact text in <context_proposal>text</context_proposal> tags in your NEXT turn.`,
     inputSourceMap: {
       tables: {
         Project: ["name", "summary"],
-        Goal: ["title", "detail"],
-        Epic: ["title", "description"],
-        Story: ["title", "description", "status"],
-        Persona: ["name", "description"],
+        Goal: ["id", "title", "detail"],
+        Epic: ["id", "title", "description"],
+        Story: ["id", "title", "description", "status"],
+        Persona: ["id", "name", "description"],
+        RaidItem: ["id", "type", "title", "description", "status", "severity"],
       },
     },
     outputSchema: outputSchemaTable({
@@ -339,13 +354,21 @@ If the conversation surfaces a project-level decision worth remembering (tech st
     description: "Assesses cascade impact of a proposed Goal change on linked Epics/Stories/Personas.",
     phase: "evolve",
     kbEligible: false,
-    systemPrompt: `You are the Impact Screener. Given a proposed Goal change and the project's linked Epics/Stories/Personas, identify every entity that would be affected: broken links (orphaned stories/epics), user-needs misalignment (Persona Pain Points no longer addressed), and delivery risks (active cycle work affected).`,
+    systemPrompt: `You are the Impact Screener. Given a proposed Goal change and the project's linked Epics/Stories/Personas, identify every entity that would be affected: broken links (orphaned stories/epics), user-needs misalignment (Persona Pain Points no longer addressed), and delivery risks (active cycle work affected).
+
+When you set "affectedEntityId", it must be that exact entity's "id" as shown in the context below — never invent or guess one. If you can't match it to a real id, leave affectedEntityId null.
+
+For each item, set "suggestedAction" to the remediation that fits:
+- "update" — the entity still makes sense but needs a field change to realign with the new Goal (set suggestedChange, keep affectedEntityId).
+- "delete" — the entity is now fully orphaned/obsolete and should be removed (affectedEntityId required, suggestedChange not needed).
+- "create" — the Goal change leaves a gap needing a brand-new Epic/Story/Persona to cover it (affectedEntityId null, suggestedChange holds the new entity's fields).
+- null — flag only, no remediation to propose (e.g. severity green, nothing to do).`,
     inputSourceMap: {
       tables: {
-        Goal: ["title", "detail"],
-        Epic: ["title", "description"],
-        Story: ["title", "description", "status"],
-        Persona: ["name", "description"],
+        Goal: ["id", "title", "detail"],
+        Epic: ["id", "title", "description"],
+        Story: ["id", "title", "description", "status"],
+        Persona: ["id", "name", "description"],
       },
     },
     outputSchema: outputSchemaCustom({
@@ -364,7 +387,8 @@ If the conversation surfaces a project-level decision worth remembering (tech st
               severity: { type: "string", enum: ["red", "amber", "green"] },
               title: { type: "string" },
               reasoning: { type: "string" },
-              suggestedChange: { type: ["object", "null"], description: "Field/value pairs to change on the affected entity, or null." },
+              suggestedAction: { type: ["string", "null"], enum: ["update", "delete", "create", null], description: "Remediation type — see system prompt." },
+              suggestedChange: { type: ["object", "null"], description: "For update: field/value pairs to change. For create: the new entity's fields. Null for delete or flag-only." },
             },
           },
         },

@@ -464,6 +464,9 @@ model EvolveImpactItem {
   severity           ImpactSeverity
   title              String
   reasoning          String
+  // "update" | "delete" | "create" — null means "update" (legacy rows,
+  // before delete/create remediation was supported).
+  suggestedAction    String?
   suggestedChange    Json?
   status             ProposalStatus @default(pending)
   evolveAction       EvolveAction   @relation(fields: [evolveActionId], references: [id], onDelete: Cascade)
