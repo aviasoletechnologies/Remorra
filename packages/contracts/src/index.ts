@@ -297,11 +297,26 @@ export type TableOutputConfig = Record<string, { columns: string[]; actions: str
 
 const ALL_TABLE_ACTIONS = ["create", "update", "delete"];
 
+// Columns known to hold an array rather than a plain string — currently only
+// Story.acceptance (a JSON array of Gherkin Given-When-Then strings). Every
+// other column across every skill is a plain string/UUID-as-string. Without
+// this, the blanket {type:"string"} below rejects any array value Ajv
+// receives for "acceptance", which fails the ENTIRE operations batch (not
+// just the Story op) — confirmed live: a turn with valid Persona+PainPoint+
+// Story ops wrote nothing at all, because one Story with a real acceptance
+// array made the whole payload fail schema validation.
+const ARRAY_COLUMNS = new Set(["acceptance"]);
+
+function columnSchema(name: string): Record<string, unknown> {
+  return ARRAY_COLUMNS.has(name) ? { type: "array", items: { type: "string" } } : { type: "string" };
+}
+
 export function tableConfigToJsonSchema(tableConfig: TableOutputConfig): Record<string, unknown> {
   const variants = Object.entries(tableConfig).map(([entityName, entry]) => {
     const columns = entry.columns ?? [];
     const actions = entry.actions ?? ALL_TABLE_ACTIONS;
     return {
+      type: "object",
       required: ["action", "entity", "data"],
       properties: {
         ref: { type: "string" },
@@ -311,7 +326,7 @@ export function tableConfigToJsonSchema(tableConfig: TableOutputConfig): Record<
         data: {
           type: "object",
           required: columns,
-          properties: Object.fromEntries(columns.map((c) => [c, { type: "string" }])),
+          properties: Object.fromEntries(columns.map((c) => [c, columnSchema(c)])),
         },
       },
     };
