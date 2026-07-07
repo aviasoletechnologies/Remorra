@@ -15,9 +15,10 @@ import { cn } from "../lib/utils";
 
 const columns = ["ready", "in_progress", "review", "done"] as const;
 const buildPhaseStatuses = ["draft", "ready", "active", "closed"] as const;
-const tabs = ["board", "raid", "build"] as const;
+const tabs = ["board", "goals", "raid", "build"] as const;
 const tabItems = [
   { value: "board", label: "Backlog", icon: ListChecks },
+  { value: "goals", label: "Goals", icon: Sparkles },
   { value: "raid", label: "RAID", icon: ShieldAlert },
   { value: "build", label: "Build Phases", icon: Layers },
 ] satisfies Array<{ value: (typeof tabs)[number]; label: string; icon: any }>;
@@ -154,6 +155,7 @@ export function VenturePage() {
   };
 
   const stories = data?.stories ?? [];
+  const goals = data?.goals ?? [];
   const founderOrTeam = Boolean(data?.role);
 
   const submit = (path: string, body: any, clear: () => void) => {
@@ -340,6 +342,50 @@ export function VenturePage() {
                     </div>
                   );
                 })}
+              </section>
+            )}
+
+            {tab === "goals" && (
+              <section className="flex flex-col gap-4">
+                {goals.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-border py-12 text-center text-[11px] text-muted-foreground">
+                    No Goals yet — build them out in Refine or ask Evolve to create one.
+                  </div>
+                )}
+                {goals.map((goal: any) => (
+                  <Card key={goal.id} className="p-4 flex flex-col gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground">{goal.title}</h3>
+                      {goal.detail && <p className="mt-1 text-xs text-muted-foreground">{goal.detail}</p>}
+                    </div>
+                    {goal.epics.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">No Epics under this Goal yet.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2.5 pl-3 border-l-2 border-border">
+                        {goal.epics.map((epic: any) => (
+                          <div key={epic.id} className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                              <ChevronRight size={12} className="text-muted-foreground" />
+                              {epic.title}
+                            </div>
+                            {epic.stories.length === 0 ? (
+                              <p className="pl-4 text-[11px] text-muted-foreground">No Stories under this Epic yet.</p>
+                            ) : (
+                              <ul className="flex flex-col gap-1 pl-4">
+                                {epic.stories.map((story: any) => (
+                                  <li key={story.id} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                    <Badge tone="neutral">{story.status}</Badge>
+                                    {story.title}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                ))}
               </section>
             )}
 

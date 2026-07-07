@@ -307,7 +307,7 @@ async function main() {
                 status: { type: "string" },
                 priority: { type: "string" },
                 description: { type: "string" },
-                acceptance: { type: "array", items: { type: "object" } },
+                acceptance: { type: "array", items: { type: "string" } },
                 epicTitle: { type: "string" },
                 goalTitle: { type: "string" },
                 personaNames: { type: "array", items: { type: "string" } },

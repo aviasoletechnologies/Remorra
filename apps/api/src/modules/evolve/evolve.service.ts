@@ -205,16 +205,32 @@ export class EvolveService {
       action!.proposedChange as Record<string, unknown>,
     );
 
-    const confirmedItems = action!.impactItems.filter((item: any) => item.status === "confirmed" && item.suggestedChange);
+    // Best-effort secondary remediation — the Impact Screener's
+    // affectedEntityId can point at an id it hallucinated (never a real
+    // record), so one bad item must not crash the primary action's approval,
+    // which already ran above. Skip and log rather than aborting the whole
+    // request. suggestedAction defaults to "update" for legacy rows saved
+    // before delete/create remediation existed.
+    const confirmedItems = action!.impactItems.filter(
+      (item: any) => item.status === "confirmed" && (item.suggestedAction || item.suggestedChange),
+    );
     for (const item of confirmedItems) {
-      if (!item.affectedEntityId) continue;
-      await this.applyEntityChange(
-        projectId,
-        item.affectedEntityType,
-        item.affectedEntityId,
-        "update",
-        item.suggestedChange as Record<string, unknown>,
-      );
+      const remediation = item.suggestedAction ?? "update";
+      if ((remediation === "update" || remediation === "delete") && !item.affectedEntityId) continue;
+      try {
+        await this.applyEntityChange(
+          projectId,
+          item.affectedEntityType,
+          item.affectedEntityId,
+          remediation,
+          (item.suggestedChange as Record<string, unknown>) ?? {},
+        );
+      } catch (err) {
+        console.warn(
+          `[evolve] skipping impact item ${item.id}: could not ${remediation} ${item.affectedEntityType} ${item.affectedEntityId ?? "(new)"}`,
+          err,
+        );
+      }
     }
 
     const updated = await this.prisma.client.evolveAction.update({

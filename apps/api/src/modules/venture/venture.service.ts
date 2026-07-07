@@ -14,15 +14,25 @@ export class VentureService {
 
   async overview(projectId: string, userId: string) {
     const role = await this.access.require(projectId, userId);
-    const [stories, raid] = await Promise.all([
+    const [stories, raid, goals] = await Promise.all([
       this.prisma.client.story.findMany({
         where: { projectId },
         orderBy: [{ status: "asc" }, { position: "asc" }],
         include: { epic: { select: { title: true } }, buildPhase: { select: { name: true, status: true } } },
       }),
       this.prisma.client.raidItem.findMany({ where: { projectId } }),
+      this.prisma.client.goal.findMany({
+        where: { projectId },
+        orderBy: { createdAt: "asc" },
+        include: {
+          epics: {
+            orderBy: { createdAt: "asc" },
+            include: { stories: { orderBy: { createdAt: "asc" }, select: { id: true, title: true, status: true } } },
+          },
+        },
+      }),
     ]);
-    return { role, stories, raid };
+    return { role, stories, raid, goals };
   }
 
   async updateStory(
