@@ -66,30 +66,30 @@ export function RefineSummaryPanel({
         </Button>
       </div>
 
-      {draftSummary && (draftSummary.goals?.length || draftSummary.personas?.length || draftSummary.problem || draftSummary.idea || draftSummary.user) ? (
-        <div className="border-b border-dashed border-amber-400/50 bg-amber-50/60 p-3 text-xs space-y-2">
-          <p className="font-semibold uppercase tracking-wide text-[10px] text-amber-700">
-            Draft — not yet saved
-          </p>
-          {draftSummary.goals?.map((g, i) => (
-            <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
-              <p className="font-medium">{g.title}</p>
-              {g.detail ? <p className="mt-0.5 text-muted-foreground">{g.detail}</p> : null}
-            </div>
-          ))}
-          {draftSummary.personas?.map((p, i) => (
-            <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
-              <p className="font-medium">{p.name}</p>
-              {p.description ? <p className="mt-0.5 text-muted-foreground">{p.description}</p> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       {isLoading || !summary ? (
         <p className="p-4 text-xs text-muted-foreground">Loading...</p>
       ) : (
-        <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4 text-xs">
+          {draftSummary && (draftSummary.goals?.length || draftSummary.personas?.length || draftSummary.problem || draftSummary.idea || draftSummary.user) ? (
+            <div className="rounded-lg border border-dashed border-amber-400/50 bg-amber-50/60 p-2.5 space-y-2">
+              <p className="font-semibold uppercase tracking-wide text-[10px] text-amber-700">
+                Draft — not yet saved
+              </p>
+              {draftSummary.goals?.map((g, i) => (
+                <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
+                  <p className="font-medium">{g.title}</p>
+                  {g.detail ? <p className="mt-0.5 text-muted-foreground">{g.detail}</p> : null}
+                </div>
+              ))}
+              {draftSummary.personas?.map((p, i) => (
+                <div key={i} className="rounded-lg border border-amber-300/60 bg-white/60 p-2">
+                  <p className="font-medium">{p.name}</p>
+                  {p.description ? <p className="mt-0.5 text-muted-foreground">{p.description}</p> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="rounded-lg border border-border p-2.5">
             <div className="mb-1.5 flex items-center gap-2">
               {summary.passCriteriaMet ? (
