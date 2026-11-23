@@ -15,7 +15,7 @@ vi.mock("../lib/prisma", () => {
       project: {
         findUniqueOrThrow: vi.fn(),
       },
-      ambition: {
+      goal: {
         findMany: vi.fn(),
       },
     },
@@ -45,7 +45,7 @@ describe("assembleContext Service Tests", () => {
 
     expect(sections).toHaveLength(1);
     expect(sections[0]!.tag).toBe("skill_output_skill_a");
-    expect(sections[0]!.content).toContain("Output from skill skill-a:");
+    expect(sections[0]!.content).toContain("<skill_output_skill_a>");
     expect(sections[0]!.content).toContain('"entity": "Persona"');
   });
 
@@ -78,24 +78,65 @@ describe("assembleContext Service Tests", () => {
     expect(sections).toHaveLength(0);
   });
 
-  it("resolves @previous skill from explicit previousSkillId", async () => {
+  it("always includes the triggering skill's output as a baseline default (previousSkillId)", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst).mockResolvedValueOnce({ conversationId: "conv-1" } as any);
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { result: "extracted data" },
+    } as any);
+
+    // No explicit sources configured at all — the skill that triggered this
+    // turn is still resolved automatically, no config required.
+    const sections = await assembleContext("p1", {}, "first-skill");
+
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "first-skill" }) }),
+    );
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.tag).toBe("skill_output_first_skill");
+  });
+
+  it("combines the baseline previous-skill output with explicitly configured extra sources (flow-issues.md #1/#29)", async () => {
     vi.mocked(prisma.conversationMessage.findFirst)
       .mockResolvedValueOnce({ conversationId: "conv-1" } as any)
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce({ conversationId: "conv-2" } as any);
 
+    vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
+      payload: { result: "extracted data" },
+    } as any);
+
+    // Admin explicitly selected one extra source ("skill-a") via "also use
+    // other skill output" — it must combine with the baseline (previousSkillId),
+    // not replace it, and not be silently dropped by whichever configured
+    // second.
+    const sections = await assembleContext("p1", { skills: ["skill-a"] }, "triggering-skill");
+
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "triggering-skill" }) }),
+    );
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ skillId: "skill-a" }) }),
+    );
+    expect(sections).toHaveLength(2);
+  });
+
+  it("filters out the legacy @previous keyword without double-adding the baseline", async () => {
+    vi.mocked(prisma.conversationMessage.findFirst).mockResolvedValueOnce({ conversationId: "conv-1" } as any);
     vi.mocked(prisma.structuredExtract.findFirst).mockResolvedValue({
       payload: { result: "extracted data" },
     } as any);
 
     const sections = await assembleContext("p1", { skills: ["@previous"] }, "first-skill");
 
-    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ skillId: "first-skill" }) }),
-    );
-
+    // Resolves via the baseline default, not the literal "@previous" string —
+    // exactly one call, not two.
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledTimes(1);
     expect(sections).toHaveLength(1);
-    expect(sections[0]!.tag).toBe("skill_output_first_skill");
-    expect(sections[0]!.content).toContain("Output from skill first-skill:");
+  });
+
+  it("resolves nothing when there is no triggering skill and no explicit sources configured", async () => {
+    const sections = await assembleContext("p1", {}, undefined);
+    expect(prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+    expect(sections).toHaveLength(0);
   });
 
   it("filters project tables and specific columns dynamically", async () => {
@@ -106,38 +147,41 @@ describe("assembleContext Service Tests", () => {
       phase: "discover",
     } as any);
 
-    vi.mocked(prisma.ambition.findMany).mockResolvedValue([
-      { id: "ambition-1", title: "Scale to 10k users", detail: "Using SEO", ignoredField: "secret" },
+    vi.mocked(prisma.goal.findMany).mockResolvedValue([
+      { id: "goal-1", title: "Scale to 10k users", detail: "Using SEO", ignoredField: "secret" },
     ] as any);
 
     const sections = await assembleContext("p1", {
       tables: {
         Project: ["name", "summary"],
-        Ambition: ["id", "title"],
+        Goal: ["id", "title"],
       },
     });
 
-    expect(sections).toHaveLength(1);
-    expect(sections[0]!.tag).toBe("application_context");
+    expect(sections).toHaveLength(2);
+    expect(sections[0]!.tag).toBe("project_metadata");
+    expect(sections[0]!.content).toContain("<project_metadata>");
+    expect(sections[0]!.content).toContain("name: Test Project");
+    expect(sections[0]!.content).toContain("summary: My summary");
 
-    const parsedContent = JSON.parse(sections[0]!.content);
-    expect(parsedContent.Project).toEqual({ name: "Test Project", summary: "My summary" });
-    expect(parsedContent.Ambition).toEqual([{ id: "ambition-1", title: "Scale to 10k users" }]);
+    expect(sections[1]!.tag).toBe("goals_all");
+    expect(sections[1]!.content).toContain("<goals_all>");
+    expect(sections[1]!.content).toContain("id: goal-1");
+    expect(sections[1]!.content).toContain("title: Scale to 10k users");
   });
 
   it("returns all columns if only table is selected with empty columns array", async () => {
-    vi.mocked(prisma.ambition.findMany).mockResolvedValue([
-      { id: "ambition-1", title: "Scale to 10k users", detail: "Using SEO" },
+    vi.mocked(prisma.goal.findMany).mockResolvedValue([
+      { id: "goal-1", title: "Scale to 10k users", detail: "Using SEO" },
     ] as any);
 
-    const sections = await assembleContext("p1", { tables: { Ambition: [] } });
+    const sections = await assembleContext("p1", { tables: { Goal: [] } });
 
     expect(sections).toHaveLength(1);
-    const parsedContent = JSON.parse(sections[0]!.content);
-    expect(parsedContent.Ambition[0]!).toEqual({
-      id: "ambition-1",
-      title: "Scale to 10k users",
-      detail: "Using SEO",
-    });
+    expect(sections[0]!.tag).toBe("goals_all");
+    expect(sections[0]!.content).toContain("<goals_all>");
+    expect(sections[0]!.content).toContain("id: goal-1");
+    expect(sections[0]!.content).toContain("title: Scale to 10k users");
+    expect(sections[0]!.content).toContain("detail: Using SEO");
   });
 });

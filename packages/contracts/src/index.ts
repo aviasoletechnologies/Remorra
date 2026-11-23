@@ -9,8 +9,12 @@ export const drivePhaseSchema = z.enum([
 ]);
 export type DrivePhase = z.infer<typeof drivePhaseSchema>;
 
-export const projectRoleSchema = z.enum(["founder", "team", "supplier"]);
+export const projectRoleSchema = z.enum(["founder", "team"]);
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
+
+export const modelTierSchema = z.enum(["fast", "standard", "reasoning"]);
+export type ModelTier = z.infer<typeof modelTierSchema>;
+export const MODEL_TIERS = modelTierSchema.options;
 
 export const projectSchema = z.object({
   id: z.string().uuid(),
@@ -18,7 +22,7 @@ export const projectSchema = z.object({
   phase: drivePhaseSchema,
   role: projectRoleSchema,
   version: z.number().int().positive(),
-  viabilityScore: z.number().min(0).max(100).nullable(),
+  healthScore: z.number().min(0).max(100).nullable(),
   updatedAt: z.iso.datetime(),
 });
 export type Project = z.infer<typeof projectSchema>;
@@ -29,21 +33,43 @@ export const createProjectSchema = z.object({
 });
 export type CreateProject = z.infer<typeof createProjectSchema>;
 
+export const buildPhaseStatusSchema = z.enum(["draft", "ready", "active", "closed"]);
+
+export const createBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(2000).optional(),
+});
+
+export const updateBuildPhaseSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  description: z.string().trim().max(2000).optional(),
+  status: buildPhaseStatusSchema.optional(),
+});
+
+export const assignBuildPhaseStoriesSchema = z.object({
+  storyIds: z.array(z.string().uuid()).min(1),
+});
+
 export const sessionModeSchema = z.enum(["ideate", "publish"]);
 export const sessionStatusSchema = z.enum([
   "active",
   "draft",
   "screening",
   "completed",
+  "nav_away",
 ]);
 
 export const createEvolveSessionSchema = z.object({
-  projectId: z.string().uuid(),
-  mode: sessionModeSchema,
-  topic: z.string().trim().min(3).max(180),
-  launchedFrom: z.string().trim().max(160),
-  continuedFromSessionId: z.string().uuid().optional(),
+  launchedFrom: z.string().trim().min(1).max(160),
+  topic: z.string().trim().min(3).max(180).optional(),
 });
+
+export const updateEvolveSessionStatusSchema = z.object({
+  status: z.enum(["draft", "completed", "nav_away"]),
+});
+
+export const proposalStatusSchema = z.enum(["pending", "confirmed", "rejected"]);
+export type ProposalStatusValue = z.infer<typeof proposalStatusSchema>;
 
 export const impactItemSchema = z.object({
   id: z.string().uuid(),
@@ -52,9 +78,35 @@ export const impactItemSchema = z.object({
   severity: z.enum(["red", "amber", "green"]),
   title: z.string(),
   reasoning: z.string(),
-  decision: z.enum(["pending", "approved", "rejected"]),
+  decision: proposalStatusSchema,
 });
 export type ImpactItem = z.infer<typeof impactItemSchema>;
+
+export const evolveActionSchema = z.object({
+  id: z.string().uuid(),
+  entityType: z.string(),
+  entityId: z.string().uuid().nullable(),
+  actionType: z.enum(["create", "update", "delete"]),
+  proposedChange: z.record(z.string(), z.unknown()),
+  requiresScreening: z.boolean(),
+  status: proposalStatusSchema,
+  rationale: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  impactItems: z.array(impactItemSchema),
+});
+export type EvolveAction = z.infer<typeof evolveActionSchema>;
+
+export const contextProposalSchema = z.object({
+  id: z.string().uuid(),
+  proposedText: z.string(),
+  status: proposalStatusSchema,
+  createdAt: z.iso.datetime(),
+});
+export type ContextProposal = z.infer<typeof contextProposalSchema>;
+
+export const sendEvolveMessageSchema = z.object({
+  content: z.string().trim().min(1).max(8000),
+});
 
 export const conversationMessageSchema = z.object({
   id: z.string().uuid(),
@@ -64,20 +116,22 @@ export const conversationMessageSchema = z.object({
 });
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
-export const viabilityResultSchema = z.object({
-  overall: z.number().min(0).max(100),
-  components: z.record(z.string(), z.number().min(0).max(100)),
+export const healthScoreComponentSchema = z.object({
+  component: z.string(),
+  weight: z.number().int().min(0).max(100),
+  score: z.number().int().min(0).max(100),
   rationale: z.string(),
-  actions: z.array(
-    z.object({
-      priority: z.number().int().positive(),
-      title: z.string(),
-      targetType: z.string(),
-      targetId: z.string().uuid().nullable(),
-    }),
-  ),
+  actions: z.array(z.string()),
 });
-export type ViabilityResult = z.infer<typeof viabilityResultSchema>;
+
+export const healthScoreResultSchema = z.object({
+  id: z.string().uuid(),
+  overallScore: z.number().int().min(0).max(100),
+  readinessAssessment: z.string(),
+  calculatedAt: z.iso.datetime(),
+  components: z.array(healthScoreComponentSchema),
+});
+export type HealthScoreResult = z.infer<typeof healthScoreResultSchema>;
 
 export const apiErrorSchema = z.object({
   error: z.object({
@@ -108,7 +162,7 @@ export const actorSchema = z.object({
 
 export const invitationInputSchema = z.object({
   email: z.email(),
-  role: z.enum(["team", "supplier"]),
+  role: z.enum(["team"]),
 });
 
 export const createRefineSessionSchema = z.object({
@@ -133,14 +187,14 @@ export const productPackDtoSchema = z.object({
   coveragePercent: z.number().int().min(0).max(100),
   linkageValid: z.boolean(),
   passThread: z.boolean(),
-  ambitions: z.array(z.object({
+  goals: z.array(z.object({
     id: z.string().uuid(),
     title: z.string(),
     detail: z.string(),
-    okrs: z.array(z.object({
+    epics: z.array(z.object({
       id: z.string().uuid(),
-      objective: z.string(),
-      keyResults: z.unknown(),
+      title: z.string(),
+      storyTitles: z.unknown(),
       personaIds: z.array(z.string().uuid()),
     })),
   })),
@@ -149,7 +203,7 @@ export const productPackDtoSchema = z.object({
     name: z.string(),
     description: z.string(),
     painPoints: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
-    userNeeds: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
+    linkedStories: z.array(z.object({ id: z.string().uuid(), statement: z.string() })),
   })),
   assembledAt: z.iso.datetime(),
 });
@@ -217,8 +271,10 @@ export const cursorPageSchema = <T extends z.ZodType>(item: T) =>
 export const skillVersionInputSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
+  phase: drivePhaseSchema.optional(),
   kbEligible: z.boolean().optional(),
   systemPrompt: z.string().optional(),
+  modelTier: modelTierSchema.optional(),
   inputSourceMap: z.object({
     skills: z.array(z.string()).optional(),
     tables: z.record(z.string(), z.array(z.string())).optional(),
@@ -232,4 +288,87 @@ export const skillVersionInputSchema = z.object({
   retryPolicy: z.unknown().optional(),
 });
 export type SkillVersionInput = z.infer<typeof skillVersionInputSchema>;
+
+// Admin-facing shape: what the Skill Output Schema config UI edits —
+// per-entity column + action selections. Stored form is the JSON schema
+// below; conversion happens at the API boundary (write) and in the admin
+// UI's parse step (read) so both sides share one definition of the mapping.
+export type TableOutputConfig = Record<string, { columns: string[]; actions: string[] }>;
+
+const ALL_TABLE_ACTIONS = ["create", "update", "delete"];
+
+// Columns known to hold an array rather than a plain string — currently only
+// Story.acceptance (a JSON array of Gherkin Given-When-Then strings). Every
+// other column across every skill is a plain string/UUID-as-string. Without
+// this, the blanket {type:"string"} below rejects any array value Ajv
+// receives for "acceptance", which fails the ENTIRE operations batch (not
+// just the Story op) — confirmed live: a turn with valid Persona+PainPoint+
+// Story ops wrote nothing at all, because one Story with a real acceptance
+// array made the whole payload fail schema validation.
+const ARRAY_COLUMNS = new Set(["acceptance"]);
+
+function columnSchema(name: string): Record<string, unknown> {
+  return ARRAY_COLUMNS.has(name) ? { type: "array", items: { type: "string" } } : { type: "string" };
+}
+
+export function tableConfigToJsonSchema(tableConfig: TableOutputConfig): Record<string, unknown> {
+  const variants = Object.entries(tableConfig).map(([entityName, entry]) => {
+    const columns = entry.columns ?? [];
+    const actions = entry.actions ?? ALL_TABLE_ACTIONS;
+    return {
+      type: "object",
+      required: ["action", "entity", "data"],
+      properties: {
+        ref: { type: "string" },
+        action: { enum: actions },
+        entity: { const: entityName },
+        id: { type: "string" },
+        data: {
+          type: "object",
+          required: columns,
+          properties: Object.fromEntries(columns.map((c) => [c, columnSchema(c)])),
+        },
+      },
+    };
+  });
+
+  return {
+    type: "object",
+    required: ["operations"],
+    properties: {
+      operations: {
+        type: "array",
+        items: variants.length === 1 ? variants[0] : { oneOf: variants },
+      },
+    },
+  };
+}
+
+// Reverse of tableConfigToJsonSchema — reconstructs the admin's per-entity
+// column/action selections from a stored JSON schema so the config UI can
+// show what's actually set instead of appearing empty/broken. Returns null
+// if the value doesn't look like a schema produced by the function above.
+export function jsonSchemaToTableConfig(value: unknown): TableOutputConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const root = value as Record<string, any>;
+  const items = root?.properties?.operations?.items;
+  if (!items || typeof items !== "object") return null;
+
+  const variants: any[] = Array.isArray(items.oneOf) ? items.oneOf : [items];
+  const result: TableOutputConfig = {};
+
+  for (const variant of variants) {
+    const entityName = variant?.properties?.entity?.const;
+    if (typeof entityName !== "string") continue;
+    const actions = Array.isArray(variant?.properties?.action?.enum)
+      ? variant.properties.action.enum
+      : typeof variant?.properties?.action?.const === "string"
+        ? [variant.properties.action.const]
+        : [...ALL_TABLE_ACTIONS];
+    const columns = Object.keys(variant?.properties?.data?.properties ?? {});
+    result[entityName] = { columns, actions };
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
 

@@ -156,25 +156,30 @@ export function streamTextJob(
 
           lastSequence = event.sequence;
 
-          if (onEvent) {
-            onEvent(event);
-          }
-
           if (event.type === "token" && event.delta) {
             currentText += event.delta;
             onToken(currentText);
+            if (onEvent) onEvent(event);
           } else if (event.type === "snapshot" && event.snapshot) {
             currentText = event.snapshot;
             onToken(currentText);
+            if (onEvent) onEvent(event);
           } else if (event.type === "completed") {
             if (event.snapshot) {
               currentText = event.snapshot;
             }
             onToken(currentText);
+            // onEvent last: it merges the final message into cache and clears
+            // streamedReply — must win over the onToken call above, or the
+            // message renders twice (committed bubble + stale streaming bubble).
+            if (onEvent) onEvent(event);
             onStateChange?.("done");
             return;
           } else if (event.type === "failed") {
+            if (onEvent) onEvent(event);
             throw new Error(event.delta ?? "Stream failed.");
+          } else {
+            if (onEvent) onEvent(event);
           }
         }
       }
@@ -270,12 +275,42 @@ export function streamRecentJobs(
 }
 
 
+function stripHtml(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
+      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, "")
+      .replace(/<\/?(?:script|iframe|object|embed|form|input|button)[^>]*>/gi, "");
+  }
+  if (Array.isArray(value)) return value.map(stripHtml);
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      result[k] = stripHtml(v);
+    }
+    return result;
+  }
+  return value;
+}
+
 async function authorizedFetch(
   path: string,
   init: RequestInit & { version?: number } = {},
 ) {
   let token = await accessToken();
   const isForm = init.body instanceof FormData;
+
+  // Sanitize outgoing JSON bodies recursively
+  if (init.body && typeof init.body === "string" && !isForm) {
+    try {
+      const parsed = JSON.parse(init.body);
+      const sanitized = stripHtml(parsed);
+      init.body = JSON.stringify(sanitized);
+    } catch {
+      // not a JSON string, ignore
+    }
+  }
 
   const request = (accessToken?: string) =>
     fetch(`${apiUrl}${path}`, {
@@ -321,4 +356,16 @@ async function expireSession() {
   if (!supabase) return;
   await supabase.auth.signOut({ scope: "local" });
   window.dispatchEvent(new CustomEvent("remorra-session-expired"));
+}
+
+export async function advancePhase(
+  projectId: string,
+  toPhase: string,
+  currentVersion: number,
+): Promise<{ id: string; phase: string; version: number }> {
+  return api(`/projects/${projectId}/phase`, {
+    method: "PATCH",
+    version: currentVersion,
+    body: JSON.stringify({ phase: toPhase }),
+  });
 }

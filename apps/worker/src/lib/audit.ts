@@ -1,0 +1,37 @@
+import { prisma } from "./prisma";
+import { jsonValue } from "./utils";
+
+export async function logEntityAudit(input: {
+  projectId: string;
+  actorId: string;
+  eventType: string;
+  entityType: string;
+  entityId: string;
+  source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
+  before?: unknown;
+  after?: unknown;
+}) {
+  try {
+    await prisma.auditEvent.create({
+      data: {
+        projectId: input.projectId,
+        actorId: input.actorId,
+        eventType: input.eventType,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        // Default matches the actual caller population: extract-mapper.ts's
+        // ~13 call sites (Discover/Refine/Venture entity writes) never pass
+        // source explicitly, and those are skill-extracted writes, not
+        // Evolve-session ones (see event-router.service.ts for the same
+        // "auto_detection" tag on skill-driven writes).
+        source: input.source ?? "auto_detection",
+        before: input.before !== undefined ? jsonValue(input.before) : undefined,
+        after: input.after !== undefined ? jsonValue(input.after) : undefined,
+        metadata: {},
+      },
+    });
+  } catch (err) {
+    console.warn("[logEntityAudit] failed to write audit event", err);
+  }
+}
+

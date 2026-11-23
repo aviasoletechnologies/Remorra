@@ -71,6 +71,7 @@ export interface AuditLogger {
     projectId: string;
     actorId: string;
     type: string;
+    source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
     skillId?: string;
     skillVersion?: number;
     payload: unknown;
@@ -112,6 +113,7 @@ export class AiOrchestrator {
       projectId: input.projectId,
       actorId: input.userId,
       type: "ai.invoked",
+      source: "evolve_session",
       skillId: skill.id,
       skillVersion: skill.version,
       payload: { requestId: input.requestId, usage: result.usage },
@@ -132,28 +134,16 @@ export class PrismaSkillRegistry implements SkillRegistry {
       where: { skillId, active: true },
       orderBy: { version: "desc" },
     });
-    if (!process.env.DEFAULT_MODEL_TIER) {
-      throw new Error("Missing required environment variable: DEFAULT_MODEL_TIER");
-    }
-    if (!process.env.DEFAULT_TOKEN_CEILING) {
-      throw new Error("Missing required environment variable: DEFAULT_TOKEN_CEILING");
-    }
-    const modelTier = process.env.DEFAULT_MODEL_TIER as any;
-    const tokenCeiling = Number(process.env.DEFAULT_TOKEN_CEILING);
-    if (Number.isNaN(tokenCeiling)) {
-      throw new Error("Invalid DEFAULT_TOKEN_CEILING environment variable; must be a number");
-    }
 
     return {
       id: version.skillId,
       versionId: version.id,
       name: version.skillId,
       version: version.version,
-      modelTier,
+      modelTier: version.modelTier as ModelTier,
       systemPrompt: version.systemPrompt,
       inputSourceMap: version.inputSourceMap ?? {},
       constraints: (version.constraints as string[]) ?? [],
-      tokenCeiling,
       retryPolicy: version.retryPolicy,
       outputSchema: version.outputSchema,
     };
@@ -219,6 +209,7 @@ export class PrismaAuditLogger implements AuditLogger {
     projectId: string;
     actorId: string;
     type: string;
+    source?: "evolve_session" | "build_sync" | "manual_edit" | "auto_detection";
     skillId?: string;
     skillVersion?: number;
     payload: unknown;
@@ -228,6 +219,7 @@ export class PrismaAuditLogger implements AuditLogger {
         projectId: event.projectId,
         actorId: event.actorId,
         eventType: event.type,
+        source: event.source ?? null,
         metadata: {
           ...(typeof event.payload === "object" && event.payload !== null
             ? (event.payload as Record<string, unknown>)

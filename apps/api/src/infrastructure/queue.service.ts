@@ -6,12 +6,17 @@ export const QUEUES = {
   aiConversation: "ai.conversation",
   aiExtract: "ai.extract",
   aiReport: "ai.report",
-  aiSummary: "ai.summary",
   documentRender: "document.render",
   gdprExport: "gdpr.export",
   gdprDelete: "gdpr.delete",
   retentionCleanup: "retention.cleanup",
   storageExpire: "storage.expire",
+  buildPackGenerate: "build-pack.generate",
+  buildSyncIngest: "build-sync.ingest",
+  buildSyncExport: "build-sync.export",
+  healthScoreCalculate: "health-score.calculate",
+  evolveMessage: "evolve.message",
+  contextReview: "context.review",
 } as const;
 
 @Injectable()

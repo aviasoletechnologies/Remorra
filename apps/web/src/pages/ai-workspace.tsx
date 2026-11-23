@@ -3,9 +3,9 @@ import { MessageSquareText, Sparkles, Plus, ChevronDown, Mic, AudioLines, ArrowU
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Badge, Button, Card, Textarea } from "../components/ui";
 import { ErrorState, Page, ChatWorkspaceSkeleton } from "../components/app-ui";
-import { ProductPackPanel } from "../components/product-pack-panel";
-import type { ProductPackDto } from "@remorra/contracts";
-import { api, streamTextJob } from "../lib/api";
+import { RefineSummaryPanel } from "../components/refine-summary-panel";
+import type { Project } from "@remorra/contracts";
+import { api, streamTextJob, advancePhase } from "../lib/api";
 import { useWorkspaceStore } from "../lib/store";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -71,6 +71,8 @@ type WorkspaceConversation = {
   status: string;
   activeSkill: WorkspaceActiveSkill | null;
   messages: { id: string; role: "user" | "assistant"; content: string; createdAt: string }[];
+  phaseComplete: boolean;
+  kickoffJobId: string | null;
 };
 
 type PendingMessage = { id: string; role: "user"; content: string };
@@ -87,13 +89,45 @@ function cleanMessageContent(content: string): string {
 export function AiWorkspacePage() {
   const projectId = useWorkspaceStore((state) => state.activeProjectId);
   const queryClient = useQueryClient();
+
+  const { data: projects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Project[]>("/projects"),
+    enabled: Boolean(projectId),
+  });
+  const project = projects?.find((p) => p.id === projectId);
+
+  const nextPhaseMap: Record<string, string> = {
+    discover: "refine",
+    refine: "initiate",
+    initiate: "venture",
+    venture: "evolve",
+  };
+
+  const advance = useMutation({
+    mutationFn: () => {
+      if (!project) throw new Error("No active project");
+      const nextPhase = nextPhaseMap[project.phase];
+      if (!nextPhase) throw new Error("Already at the final phase");
+      return advancePhase(project.id, nextPhase, project.version);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+      toast.success("Project advanced to the next phase!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to advance phase.");
+    },
+  });
+
   const [message, setMessage] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "reconnecting" | "connected">("idle");
-  const [liveProductPack, setLiveProductPack] = useState<ProductPackDto | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
-  const [showProductPack, setShowProductPack] = useState(true);
+  const [showRefineSummary, setShowRefineSummary] = useState(true);
+  const [draftSummary, setDraftSummary] = useState<Record<string, unknown> | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -102,6 +136,7 @@ export function AiWorkspacePage() {
   const inputWrapperRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const completedMessageIdRef = useRef<string | null>(null);
+  const consumedKickoffJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!inputWrapperRef.current) return;
@@ -121,6 +156,53 @@ export function AiWorkspacePage() {
     refetchOnWindowFocus: false,
     refetchIntervalInBackground: false,
   });
+
+  // A brand-new phase conversation (e.g. just advanced into Refine) comes
+  // back with a kickoffJobId — the backend already enqueued the skill's
+  // first turn. Follow it the same way a real send does, so the greeting/
+  // first question streams in instead of leaving an empty chat.
+  useEffect(() => {
+    const kickoffJobId = conversation?.kickoffJobId;
+    if (!kickoffJobId || consumedKickoffJobIdRef.current === kickoffJobId) return;
+    consumedKickoffJobIdRef.current = kickoffJobId;
+
+    const stop = streamTextJob(
+      kickoffJobId,
+      setStreamedReply,
+      (state) => {
+        if (state === "connecting" || state === "reconnecting" || state === "connected") {
+          setStreamState(state);
+          useWorkspaceStore.getState().setStreamState(state);
+        }
+        if (state === "done" || state === "failed") {
+          setStreamState("idle");
+          useWorkspaceStore.getState().setStreamState("idle");
+        }
+      },
+      () => {
+        setStreamState("idle");
+        useWorkspaceStore.getState().setStreamState("idle");
+      },
+      (event) => {
+        if (event.type === "completed" && event.metadata?.messages) {
+          const sseMessages = event.metadata.messages as any[];
+          const assistantMsg = sseMessages.find((m) => m.role === "assistant");
+          if (assistantMsg) completedMessageIdRef.current = assistantMsg.id;
+          queryClient.setQueryData(["workspace-flow", projectId], (oldData: any) => {
+            if (!oldData) return oldData;
+            const existingIds = new Set(oldData.messages.map((m: any) => m.id));
+            const newMessages = sseMessages.filter((m) => !existingIds.has(m.id));
+            return { ...oldData, messages: [...oldData.messages, ...newMessages] };
+          });
+          setStreamedReply("");
+        }
+        if (event.type === "completed" && event.metadata?.draft) {
+          setDraftSummary(event.metadata.draft as Record<string, unknown>);
+        }
+      },
+    );
+    return () => stop();
+  }, [conversation?.kickoffJobId, projectId, queryClient]);
 
 
 
@@ -210,6 +292,9 @@ export function AiWorkspacePage() {
                 (event) => {
                   if (event.type === "skill_transition" && event.metadata?.nextJobId) {
                     nextJobId = event.metadata.nextJobId as string;
+                    // Next skill is about to write real entities from this draft — drop
+                    // the draft once the DB-backed summary panel is about to take over.
+                    setDraftSummary(null);
                   }
                   if (event.type === "completed" && event.metadata?.messages) {
                     const sseMessages = event.metadata.messages as any[];
@@ -228,8 +313,8 @@ export function AiWorkspacePage() {
                     });
                     setStreamedReply("");
                   }
-                  if (event.type === "product_pack_update" && event.metadata?.productPack) {
-                    setLiveProductPack(event.metadata.productPack as ProductPackDto);
+                  if (event.type === "completed" && event.metadata?.draft) {
+                    setDraftSummary(event.metadata.draft as Record<string, unknown>);
                   }
                   if (["log", "info", "completed", "failed", "skill_transition"].includes(event.type)) {
                     useWorkspaceStore.getState().addLog({
@@ -262,7 +347,10 @@ export function AiWorkspacePage() {
       if (data?.pendingId) {
         setPendingMessages((current) => current.filter((m) => m.id !== data.pendingId));
       }
-      await queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-flow", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      ]);
     },
   });
 
@@ -313,26 +401,27 @@ export function AiWorkspacePage() {
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 md:p-6">
         <Card className="relative flex-1 flex flex-col overflow-hidden p-0 min-h-0 border-none shadow-none bg-transparent">
-          {/* Floating toggle button positioned to the left of the scrollbar */}
-          {projectId && (
-            <button
-              type="button"
-              onClick={() => setShowProductPack(prev => !prev)}
-              className="absolute top-4 right-8 z-20 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm backdrop-blur transition-all cursor-pointer text-xs font-semibold"
-              title={showProductPack ? "Hide Product Pack" : "Show Product Pack"}
-            >
-              {showProductPack ? (
-                <>
-                  <span>Hide Pack</span>
-                  <PanelRightClose size={13} />
-                </>
-              ) : (
-                <>
-                  <span>Show Pack</span>
-                  <PanelRightOpen size={13} />
-                </>
-              )}
-            </button>
+          {projectId && project?.phase === "refine" && (
+            <div className="flex items-center justify-end gap-2 px-4 sm:px-6 pt-4 pb-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowRefineSummary(prev => !prev)}
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/60 bg-white/90 hover:bg-white text-zinc-500 hover:text-zinc-800 shadow-sm transition-all cursor-pointer text-xs font-semibold"
+                title={showRefineSummary ? "Hide entity summary" : "Show entity summary"}
+              >
+                {showRefineSummary ? (
+                  <>
+                    <span>Hide Summary</span>
+                    <PanelRightClose size={13} />
+                  </>
+                ) : (
+                  <>
+                    <span>Show Summary</span>
+                    <PanelRightOpen size={13} />
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           <div ref={scrollContainerRef} className="flex-grow overflow-y-auto bg-transparent p-4 sm:p-6 min-h-0" aria-live="polite">
@@ -351,7 +440,9 @@ export function AiWorkspacePage() {
                   </div>
                 </div>
               ) : (
-                visibleMessages.map((item) => {
+                visibleMessages
+                  .filter((item) => cleanMessageContent(item.content).trim().length > 0)
+                  .map((item) => {
                   const isAssistant = item.role === "assistant";
                   const shouldSkipAnimation = item.id === completedMessageIdRef.current;
                   return (
@@ -404,6 +495,35 @@ export function AiWorkspacePage() {
                   <div className="bg-white text-zinc-900 px-4 py-2.5 rounded-[16px] rounded-tl-[4px] shadow-xs text-sm font-normal leading-relaxed break-words max-w-[85%]">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cleanMessageContent(streamedReply)}</ReactMarkdown>
                   </div>
+                </motion.div>
+              ) : null}
+
+              {project && nextPhaseMap[project.phase] && conversation && conversation.phaseComplete ? (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: "easeOut" }}
+                  className="flex justify-center w-full py-2"
+                >
+                  <button
+                    type="button"
+                    disabled={advance.isPending}
+                    onClick={() => advance.mutate()}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary shadow-sm transition-all cursor-pointer text-sm font-semibold disabled:opacity-50"
+                  >
+                    {advance.isPending
+                      ? "Advancing..."
+                      : `Continue to ${
+                          project.phase === "discover"
+                            ? "Refine"
+                            : project.phase === "refine"
+                            ? "Initiate"
+                            : project.phase === "initiate"
+                            ? "Venture"
+                            : "Evolve"
+                        } →`}
+                  </button>
                 </motion.div>
               ) : null}
 
@@ -518,9 +638,9 @@ export function AiWorkspacePage() {
           </div>
         </Card>
       </div>
-      {/* Product Pack panel with Smooth Slide Transition */}
+      {/* Refine phase: Live Entity Summary (HARDIK doc Q12). Other phases: Product Pack. */}
       <AnimatePresence>
-        {projectId && showProductPack && (
+        {projectId && project?.phase === "refine" && showRefineSummary && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 320, opacity: 1 }}
@@ -528,11 +648,7 @@ export function AiWorkspacePage() {
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="hidden lg:flex shrink-0 border-l border-border bg-background flex-col overflow-hidden"
           >
-            <ProductPackPanel
-              projectId={projectId}
-              externalPack={liveProductPack}
-              onCollapse={() => setShowProductPack(false)}
-            />
+            <RefineSummaryPanel projectId={projectId} draft={draftSummary} onCollapse={() => setShowRefineSummary(false)} />
           </motion.div>
         )}
       </AnimatePresence>

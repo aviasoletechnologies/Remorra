@@ -66,7 +66,11 @@ export class GdprService {
   }
 
   async requestDeletion(userId: string) {
-    const executeAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const policy = await this.prisma.client.retentionPolicy.findUnique({
+      where: { id: "deletion-grace" },
+    });
+    const graceDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 30;
+    const executeAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
     const request = await this.prisma.client.$transaction(async (tx: any) => {
       await tx.deletionRequest.updateMany({
         where: { userId, status: "scheduled" },
@@ -140,19 +144,55 @@ export class GdprService {
         },
       });
 
-      // 3. Delete Conversations (cascades to messages, extracts, runs, ledger)
+      // 3. Delete Conversations (cascades to messages, extracts, runs, ledger,
+      // and — since EvolveSession.conversation is onDelete: Cascade — also
+      // cascades away EvolveSession, EvolveAction, EvolveImpactItem, and
+      // ContextProposal for free)
       const deletedConversations = await tx.conversation.deleteMany({
         where: {
           projectId: { in: projectIds },
         },
       });
 
-      // 4. Delete Idempotency records
+      // 4. Delete Goals (cascades to Epic, Story, and the PersonaStory join
+      // table). Must run before BuildPhase, since Story references
+      // BuildPhase and needs to be gone first.
+      const deletedGoals = await tx.goal.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 5. Delete Personas (cascades to PainPoint)
+      const deletedPersonas = await tx.persona.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 6. Delete RAID items
+      const deletedRaidItems = await tx.raidItem.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 7. Delete Build Phases (cascades to BuildPack, BuildSyncUpload) — run
+      // after Goal deletion so no Story rows still reference them.
+      const deletedBuildPhases = await tx.buildPhase.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 8. Delete Health Scores (cascades to HealthScoreComponent)
+      const deletedHealthScores = await tx.healthScore.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 9. Delete Audit Events
+      const deletedAuditEvents = await tx.auditEvent.deleteMany({
+        where: { projectId: { in: projectIds } },
+      });
+
+      // 10. Delete Idempotency records
       const deletedIdempotency = await tx.idempotencyRecord.deleteMany({
         where: { userId },
       });
 
-      // 5. Delete AI Invocations
+      // 11. Delete AI Invocations
       const deletedInvocations = await tx.aiInvocation.deleteMany({
         where: {
           OR: [
@@ -162,7 +202,7 @@ export class GdprService {
         },
       });
 
-      // 6. Delete Token Usage
+      // 12. Delete Token Usage
       const deletedTokenUsage = await tx.tokenUsage.deleteMany({
         where: {
           OR: [
@@ -172,17 +212,60 @@ export class GdprService {
         },
       });
 
+      // 13. Reset each project's DRIVE phase back to discover — with every
+      // entity gone, leaving it at whatever phase it was in would show e.g.
+      // "Evolve" with zero Goals/Stories, an inconsistent state.
+      await tx.project.updateMany({
+        where: { id: { in: projectIds } },
+        data: { phase: "discover" },
+      });
+
       return {
         success: true,
         purged: {
           conversations: deletedConversations.count,
           jobs: deletedJobs.count,
           streamEvents: deletedStreams.count,
+          goals: deletedGoals.count,
+          personas: deletedPersonas.count,
+          raidItems: deletedRaidItems.count,
+          buildPhases: deletedBuildPhases.count,
+          healthScores: deletedHealthScores.count,
+          auditEvents: deletedAuditEvents.count,
           idempotencyKeys: deletedIdempotency.count,
           aiInvocations: deletedInvocations.count,
           tokenUsage: deletedTokenUsage.count,
         },
       };
     });
+  }
+
+  async cancelSubscription(userId: string, body: any) {
+    if (!body || typeof body.reason !== "string" || !body.reason.trim()) {
+      throw new Error("Reason is required to cancel your subscription.");
+    }
+    const reason = body.reason.trim();
+    const profile = await this.prisma.client.profile.findUniqueOrThrow({
+      where: { id: userId },
+    });
+
+    const durationDays = Math.max(0, Math.floor((Date.now() - profile.createdAt.getTime()) / (24 * 60 * 60 * 1000)));
+
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      const cancellation = await tx.cancellation.create({
+        data: {
+          userId,
+          reason,
+          subscriberDuration: durationDays,
+          tierAtCancellation: profile.tier,
+        },
+      });
+      const updatedProfile = await tx.profile.update({
+        where: { id: userId },
+        data: { tier: "free" },
+      });
+      return { cancellation, profile: updatedProfile };
+    });
+    return result;
   }
 }

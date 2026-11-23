@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { MODEL_TIERS, jsonSchemaToTableConfig } from "@remorra/contracts";
 import {
   TrendingUp,
   Users,
@@ -18,7 +19,8 @@ import { api } from "../lib/api";
 import { Page, PageHeader, PageSkeleton, CardSkeleton, MetricGridSkeleton, RichTableSkeleton, FormSkeleton, AdminConsoleSkeleton } from "../components/app-ui";
 import { AdminOverview } from "./admin/admin-overview";
 import { AdminSupport } from "./admin/admin-support";
-import { AdminCosts } from "./admin/admin-costs";
+import { AdminCosts, AdminHealthScoreWeights } from "./admin/admin-costs";
+import { AdminContextAutomation } from "./admin/admin-context";
 import { AdminUsers } from "./admin/admin-users";
 import { AdminTemplates } from "./admin/admin-templates";
 import Editor from "@monaco-editor/react";
@@ -43,8 +45,11 @@ function parseInputSourceMap(val: any): any {
     }
   }
   if (typeof val === "object") {
+    // flow-issues.md #1 — preserve the real skill-ID list as saved. Previously
+    // this collapsed any non-empty list down to the literal "@previous",
+    // silently discarding which skills were actually selected.
     const rawSkills = Array.isArray(val.skills) ? val.skills : [];
-    const skills = rawSkills.length > 0 ? ["@previous"] : [];
+    const skills = rawSkills.filter((s: unknown) => typeof s === "string" && s !== "@previous");
     return {
       skills,
       tables: val.tables && typeof val.tables === "object" ? val.tables : {}
@@ -59,8 +64,7 @@ function describeSkillInputRequirement(version: any): string {
   const skills = sourceMap.skills;
   const tables = Object.keys(sourceMap.tables);
   if (skills.length > 0) {
-    const skillLabels = skills.map((s: string) => s === "@previous" ? "Previous Skill" : s);
-    parts.push(`Skills: ${skillLabels.join(", ")}`);
+    parts.push(`Skills: ${skills.join(", ")}`);
   }
   if (tables.length > 0) {
     parts.push(`Tables: ${tables.join(", ")}`);
@@ -91,8 +95,13 @@ function parseOutputSchema(val: any): { type: string; value: any } {
   }
   const result = { type: val.type || "text", value: val.value ?? "" };
   if (result.type === "table" && typeof result.value === "object" && result.value !== null) {
+    // Stored value is the generated JSON schema (properties.operations...) —
+    // reconstruct the per-entity column/action map the config UI edits,
+    // rather than treating the schema itself as the entity map.
+    const fromSchema = jsonSchemaToTableConfig(result.value);
+    const rawMap = fromSchema ?? (result.value as Record<string, any>);
     const migrated: Record<string, { columns: string[]; actions: string[] }> = {};
-    for (const [k, v] of Object.entries(result.value as Record<string, any>)) {
+    for (const [k, v] of Object.entries(rawMap)) {
       migrated[k] = normalizeTableEntry(v);
     }
     result.value = migrated;
@@ -139,6 +148,49 @@ function describeInputSourceMap(sourceMap: any): string {
   return `Configured: ${parts.join(" and ")}`;
 }
 
+// flow-issues.md #1 — is this skill ever actually triggered as a "next skill"
+// by an active event mapping? If not, any "previous skill output" sources
+// selected on it are speculative — nothing guarantees they'll be populated
+// when this skill runs, since nothing is confirmed to run before it.
+// Advisory only (non-blocking) — the model already gets <skill_done/> and,
+// when Output Schema is configured, the exact <output_data> format appended
+// automatically by appendInternalInstructions() at runtime. Hand-writing the
+// same instructions in the System Prompt sends them to the model twice and
+// can drift out of sync with the real config.
+function detectFormatDuplicationWarnings(prompt: string): string[] {
+  const warnings: string[] = [];
+  if (!prompt) return warnings;
+  if (/<skill_done\s*\/?>/i.test(prompt)) {
+    warnings.push(`Mentions "<skill_done/>" — this tag is always appended automatically. Remove it from the prompt.`);
+  }
+  if (/<output_data>|<\/output_data>/i.test(prompt)) {
+    warnings.push(`Mentions "<output_data>" tags — these are auto-injected from the Output Schema config below. Describing them here duplicates that instruction.`);
+  }
+  if (/```json|"operations"\s*:\s*\[/i.test(prompt)) {
+    warnings.push(`Contains a hand-written JSON example — if Output Schema is configured, the exact format is already auto-appended; a hand-written example here can drift out of sync and conflict with it.`);
+  }
+  return warnings;
+}
+
+function findTriggeringMapping(skillId: string, mappings: any[]): any | null {
+  return mappings.find((m: any) => m.skillId === skillId && m.active) ?? null;
+}
+
+// Human-readable description of what actually triggers a skill's "previous
+// skill output" baseline right now — resolved against both skill-completed-event
+// mappings and db-event mappings, so the admin can see exactly what this skill's
+// default input will be without any extra sources configured.
+function describeTriggerMapping(mapping: any | null, allSkills: any[]): string {
+  if (!mapping) {
+    return "Nothing currently triggers this skill via an active event mapping — the baseline previous-skill-output will be empty until one is configured.";
+  }
+  const completedMatch = String(mapping.eventType ?? "").match(/^skill\.(.+)\.completed$/);
+  if (completedMatch) {
+    const sourceSkill = allSkills.find((s: any) => s.id === completedMatch[1]);
+    return `Triggered when skill "${sourceSkill?.name ?? completedMatch[1]}" completes — that skill's output is this skill's default input.`;
+  }
+  return `Triggered by database event "${mapping.eventType}" — no skill output feeds this skill by default; only the database event's own data is available.`;
+}
 
 export function AdminPage() {
   const confirm = useConfirm();
@@ -175,7 +227,10 @@ export function AdminPage() {
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
   const [newSkillKbEligible, setNewSkillKbEligible] = useState(false);
+  const [newSkillPhase, setNewSkillPhase] = useState("discover");
+  const [newSkillModelTier, setNewSkillModelTier] = useState("standard");
   const [newSkillInputSourceMap, setNewSkillInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [createUseOtherSkillOutput, setCreateUseOtherSkillOutput] = useState(false);
   const [newSkillOutputSchema, setNewSkillOutputSchema] = useState<any>({ type: "text", value: "" });
   const [newSkillCustomSchemaError, setNewSkillCustomSchemaError] = useState<string | null>(null);
   const [skillCreateError, setSkillCreateError] = useState<string | null>(null);
@@ -188,7 +243,10 @@ export function AdminPage() {
   const [editSkillName, setEditSkillName] = useState("");
   const [editSkillDesc, setEditSkillDesc] = useState("");
   const [editKbEligible, setEditKbEligible] = useState(false);
+  const [editSkillPhase, setEditSkillPhase] = useState("discover");
+  const [editSkillModelTier, setEditSkillModelTier] = useState("standard");
   const [editInputSourceMap, setEditInputSourceMap] = useState<any>({ skills: [], tables: {} });
+  const [editUseOtherSkillOutput, setEditUseOtherSkillOutput] = useState(false);
   const [editOutputSchema, setEditOutputSchema] = useState<any>({ type: "text", value: "" });
   const [editCustomSchemaError, setEditCustomSchemaError] = useState<string | null>(null);
   const [skillEditError, setSkillEditError] = useState<string | null>(null);
@@ -287,22 +345,45 @@ export function AdminPage() {
         projectName: "Greenfield Analytics",
         coveragePercent: 88,
         linkageValid: true,
-        ambitions: [{ id: "amb-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
-        personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", userNeeds: [{ id: "un-1", statement: "Needs clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
+        goals: [{ id: "goal-1", title: "Carbon Neutrality", detail: "Reduce workspace operational carbon output by 20%." }],
+        personas: [{ id: "per-1", name: "Auditor Alice", description: "Agronomy carbon checker.", linkedStories: [{ id: "story-1", statement: "Clean linkage reports" }], painPoints: [{ id: "pp-1", statement: "Stale data reports lead to audit delays." }] }]
       }, null, 2));
-    } else {
+    } else if (template.id === "health-score") {
       setSampleJsonText(JSON.stringify({
         projectName: "Greenfield Analytics",
-        viabilityScore: 78,
-        viabilityRationale: "Healthy delivery linkage and clear customer pain statement.",
-        productCoveragePercent: 88,
-        deliveryLinkageValid: true,
-        activeSprintCompletedTasks: 6,
-        activeSprintTotalTasks: 8,
-        totalBudgetSpentMinor: 12000,
-        totalBudgetAllocatedMinor: 25000,
-        risksCount: 4,
-        criticalRisksCount: 0
+        overallScore: 78,
+        readinessAssessment: "Solid foundation — minor refinement needed.",
+        components: [
+          { component: "problem_top", weight: 15, score: 85, rationale: "Goals are specific and measurable.", actions: ["Add a third measurable Goal."] },
+        ],
+      }, null, 2));
+    } else if (template.id === "build-pack") {
+      setSampleJsonText(JSON.stringify({
+        projectName: "Greenfield Analytics",
+        buildPhaseName: "Core Product Build",
+        buildPhaseDescription: "MVP scope for the initial release.",
+        stories: [
+          {
+            id: "story-1",
+            title: "Set low-stock threshold per product",
+            description: "As a shop owner, I want to set a low-stock threshold so I can act before running out.",
+            status: "ready",
+            priority: "high",
+            acceptance: [{ given: "a product is tracked", when: "quantity crosses threshold", then: "owner sees an alert" }],
+            epicTitle: "Low-stock alerts",
+            goalTitle: "Help shop owners manage stock proactively",
+            personaNames: ["Local shop owner Maria"],
+          },
+        ],
+        risks: [{ title: "Barcode hardware may not be available", type: "Risk", severity: "medium", status: "open" }],
+      }, null, 2));
+    } else if (template.id === "build-sync-instructions") {
+      setSampleJsonText(JSON.stringify({ buildPhaseId: "00000000-0000-0000-0000-000000000000" }, null, 2));
+    } else {
+      setSampleJsonText(JSON.stringify({
+        title: "Sample Report",
+        generatedAt: new Date().toISOString(),
+        summary: "Generic placeholder for report-definition-driven templates — actual shape comes from the report's own outputSchema.",
       }, null, 2));
     }
   };
@@ -334,13 +415,23 @@ export function AdminPage() {
   });
   const allSkills = allSkillsData?.items ?? [];
 
+  // flow-issues.md #1 — used to warn when a skill's "previous skill output"
+  // sources are configured but no event mapping actually triggers this skill
+  // after anything, so those sources would be empty at runtime.
+  const { data: allMappingsData } = useQuery<any>({
+    queryKey: ["admin-all-event-mappings"],
+    queryFn: () => api("/admin/event-mappings?page=1&limit=200"),
+    enabled: activeTab === "system",
+  });
+  const allMappings = allMappingsData?.items ?? [];
+
   const { data: dbSchemaData = { tables: {}, relations: {} } } = useQuery<{ tables: Record<string, string[]>; relations: Record<string, { column: string; referencedTable: string }[]> }>({
     queryKey: ["admin-db-schema"],
     queryFn: () => api("/admin/db-schema"),
     enabled: activeTab === "system",
   });
 
-  const ALLOWED_TABLES = ["Project", "Persona", "PainPoint", "UserNeed", "Ambition", "Okr", "UserStory", "Task"];
+  const ALLOWED_TABLES = ["Project", "Goal", "Epic", "Story", "Persona", "PainPoint", "RaidItem", "ProjectMembership", "HealthScore", "AuditEvent", "BuildPhase"];
   const ALWAYS_SENSITIVE = ["id", "projectId", "createdAt", "updatedAt", "embedding", "version", "position"];
   // FK columns pointing to tables NOT in ALLOWED_TABLES are system-managed (e.g. ownerId→Profile, cycleId→Cycle)
   const systemFkCols = new Set<string>(
@@ -424,6 +515,73 @@ export function AdminPage() {
     },
   });
 
+  const { data: healthScoreWeights = [], isLoading: loadingHealthScoreWeights } = useQuery<any[]>({
+    queryKey: ["admin-health-score-weights"],
+    queryFn: () => api("/admin/health-score-weights"),
+    enabled: activeTab === "costs",
+  });
+  const [healthScoreWeightDrafts, setHealthScoreWeightDrafts] = useState<Record<string, number>>({});
+
+  const updateHealthScoreWeight = useMutation({
+    mutationFn: ({ component, weight }: { component: string; weight: number }) =>
+      api(`/admin/health-score-weights/${component}`, {
+        method: "PUT",
+        body: JSON.stringify({ weight }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-health-score-weights"] });
+      toast.success("Health Score weight updated successfully!");
+    },
+  });
+
+  const { data: contextAutoCaptureRules = [], isLoading: loadingContextRules } = useQuery<any[]>({
+    queryKey: ["admin-context-auto-capture-rules"],
+    queryFn: () => api("/admin/context-auto-capture-rules"),
+    enabled: activeTab === "costs",
+  });
+
+  const { data: contextReviewConfig } = useQuery<any>({
+    queryKey: ["admin-context-review-config"],
+    queryFn: () => api("/admin/context-review-config"),
+    enabled: activeTab === "costs",
+  });
+
+  const createContextRule = useMutation({
+    mutationFn: (data: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences: number }) =>
+      api("/admin/context-auto-capture-rules", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] });
+      toast.success("Auto-capture rule added.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to add rule."),
+  });
+
+  const updateContextRule = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api(`/admin/context-auto-capture-rules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] }),
+    onError: (err: any) => toast.error(err?.message || "Failed to update rule."),
+  });
+
+  const deleteContextRule = useMutation({
+    mutationFn: (id: string) => api(`/admin/context-auto-capture-rules/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-auto-capture-rules"] });
+      toast.success("Rule deleted.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to delete rule."),
+  });
+
+  const updateContextReviewConfig = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api(`/admin/context-review-config/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-context-review-config"] });
+      toast.success("Review schedule updated.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to update schedule."),
+  });
+
   const activate = useMutation({
     mutationFn: ({ skillId, versionId }: { skillId: string; versionId: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}/activate`, { method: "POST" }),
@@ -444,10 +602,10 @@ export function AdminPage() {
     },
   });
   const createSkillVersion = useMutation({
-    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
+    mutationFn: ({ skillId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }: { skillId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api(`/admin/skills/${skillId}/versions`, {
         method: "POST",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -481,10 +639,10 @@ export function AdminPage() {
     },
   });
   const updateSkillVersion = useMutation({
-    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean }) =>
+    mutationFn: ({ skillId, versionId, systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }: { skillId: string; versionId: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; name?: string; description?: string; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api(`/admin/skills/${skillId}/versions/${versionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible }),
+        body: JSON.stringify({ systemPrompt, inputSourceMap, outputSchema, name, description, kbEligible, phase, modelTier }),
       }),
     onSuccess: (version: any, variables: any) => {
       void queryClient.invalidateQueries({ queryKey: ["admin-skills"] });
@@ -548,7 +706,7 @@ export function AdminPage() {
     },
   });
   const createSkillMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean }) =>
+    mutationFn: (data: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string; modelTier?: string }) =>
       api("/admin/skills", {
         method: "POST",
         body: JSON.stringify(data),
@@ -562,7 +720,10 @@ export function AdminPage() {
       setNewSkillDesc("");
       setNewSkillPrompt("");
       setNewSkillKbEligible(false);
+      setNewSkillPhase("discover");
+      setNewSkillModelTier("standard");
       setNewSkillInputSourceMap({ skills: [], tables: {} });
+      setCreateUseOtherSkillOutput(false);
       setNewSkillOutputSchema({ type: "text", value: "" });
       setSkillCreateError(null);
       setIsCreateContextConfigOpen(false);
@@ -687,6 +848,34 @@ export function AdminPage() {
     },
   });
 
+  const freezeProject = useMutation({
+    mutationFn: (id: string) => api(`/admin/projects/${id}/freeze`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-projects"] });
+      if (selectedSupportProjectId) {
+        void queryClient.invalidateQueries({ queryKey: ["admin-support-project-details", selectedSupportProjectId] });
+      }
+      toast.success("Project frozen successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to freeze project.");
+    },
+  });
+
+  const unfreezeProject = useMutation({
+    mutationFn: (id: string) => api(`/admin/projects/${id}/unfreeze`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-projects"] });
+      if (selectedSupportProjectId) {
+        void queryClient.invalidateQueries({ queryKey: ["admin-support-project-details", selectedSupportProjectId] });
+      }
+      toast.success("Project unfrozen successfully!");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to unfreeze project.");
+    },
+  });
+
   const previewSelectedTemplate = () => {
     if (!selectedTemplate) return;
     try {
@@ -769,6 +958,8 @@ export function AdminPage() {
           totalPages={supportTotalPages}
           setPage={setSupportPage}
           isLoading={loadingSupport}
+          onFreezeProject={(id) => freezeProject.mutate(id)}
+          onUnfreezeProject={(id) => unfreezeProject.mutate(id)}
         />
       )}
 
@@ -797,14 +988,34 @@ export function AdminPage() {
       )}
 
       {activeTab === "costs" && (
-        <AdminCosts
-          configs={costConfigs}
-          drafts={costDrafts}
-          isAdmin={isAdmin}
-          setDrafts={setCostDrafts}
-          onSave={(key, data) => updateCostConfig.mutate({ key, data })}
-          isLoading={loadingCosts}
-        />
+        <>
+          <AdminCosts
+            configs={costConfigs}
+            drafts={costDrafts}
+            isAdmin={isAdmin}
+            setDrafts={setCostDrafts}
+            onSave={(key, data) => updateCostConfig.mutate({ key, data })}
+            isLoading={loadingCosts}
+          />
+          <AdminHealthScoreWeights
+            weights={healthScoreWeights}
+            drafts={healthScoreWeightDrafts}
+            isAdmin={isAdmin}
+            setDrafts={setHealthScoreWeightDrafts}
+            onSave={(component, weight) => updateHealthScoreWeight.mutate({ component, weight })}
+            isLoading={loadingHealthScoreWeights}
+          />
+          <AdminContextAutomation
+            rules={contextAutoCaptureRules}
+            reviewConfig={contextReviewConfig}
+            isAdmin={isAdmin}
+            isLoading={loadingContextRules}
+            onCreateRule={(data) => createContextRule.mutate(data)}
+            onUpdateRule={(id, data) => updateContextRule.mutate({ id, data })}
+            onDeleteRule={(id) => deleteContextRule.mutate(id)}
+            onUpdateReviewConfig={(id, data) => updateContextReviewConfig.mutate({ id, data })}
+          />
+        </>
       )}
 
       {/* Tab Content 5: System Settings (Sub-nav Layout) */}
@@ -826,7 +1037,11 @@ export function AdminPage() {
                   setEditSkillName(skill.name ?? "");
                   setEditSkillDesc(skill.description ?? "");
                   setEditKbEligible(skill.kbEligible ?? false);
-                  setEditInputSourceMap(parseInputSourceMap(currentVer?.inputSourceMap));
+                  setEditSkillPhase(skill.phase ?? "discover");
+                  setEditSkillModelTier(currentVer?.modelTier ?? "standard");
+                  const parsedInputSourceMap = parseInputSourceMap(currentVer?.inputSourceMap);
+                  setEditInputSourceMap(parsedInputSourceMap);
+                  setEditUseOtherSkillOutput((parsedInputSourceMap?.skills?.length ?? 0) > 0);
                   setEditOutputSchema(parseOutputSchema(currentVer?.outputSchema));
                   setSkillEditError(null);
                 }}
@@ -906,7 +1121,10 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
         const selectVersion = (version: any) => {
           setEditingSkillVersionId(version.id);
           setEditPromptText(version.systemPrompt ?? "");
-          setEditInputSourceMap(parseInputSourceMap(version.inputSourceMap));
+          setEditSkillModelTier(version.modelTier ?? "standard");
+          const selectedInputSourceMap = parseInputSourceMap(version.inputSourceMap);
+          setEditInputSourceMap(selectedInputSourceMap);
+          setEditUseOtherSkillOutput((selectedInputSourceMap?.skills?.length ?? 0) > 0);
           setEditOutputSchema(parseOutputSchema(version.outputSchema));
           setSkillEditError(null);
         };
@@ -940,6 +1158,8 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
+                            phase: editSkillPhase,
+                            modelTier: editSkillModelTier,
                           });
                         }}
                       >
@@ -956,6 +1176,8 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                             name: editSkillName,
                             description: editSkillDesc,
                             kbEligible: editKbEligible,
+                            phase: editSkillPhase,
+                            modelTier: editSkillModelTier,
                           });
                         }}
                         disabled={createSkillVersion.isPending}
@@ -1009,6 +1231,34 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                       className="h-4 w-4 cursor-pointer"
                     />
                     <span className="text-xs text-muted-foreground">Enable knowledge base injection for this skill</span>
+                  </div>
+                  <div>
+                    <label className="admin-field-label">DRIVE Phase</label>
+                    <select
+                      className="admin-input"
+                      value={editSkillPhase}
+                      onChange={(e) => setEditSkillPhase(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    >
+                      <option value="discover">Discover</option>
+                      <option value="refine">Refine</option>
+                      <option value="initiate">Initiate</option>
+                      <option value="venture">Venture</option>
+                      <option value="evolve">Evolve</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="admin-field-label">Model Tier</label>
+                    <select
+                      className="admin-input"
+                      value={editSkillModelTier}
+                      onChange={(e) => setEditSkillModelTier(e.target.value)}
+                      disabled={!isAdmin || !currentVer}
+                    >
+                      {MODEL_TIERS.map((tier) => (
+                        <option key={tier} value={tier}>{tier}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1079,6 +1329,11 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         onChange={(e) => setEditPromptText(e.target.value)}
                         disabled={!isAdmin || !currentVer}
                       />
+                      {detectFormatDuplicationWarnings(editPromptText).map((warning, i) => (
+                        <div key={i} className="mt-2 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                          {warning}
+                        </div>
+                      ))}
                     </div>
 
 
@@ -1253,6 +1508,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
           if (e.target === e.currentTarget) {
             setIsCreateSkillOpen(false);
             setNewSkillInputSourceMap({ skills: [], tables: {} });
+            setCreateUseOtherSkillOutput(false);
             setSkillCreateError(null);
             setIsCreateContextConfigOpen(false);
           }
@@ -1263,6 +1519,7 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               <Button variant="ghost" onClick={() => {
                 setIsCreateSkillOpen(false);
                 setNewSkillInputSourceMap({ skills: [], tables: {} });
+                setCreateUseOtherSkillOutput(false);
                 setSkillCreateError(null);
                 setIsCreateContextConfigOpen(false);
               }}>
@@ -1320,6 +1577,34 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                 </div>
 
                 <div>
+                  <label className="admin-field-label">DRIVE Phase</label>
+                  <select
+                    className="admin-input"
+                    value={newSkillPhase}
+                    onChange={(e) => setNewSkillPhase(e.target.value)}
+                  >
+                    <option value="discover">Discover</option>
+                    <option value="refine">Refine</option>
+                    <option value="initiate">Initiate</option>
+                    <option value="venture">Venture</option>
+                    <option value="evolve">Evolve</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="admin-field-label">Model Tier</label>
+                  <select
+                    className="admin-input"
+                    value={newSkillModelTier}
+                    onChange={(e) => setNewSkillModelTier(e.target.value)}
+                  >
+                    {MODEL_TIERS.map((tier) => (
+                      <option key={tier} value={tier}>{tier}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="admin-field-label">Initial System Prompt</label>
                   <textarea
                     placeholder="You are an expert agent that..."
@@ -1327,6 +1612,11 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                     value={newSkillPrompt}
                     onChange={(e) => setNewSkillPrompt(e.target.value)}
                   />
+                  {detectFormatDuplicationWarnings(newSkillPrompt).map((warning, i) => (
+                    <div key={i} className="mt-2 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                      {warning}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="editor-section mt-6 border-t pt-6">
@@ -1396,6 +1686,8 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
                         inputSourceMap: newSkillInputSourceMap,
                         outputSchema: newSkillOutputSchema,
                         kbEligible: newSkillKbEligible,
+                        phase: newSkillPhase,
+                        modelTier: newSkillModelTier,
                       });
                     }}
                     disabled={createSkillMutation.isPending}
@@ -1427,37 +1719,79 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Output</span>
+                  <span>Skill Output Sources</span>
                 </h4>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's output should be passed as input context. Can be combined with tables.
+                <p className="text-xs text-muted-foreground mb-3">
+                  By default, this skill's input is always whichever skill actually triggers it — no configuration needed.
                 </p>
-                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  <label className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
-                    <input
-                      type="checkbox"
-                      checked={editInputSourceMap?.skills?.includes("@previous") || false}
-                      onChange={(e) => {
-                        const skills = [...(editInputSourceMap?.skills || [])].filter(s => s !== "@previous");
-                        if (e.target.checked) skills.push("@previous");
-                        setEditInputSourceMap({ ...editInputSourceMap, skills });
-                      }}
-                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="font-medium text-foreground">Previous skill Output</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
-                    </div>
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-sm p-1.5 mb-2 rounded cursor-pointer hover:bg-secondary/10 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={editUseOtherSkillOutput}
+                    onChange={(e) => {
+                      setEditUseOtherSkillOutput(e.target.checked);
+                      if (!e.target.checked) {
+                        setEditInputSourceMap({ ...editInputSourceMap, skills: [] });
+                      }
+                    }}
+                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Also use other skill output</span>
+                </label>
+
+                {editUseOtherSkillOutput ? (
+                  <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1 pl-1 border-l-2 border-border ml-1 mt-2">
+                    {allSkills.filter((s: any) => s.id !== editingSkill?.id).map((s: any) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
+                        <input
+                          type="checkbox"
+                          checked={editInputSourceMap?.skills?.includes(s.id) || false}
+                          onChange={(e) => {
+                            const skills = [...(editInputSourceMap?.skills || [])].filter((id: string) => id !== s.id);
+                            if (e.target.checked) skills.push(s.id);
+                            setEditInputSourceMap({ ...editInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name ?? s.id}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    ))}
+                    {allSkills.length <= 1 ? (
+                      <p className="text-xs text-muted-foreground p-1.5">No other skills exist yet to select as a source.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-1 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                    This skill's input is always the previous (triggering) skill's output.{" "}
+                    {editingSkill ? describeTriggerMapping(findTriggeringMapping(editingSkill.id, allMappings), allSkills) : ""}
+                  </div>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground mb-3">
                   Select database tables and optionally check specific columns to include in the context.
                 </p>
+                <div className="mt-1 mb-4 rounded-lg border border-primary/20 bg-primary-soft/10 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground block mb-1">DRIVE Simplified Hierarchy Links:</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-foreground">Goal</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Epic</span> <span className="text-[10px] text-muted-foreground">(linked via goalId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Story</span> <span className="text-[10px] text-muted-foreground">(linked via epicId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Persona</span> <span className="text-[10px] text-muted-foreground">(linked via PersonaStory)</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground block mt-1.5">
+                    * Foreign key connections and linked Persona associations are automatically sent to the LLM when these tables are included.
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 mb-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                     <input
@@ -1572,37 +1906,79 @@ newKbMarkdown={newKbMarkdown} onNewKbMarkdown={setNewKbMarkdown}
               {/* Skills selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <span>Previous skill Output</span>
+                  <span>Skill Output Sources</span>
                 </h4>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Select if the previous skill's output should be passed as input context. Can be combined with tables.
+                <p className="text-xs text-muted-foreground mb-3">
+                  By default, this skill's input is always whichever skill actually triggers it — no configuration needed.
                 </p>
-                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-                  <label className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
-                    <input
-                      type="checkbox"
-                      checked={newSkillInputSourceMap?.skills?.includes("@previous") || false}
-                      onChange={(e) => {
-                        const skills = [...(newSkillInputSourceMap?.skills || [])].filter(s => s !== "@previous");
-                        if (e.target.checked) skills.push("@previous");
-                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
-                      }}
-                      className="rounded border-input text-emerald-500 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="font-medium text-foreground">Previous skill Output</span>
-                      <span className="text-xs text-muted-foreground block font-mono">Include output of the previous skill as input context</span>
-                    </div>
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-sm p-1.5 mb-2 rounded cursor-pointer hover:bg-secondary/10 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={createUseOtherSkillOutput}
+                    onChange={(e) => {
+                      setCreateUseOtherSkillOutput(e.target.checked);
+                      if (!e.target.checked) {
+                        setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills: [] });
+                      }
+                    }}
+                    className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Also use other skill output</span>
+                </label>
+
+                {createUseOtherSkillOutput ? (
+                  <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1 pl-1 border-l-2 border-border ml-1 mt-2">
+                    {allSkills.map((s: any) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-secondary/10">
+                        <input
+                          type="checkbox"
+                          checked={newSkillInputSourceMap?.skills?.includes(s.id) || false}
+                          onChange={(e) => {
+                            const skills = [...(newSkillInputSourceMap?.skills || [])].filter((id: string) => id !== s.id);
+                            if (e.target.checked) skills.push(s.id);
+                            setNewSkillInputSourceMap({ ...newSkillInputSourceMap, skills });
+                          }}
+                          className="rounded border-input text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="font-medium text-foreground">{s.name ?? s.id}</span>
+                          <span className="text-xs text-muted-foreground block font-mono">{s.id}</span>
+                        </div>
+                      </label>
+                    ))}
+                    {allSkills.length === 0 ? (
+                      <p className="text-xs text-muted-foreground p-1.5">No other skills exist yet to select as a source.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-1 rounded-lg border border-warning/30 bg-warning-soft/30 p-2 text-[11px] text-warning">
+                    This skill's input is always the previous (triggering) skill's output. Once created, wire an Event
+                    Mapping so something actually triggers it — otherwise this baseline will be empty at runtime.
+                  </div>
+                )}
               </div>
 
               {/* Project Tables & Columns selection */}
               <div className="border border-border rounded-xl p-4 bg-card h-fit">
                 <h4 className="text-sm font-semibold mb-1">Project Database Tables</h4>
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground mb-3">
                   Select database tables and optionally check specific columns to include in the context.
                 </p>
+                <div className="mt-1 mb-4 rounded-lg border border-primary/20 bg-primary-soft/10 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground block mb-1">DRIVE Simplified Hierarchy Links:</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-foreground">Goal</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Epic</span> <span className="text-[10px] text-muted-foreground">(linked via goalId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Story</span> <span className="text-[10px] text-muted-foreground">(linked via epicId)</span>
+                    <span>➜</span>
+                    <span className="font-semibold text-foreground">Persona</span> <span className="text-[10px] text-muted-foreground">(linked via PersonaStory)</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground block mt-1.5">
+                    * Foreign key connections and linked Persona associations are automatically sent to the LLM when these tables are included.
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 mb-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                     <input

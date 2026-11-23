@@ -36,7 +36,7 @@ export class AdminController {
   @Post("skills")
   createSkill(
     @CurrentActor() actor: Actor,
-    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
+    @Body() body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string },
   ) {
     return this.admin.createSkill(actor, body);
   }
@@ -45,7 +45,7 @@ export class AdminController {
   updateSkill(
     @CurrentActor() actor: Actor,
     @Param("skillId") skillId: string,
-    @Body() body: { name?: string; description?: string; kbEligible?: boolean },
+    @Body() body: { name?: string; description?: string; kbEligible?: boolean; phase?: string },
   ) {
     return this.admin.updateSkill(actor, skillId, body);
   }
@@ -111,10 +111,11 @@ export class AdminController {
     @CurrentActor() actor: Actor,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("phase") phase?: string,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.admin.eventMappings(actor, pageNum, limitNum);
+    return this.admin.eventMappings(actor, pageNum, limitNum, phase);
   }
 
   @Post("event-mappings")
@@ -295,6 +296,65 @@ export class AdminController {
     return this.admin.updateCostConfig(actor, key, body);
   }
 
+  // --- Health Score weight configuration ---
+
+  @Get("health-score-weights")
+  getHealthScoreWeights(@CurrentActor() actor: Actor) {
+    return this.admin.getHealthScoreWeights(actor);
+  }
+
+  @Put("health-score-weights/:component")
+  updateHealthScoreWeight(
+    @CurrentActor() actor: Actor,
+    @Param("component") component: string,
+    @Body() body: { weight: number },
+  ) {
+    return this.admin.updateHealthScoreWeight(actor, component, body);
+  }
+
+  // --- Phase 6: Project Context Automation configuration ---
+
+  @Get("context-auto-capture-rules")
+  getContextAutoCaptureRules(@CurrentActor() actor: Actor) {
+    return this.admin.getContextAutoCaptureRules(actor);
+  }
+
+  @Post("context-auto-capture-rules")
+  createContextAutoCaptureRule(
+    @CurrentActor() actor: Actor,
+    @Body() body: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences?: number },
+  ) {
+    return this.admin.createContextAutoCaptureRule(actor, body);
+  }
+
+  @Put("context-auto-capture-rules/:id")
+  updateContextAutoCaptureRule(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { pattern?: string; entityTypes?: string[]; contextText?: string; minOccurrences?: number; active?: boolean },
+  ) {
+    return this.admin.updateContextAutoCaptureRule(actor, id, body);
+  }
+
+  @Delete("context-auto-capture-rules/:id")
+  deleteContextAutoCaptureRule(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.deleteContextAutoCaptureRule(actor, id);
+  }
+
+  @Get("context-review-config")
+  getContextReviewConfig(@CurrentActor() actor: Actor) {
+    return this.admin.getContextReviewConfig(actor);
+  }
+
+  @Put("context-review-config/:id")
+  updateContextReviewConfig(
+    @CurrentActor() actor: Actor,
+    @Param("id") id: string,
+    @Body() body: { cronExpression?: string; active?: boolean },
+  ) {
+    return this.admin.updateContextReviewConfig(actor, id, body);
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   @Get("metrics/overview")
@@ -354,5 +414,15 @@ export class AdminController {
   @Get("support/projects/:id")
   getSupportProjectDetails(@CurrentActor() actor: Actor, @Param("id") id: string) {
     return this.admin.getSupportProjectDetails(actor, id);
+  }
+
+  @Post("projects/:id/freeze")
+  freezeProject(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.freezeProject(actor, id);
+  }
+
+  @Post("projects/:id/unfreeze")
+  unfreezeProject(@CurrentActor() actor: Actor, @Param("id") id: string) {
+    return this.admin.unfreezeProject(actor, id);
   }
 }

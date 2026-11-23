@@ -5,25 +5,35 @@ import { jsonValue } from "./lib/utils";
 import { config } from "./config";
 import {
   handleConversation,
-  handleSummary,
   handleReport,
   handleDocument,
   handleGdprExport,
   handleGdprDelete,
   handleRetention,
   handleStorageExpiry,
+  handleBuildPackGenerate,
+  handleBuildSyncIngest,
+  handleBuildSyncExport,
+  handleHealthScoreCalculate,
+  handleEvolveMessage,
+  handleContextReview,
   type Payload,
 } from "./handlers";
 
 export const queues = [
   "ai.conversation",
   "ai.report",
-  "ai.summary",
   "document.render",
   "gdpr.export",
   "gdpr.delete",
   "retention.cleanup",
   "storage.expire",
+  "build-pack.generate",
+  "build-sync.ingest",
+  "build-sync.export",
+  "health-score.calculate",
+  "evolve.message",
+  "context.review",
 ] as const;
 
 export async function startQueue() {
@@ -37,9 +47,6 @@ export async function startQueue() {
 
   if (enabled.includes("ai.conversation")) {
     await boss.work<Payload>("ai.conversation", handleJobs("ai.conversation", handleConversation));
-  }
-  if (enabled.includes("ai.summary")) {
-    await boss.work<Payload>("ai.summary", handleJobs("ai.summary", handleSummary));
   }
   if (enabled.includes("ai.report")) {
     await boss.work<Payload>("ai.report", handleJobs("ai.report", handleReport));
@@ -60,6 +67,30 @@ export async function startQueue() {
   if (enabled.includes("storage.expire")) {
     await boss.work<Payload>("storage.expire", handleJobs("storage.expire", handleStorageExpiry));
     await boss.schedule("storage.expire", "30 2 * * *", {});
+  }
+  if (enabled.includes("build-pack.generate")) {
+    await boss.work<Payload>("build-pack.generate", handleJobs("build-pack.generate", handleBuildPackGenerate));
+  }
+  if (enabled.includes("build-sync.ingest")) {
+    await boss.work<Payload>("build-sync.ingest", handleJobs("build-sync.ingest", handleBuildSyncIngest));
+  }
+  if (enabled.includes("build-sync.export")) {
+    await boss.work<Payload>("build-sync.export", handleJobs("build-sync.export", handleBuildSyncExport));
+  }
+  if (enabled.includes("health-score.calculate")) {
+    await boss.work<Payload>("health-score.calculate", handleJobs("health-score.calculate", handleHealthScoreCalculate));
+  }
+  if (enabled.includes("evolve.message")) {
+    await boss.work<Payload>("evolve.message", handleJobs("evolve.message", handleEvolveMessage));
+  }
+  if (enabled.includes("context.review")) {
+    await boss.work<Payload>("context.review", handleJobs("context.review", handleContextReview));
+    // RemoraDocument §20 — review frequency is founder Configuration, read
+    // from ContextReviewConfig at boot (changes take effect on restart).
+    const reviewConfig = await prisma.contextReviewConfig.findFirst({ where: { active: true } });
+    if (reviewConfig) {
+      await boss.schedule("context.review", reviewConfig.cronExpression, {});
+    }
   }
 
   console.info(

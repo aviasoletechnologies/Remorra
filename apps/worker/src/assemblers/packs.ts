@@ -1,49 +1,42 @@
 import { prisma } from "../lib/prisma";
 
-export async function assembleFounderPackData(projectId: string): Promise<any> {
-  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-  return {
-    projectName: project.name,
-    summary: "No executive summary available.",
-    vision: "No vision statement available.",
-    targetAudience: "No target audience defined.",
-    keyFeatures: [],
-    revenueModel: "No revenue model defined.",
-  };
-}
-
+// Live entity-summary panel data (Goal -> Epic -> Story chain + Persona/PainPoint).
 export async function assembleProductPackData(projectId: string): Promise<any> {
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
 
-  const ambitions = await prisma.ambition.findMany({
+  const goals = await prisma.goal.findMany({
     where: { projectId },
-    include: { okrs: { include: { personaLinks: true } } },
+    include: { epics: { include: { stories: { include: { personas: true } } } } },
   });
   const personas = await prisma.persona.findMany({
     where: { projectId },
-    include: { painPoints: true, userNeeds: true },
+    include: { painPoints: true, stories: { include: { story: true } } },
   });
-  const completeThread = ambitions.some((ambition: any) =>
-    ambition.okrs.some((okr: any) =>
-      okr.personaLinks.some((link: any) => {
-        const persona = personas.find((item: any) => item.id === link.personaId);
-        return persona?.painPoints.length && persona.userNeeds.length;
-      }),
+
+  const completeThread = goals.some((goal: any) =>
+    goal.epics.some((epic: any) =>
+      epic.stories.some((story: any) =>
+        story.personas.some((link: any) => {
+          const persona = personas.find((item: any) => item.id === link.personaId);
+          return persona?.painPoints.length;
+        }),
+      ),
     ),
   );
-  const ambitionScore = ambitions.length > 0 ? 100 : 0;
-  const ambitionsWithOkrs = ambitions.filter((a: any) => a.okrs.length > 0).length;
-  const okrScore = ambitions.length > 0 ? (ambitionsWithOkrs / ambitions.length) * 100 : 0;
+
+  const goalScore = goals.length > 0 ? 100 : 0;
+  const goalsWithEpics = goals.filter((g: any) => g.epics.length > 0).length;
+  const epicScore = goals.length > 0 ? (goalsWithEpics / goals.length) * 100 : 0;
 
   const personaScore = personas.length > 0 ? 100 : 0;
   const personasWithPainPoints = personas.filter((p: any) => p.painPoints.length > 0).length;
   const painPointScore = personas.length > 0 ? (personasWithPainPoints / personas.length) * 100 : 0;
 
-  const personasWithUserNeeds = personas.filter((p: any) => p.userNeeds.length > 0).length;
-  const userNeedScore = personas.length > 0 ? (personasWithUserNeeds / personas.length) * 100 : 0;
+  const personasWithStories = personas.filter((p: any) => p.stories.length > 0).length;
+  const storyLinkScore = personas.length > 0 ? (personasWithStories / personas.length) * 100 : 0;
 
   const coveragePercent = Math.round(
-    (ambitionScore + okrScore + personaScore + painPointScore + userNeedScore) / 5
+    (goalScore + epicScore + personaScore + painPointScore + storyLinkScore) / 5
   );
 
   return {
@@ -51,15 +44,17 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
     coveragePercent,
     linkageValid: Boolean(completeThread),
     passThread: Boolean(completeThread),
-    ambitions: ambitions.map((a: any) => ({
-      id: a.id,
-      title: a.title,
-      detail: a.detail,
-      okrs: a.okrs.map((okr: any) => ({
-        id: okr.id,
-        objective: okr.objective,
-        keyResults: okr.keyResults,
-        personaIds: okr.personaLinks.map((link: any) => link.personaId),
+    goals: goals.map((g: any) => ({
+      id: g.id,
+      title: g.title,
+      detail: g.detail,
+      epics: g.epics.map((epic: any) => ({
+        id: epic.id,
+        title: epic.title,
+        storyTitles: epic.stories.map((s: any) => s.title),
+        personaIds: Array.from(
+          new Set(epic.stories.flatMap((s: any) => s.personas.map((link: any) => link.personaId))),
+        ),
       })),
     })),
     personas: personas.map((p: any) => ({
@@ -67,82 +62,126 @@ export async function assembleProductPackData(projectId: string): Promise<any> {
       name: p.name,
       description: p.description,
       painPoints: p.painPoints.map((pt: any) => ({ id: pt.id, statement: pt.statement })),
-      userNeeds: p.userNeeds.map((n: any) => ({ id: n.id, statement: n.statement })),
+      linkedStories: p.stories.map((link: any) => ({ id: link.story.id, statement: link.story.title })),
     })),
     assembledAt: new Date().toISOString(),
   };
 }
 
-export async function assembleInvestorPackData(projectId: string): Promise<any> {
-  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-  const productPack = await assembleProductPackData(projectId);
-  const activeCycle = await prisma.cycle.findFirst({
-    where: { projectId, status: "active" },
+// PRD data for a single Build Phase (Build Pack artefact) — scoped to that
+// phase's assigned Stories only, not the whole project backlog.
+export async function assembleBuildPackData(buildPhaseId: string): Promise<any> {
+  const buildPhase = await prisma.buildPhase.findUniqueOrThrow({
+    where: { id: buildPhaseId },
+    include: { project: true },
   });
-  const tasks = await prisma.task.findMany({
-    where: { projectId, cycleId: activeCycle?.id || undefined },
+  const stories = await prisma.story.findMany({
+    where: { buildPhaseId },
+    include: {
+      epic: { include: { goal: true } },
+      personas: { include: { persona: true } },
+    },
+    orderBy: [{ status: "asc" }, { position: "asc" }],
   });
-  const completedTasks = tasks.filter((t: any) => t.status === "done").length;
-  const raid = await prisma.raidItem.findMany({
-    where: { projectId },
-  });
-  const financeEntries = await prisma.financeEntry.findMany({
-    where: { projectId },
-  });
-  const totalSpent = financeEntries.reduce((sum: number, entry: any) => sum + entry.amountMinor, 0);
+  const raid = await prisma.raidItem.findMany({ where: { projectId: buildPhase.projectId } });
 
   return {
-    projectName: project.name,
-    viabilityScore: 0,
-    viabilityRationale: "No viability rationale provided.",
-    productCoveragePercent: productPack.coveragePercent,
-    deliveryLinkageValid: productPack.linkageValid,
-    activeSprintCompletedTasks: completedTasks,
-    activeSprintTotalTasks: tasks.length,
-    totalBudgetSpentMinor: totalSpent,
-    totalBudgetAllocatedMinor: Math.round(totalSpent * 1.5) || 500000,
-    risksCount: raid.length,
-    criticalRisksCount: raid.filter(
-      (r: any) => r.severity === "critical" || r.severity === "high",
-    ).length,
+    projectName: buildPhase.project.name,
+    buildPhaseId: buildPhase.id,
+    buildPhaseName: buildPhase.name,
+    buildPhaseDescription: buildPhase.description ?? "",
+    stories: stories.map((s: any) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? "",
+      status: s.status,
+      priority: s.priority,
+      acceptance: Array.isArray(s.acceptance) ? s.acceptance : [],
+      epicTitle: s.epic?.title ?? "",
+      goalTitle: s.epic?.goal?.title ?? "",
+      personaNames: s.personas.map((link: any) => link.persona.name),
+    })),
+    risks: raid.map((r: any) => ({ title: r.title, type: r.type, severity: r.severity, status: r.status })),
+    assembledAt: new Date().toISOString(),
   };
 }
 
-export async function assembleBuildPackData(projectId: string): Promise<any> {
+// Build Sync File — clean CSV export, blank statuses, for handoff to a developer.
+// Placeholder format (buildPhaseIdentifier/storyId/title/status columns) until
+// the founder provides the real spec; column set kept in one place so the
+// real format can replace this without touching the ingestion caller.
+export function buildSyncCsvColumns(): string[] {
+  return ["buildPhaseIdentifier", "storyId", "title", "status"];
+}
+
+export async function assembleBuildSyncCsv(buildPhaseId: string, blank: boolean): Promise<string> {
+  const stories = await prisma.story.findMany({
+    where: { buildPhaseId },
+    orderBy: [{ status: "asc" }, { position: "asc" }],
+  });
+  const columns = buildSyncCsvColumns();
+  const rows = stories.map((s: any) => [
+    buildPhaseId,
+    s.id,
+    csvEscape(s.title),
+    blank ? "" : s.status,
+  ]);
+  return [columns.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+// Deterministic raw counts/coverage for the Health Score Calculator Skill —
+// per HARDIK doc Q13, the server computes raw signal, the Skill interprets
+// it in project context and writes the qualitative rationale/actions layer.
+export async function assembleHealthScoreRawData(projectId: string): Promise<any> {
   const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-  const activeCycle = await prisma.cycle.findFirst({
-    where: { projectId, status: "active" },
-  });
-  const stories = await prisma.userStory.findMany({
+  const goals = await prisma.goal.findMany({
     where: { projectId },
+    include: { epics: { include: { stories: true } } },
   });
-  const tasks = await prisma.task.findMany({
-    where: { projectId, cycleId: activeCycle?.id || undefined },
-    include: { assignee: true },
-  });
-  const raid = await prisma.raidItem.findMany({
+  const personas = await prisma.persona.findMany({
     where: { projectId },
+    include: { painPoints: true, stories: true },
   });
+
+  const epics = goals.flatMap((g: any) => g.epics);
+  const stories = epics.flatMap((e: any) => e.stories);
+  const storiesWithAC = stories.filter((s: any) => Array.isArray(s.acceptance) && s.acceptance.length > 0);
+
+  const orphanEpics = epics.filter((e: any) => e.stories.length === 0).length;
+  const completeThreads = epics.filter((e: any) => e.stories.length > 0).length;
 
   return {
     projectName: project.name,
-    cycleName: activeCycle?.name || "No Active Cycle",
-    cycleStatus: activeCycle?.status || "inactive",
-    stories: stories.map((s: any) => ({
-      title: s.title,
-      status: s.status,
-      description: s.description || "",
-      acceptance: Array.isArray(s.acceptance) ? s.acceptance : [],
-    })),
-    tasks: tasks.map((t: any) => ({
-      title: t.title,
-      status: t.status,
-      assigneeName: t.assignee?.preferredName || t.assignee?.email || "Unassigned",
-    })),
-    risks: raid.map((r: any) => ({
-      title: r.title,
-      severity: r.severity,
-      status: r.status,
-    })),
+    goals: {
+      count: goals.length,
+      withDetail: goals.filter((g: any) => (g.detail ?? "").trim().length > 20).length,
+      titles: goals.map((g: any) => g.title),
+    },
+    epics: {
+      count: epics.length,
+      withStories: epics.length - orphanEpics,
+      orphanCount: orphanEpics,
+    },
+    stories: {
+      count: stories.length,
+      withAcceptanceCriteria: storiesWithAC.length,
+      coveragePercent: stories.length > 0 ? Math.round((storiesWithAC.length / stories.length) * 100) : 0,
+    },
+    personas: {
+      count: personas.length,
+      withPainPoints: personas.filter((p: any) => p.painPoints.length > 0).length,
+      withLinkedStories: personas.filter((p: any) => p.stories.length > 0).length,
+    },
+    linkage: {
+      completeGoalEpicStoryThreads: completeThreads,
+      orphanEpicCount: orphanEpics,
+      totalGoals: goals.length,
+      totalEpics: epics.length,
+    },
   };
 }

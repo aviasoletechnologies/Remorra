@@ -27,6 +27,7 @@ import {
   Activity,
   Plus,
   Loader2,
+  History,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation } from "react-router-dom";
@@ -73,8 +74,8 @@ interface Project {
   id: string;
   name: string;
   phase: string;
-  role: "founder" | "team" | "supplier";
-  viabilityScore: number | null;
+  role: "founder" | "team";
+  healthScore: number | null;
 }
 
 interface Actor {
@@ -96,9 +97,11 @@ const pageNames: Record<string, string> = {
   "/workspace": "AI product guide",
   "/initiate": "Initiate",
   "/venture": "Delivery",
+  "/evolve": "Evolve",
   "/reports": "Reports & packs",
   "/team": "People & access",
   "/knowledge": "Product library",
+  "/history": "Conversation history",
   "/privacy": "Privacy & data",
   "/admin": "Platform admin",
 };
@@ -207,25 +210,35 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
   }, [activeProjectId, project, setActiveProjectId]);
 
   const navItems = useMemo(() => {
-    const items = project?.role === "supplier"
-      ? [
-          { to: "/venture", label: "My tasks", icon: ListChecks },
-          { to: "/reports", label: "Build Pack", icon: FileChartColumn },
-        ]
-      : [
-          { to: "/", label: "Overview", icon: LayoutDashboard },
-          { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
-          { to: "/initiate", label: "Initiate", icon: Gauge },
-          { to: "/venture", label: "Delivery", icon: ListChecks },
-          { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
-          { to: "/team", label: "People & access", icon: Users },
-          { to: "/knowledge", label: "Product library", icon: BookOpen },
-        ];
+    if (!project) return [];
+    const items = [
+      { to: "/", label: "Overview", icon: LayoutDashboard },
+      { to: "/workspace", label: "AI product guide", icon: MessageSquareText },
+      { to: "/initiate", label: "Initiate", icon: Gauge },
+      { to: "/venture", label: "Delivery", icon: ListChecks },
+      { to: "/evolve", label: "Evolve", icon: Sparkles },
+      { to: "/reports", label: "Reports & packs", icon: FileChartColumn },
+      { to: "/team", label: "People & access", icon: Users },
+      { to: "/knowledge", label: "Product library", icon: BookOpen },
+    ];
+
+    const filtered = items.filter((item) => {
+      // DRI phases (Discover, Refine) — founders only, and only when in those phases
+      if (item.to === "/workspace") return project.role === "founder" && ["discover", "refine"].includes(project.phase);
+      // Initiate — founders only, and only when in that phase
+      if (item.to === "/initiate") return project.role === "founder" && ["initiate"].includes(project.phase);
+      // Venture/Evolve/Reports — any role, but only when the project has reached those phases OR user is a team member (since team skips DRI)
+      if (item.to === "/venture" || item.to === "/reports" || item.to === "/evolve") {
+        return project.role === "team" || ["venture", "evolve"].includes(project.phase);
+      }
+      return true;
+    });
+
     if (actor && ["admin", "support"].includes(actor.platformRole ?? "")) {
-      items.push({ to: "/admin", label: "Platform admin", icon: ShieldCheck });
+      filtered.push({ to: "/admin", label: "Platform admin", icon: ShieldCheck });
     }
-    return items;
-  }, [actor, project?.role]);
+    return filtered;
+  }, [actor, project?.phase]);
 
   if (actor && (!actor.privacyPolicyVersion || !actor.termsVersion)) {
     return (
@@ -322,7 +335,7 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {project && project.role !== "supplier" ? (
+          {project ? (
             <div className="mx-2 mt-5 rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3 group-data-[collapsible=icon]:hidden">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-[.1em] text-sidebar-foreground/55">DRIVE progress</span>
@@ -395,14 +408,28 @@ function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {project?.viabilityScore != null ? (
-              <div className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs sm:flex">
-                <Gauge size={14} className="text-primary" />
-                <span>Viability</span>
-                <strong className="text-foreground">{project.viabilityScore}</strong>
-              </div>
+            {project ? (
+              <Link
+                to="/history"
+                className="hidden h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View conversation history"
+              >
+                <History size={14} />
+                <span>History</span>
+              </Link>
             ) : null}
-            {location.pathname === "/workspace" ? (
+            {project?.healthScore != null ? (
+              <Link
+                to="/initiate"
+                className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs text-muted-foreground shadow-xs transition-colors hover:bg-secondary/50 hover:text-foreground sm:flex"
+                title="View Health Score breakdown"
+              >
+                <Gauge size={14} className="text-primary" />
+                <span>Health Score</span>
+                <strong className="text-foreground">{project.healthScore}</strong>
+              </Link>
+            ) : null}
+            {project ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -724,13 +751,15 @@ function RunningTimer({ streamState, logs }: { streamState: string; logs: LogEve
   );
 }
 
-function MovablePanel({
+export function MovablePanel({
   open,
   onClose,
   title,
   subtitle,
   children,
-  headerActions
+  headerActions,
+  initialWidth = 480,
+  initialHeight = 650,
 }: {
   open: boolean;
   onClose: () => void;
@@ -738,9 +767,11 @@ function MovablePanel({
   subtitle?: React.ReactNode;
   children: React.ReactNode;
   headerActions?: React.ReactNode;
+  initialWidth?: number;
+  initialHeight?: number;
 }) {
-  const [position, setPosition] = useState({ x: window.innerWidth - 520, y: 80 });
-  const [size, setSize] = useState({ width: 480, height: 650 });
+  const [position, setPosition] = useState({ x: window.innerWidth - initialWidth - 40, y: 80 });
+  const [size, setSize] = useState({ width: initialWidth, height: initialHeight });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<string | null>(null);
 

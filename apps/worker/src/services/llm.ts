@@ -83,12 +83,17 @@ export function buildSkillMessages(
   const historySection = sections.find((s) => s.tag === "conversation_history");
   const nonHistorySections = sections.filter((s) => s.tag !== "conversation_history");
 
-  // Trusted sections → system prompt append; everything else → user message
-  const trustedSections = nonHistorySections.filter((s) => s.trust === "trusted");
-  const userSections = nonHistorySections.filter((s) => s.trust !== "trusted");
+  // V4.4 Prompt assembly rules:
+  // - System prompt/constraints (skill_constraints) go in the 'system' parameter (trustedContext).
+  // - Entity data, skill outputs, and KB content go in the 'messages' array as user content.
+  const trustedSections = nonHistorySections.filter((s) => s.tag === "skill_constraints");
+  const userSections = nonHistorySections.filter((s) => s.tag !== "skill_constraints");
 
   const trustedContext = trustedSections
-    .map((s) => `<${s.tag}>\n${s.content}\n</${s.tag}>`)
+    .map((s) => {
+      const baseTag = (s.tag.split(" ")[0] ?? s.tag);
+      return `<${s.tag}>\n${s.content}\n</${baseTag}>`;
+    })
     .join("\n");
 
   const contextStr = userSections
@@ -102,7 +107,15 @@ export function buildSkillMessages(
           // fallback to original
         }
       }
-      return `<${s.tag} trust="${s.trust}">${content}</${s.tag}>`;
+      // If it's already wrapped in XML (e.g. skill_output_* or table section tags or expertise_knowledge)
+      if (content.startsWith("<") && content.endsWith(">") && content.includes("\n")) {
+        return content;
+      }
+      const baseTag = (s.tag.split(" ")[0] ?? s.tag);
+      if (content.includes("\n")) {
+        return `<${s.tag} trust="${s.trust}">\n${content}\n</${baseTag}>`;
+      }
+      return `<${s.tag} trust="${s.trust}">${content}</${baseTag}>`;
     })
     .join("\n");
 

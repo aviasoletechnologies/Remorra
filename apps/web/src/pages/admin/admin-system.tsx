@@ -107,11 +107,24 @@ export function AdminSkills({
             { key: "name", header: "Name", cell: (row: any) => <strong>{row.name}</strong> },
             { key: "description", header: "Description", cell: (row: any) => row.description },
             {
+              key: "phase",
+              header: "DRIVE Phase",
+              cell: (row: any) => <Badge tone="neutral" className="capitalize">{row.phase}</Badge>,
+            },
+            {
               key: "active",
               header: "Active version",
               cell: (row: any) => {
                 const active = row.versions.find((version: any) => version.active);
                 return active ? <Badge tone="green">v{active.version}</Badge> : <Badge tone="amber">Inactive</Badge>;
+              },
+            },
+            {
+              key: "modelTier",
+              header: "Model Tier",
+              cell: (row: any) => {
+                const active = row.versions.find((version: any) => version.active);
+                return active ? <Badge tone="neutral" className="capitalize">{active.modelTier}</Badge> : "-";
               },
             },
             {

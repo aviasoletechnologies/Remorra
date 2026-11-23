@@ -3,9 +3,10 @@ import { boss } from "../lib/boss";
 import { jsonValue, parseJson } from "../lib/utils";
 import { selectedModelFor } from "../services/llm";
 import { invokeSkill, invokeGeneralConversation } from "../assemblers/skills";
-import { assembleProductPackData } from "../assemblers/index.js";
 import { applyGenericExtractMappings, applyOperationsExtract } from "../services/extract-mapper.js";
 import { triggerChatReportPdf } from "../services/pdf.js";
+import { jsonSchemaToTableConfig } from "@remorra/contracts";
+import Ajv from "ajv";
 
 function cleanJsonString(str: string): string {
   let cleaned = str.trim();
@@ -29,9 +30,20 @@ export async function handleConversation(payload: Payload) {
     `[worker:conversation] start project=${projectId} conversation=${conversationId} user=${userId} mode=${isGeneralChat ? "general_chat" : "skill"} skillId=${String(payload.skillId ?? "none")} skillVersionId=${String(payload.skillVersionId ?? "none")}`,
   );
 
-  let sequence = 1;
   const jobId = payload.jobRecordId;
+  // A pg-boss retry re-invokes this handler for the same jobId — resume the
+  // sequence counter from where the prior (failed) attempt left off instead
+  // of restarting at 1, or the first createMany collides on (jobId, sequence).
+  const maxEvent = jobId
+    ? await prisma.jobStreamEvent.findFirst({
+        where: { jobId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+    : null;
+  let sequence = (maxEvent?.sequence ?? 0) + 1;
   let savedAssistantMsg: any = null;
+  let savedClosingMsg: any = null;
   let queue: Array<{
     type: string;
     delta?: string;
@@ -203,6 +215,25 @@ export async function handleConversation(payload: Payload) {
       displayText = displayText.replace(/<generate_pdf\/>/g, "").trim();
     }
 
+    // ── Detection 0: <draft_data> tag ────────────────────────────────────────
+    // Opt-in per skill (only skills whose systemPrompt asks for it emit this).
+    // Unlike <output_data>, this fires on EVERY turn, not just the final one —
+    // lets a multi-turn conversational skill (e.g. refine-facilitator) report
+    // its in-progress captured fields before anything is actually confirmed
+    // or inserted, so the client can render live progress instead of waiting
+    // for skillIsDone. Never validated against outputSchema, never written to
+    // any table — display-only.
+    let draftData: unknown = null;
+    const draftMatch = displayText.match(/<draft_data>\s*([\s\S]*?)\s*<\/draft_data>/i);
+    if (draftMatch?.[1]) {
+      try {
+        draftData = JSON.parse(draftMatch[1].trim());
+      } catch {
+        try { draftData = parseJson(draftMatch[1].trim()); } catch { draftData = null; }
+      }
+      displayText = displayText.replace(/<draft_data>\s*[\s\S]*?<\/draft_data>/gi, "").trim();
+    }
+
     if (!isGeneralChat && displayText.includes("<skill_done/>")) {
       skillIsDone = true;
       displayText = displayText.replace(/<skill_done\/>/g, "").trim();
@@ -255,6 +286,28 @@ export async function handleConversation(payload: Payload) {
             skillIsDone = true;
             displayText = (trailingMatch[1] ?? "").trim();
           }
+        }
+      }
+    }
+
+    // ── Validate parsed JSON against skill outputSchema (fail-closed) ─────────
+    if (jsonParsed !== null) {
+      const rawSchema = (result.skill as any).outputSchema;
+      if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+        try {
+          const ajv = new Ajv({ allErrors: true });
+          const validate = ajv.compile(rawSchema.value);
+          const valid = validate(jsonParsed);
+          if (!valid) {
+            console.warn(
+              `[worker:conversation] outputSchema validation failed skillId=${result.skill.id}`,
+              ajv.errorsText(validate.errors),
+            );
+            jsonParsed = null; // discard — do not write invalid data to DB
+            skillIsDone = false;
+          }
+        } catch (schemaErr) {
+          console.warn("[worker:conversation] outputSchema compile error — skipping validation", schemaErr);
         }
       }
     }
@@ -334,20 +387,33 @@ export async function handleConversation(payload: Payload) {
           `[worker:conversation] checking skill completion firedEvents=[${firedEvents.join(", ")}] conversation=${conversationId}`,
         );
 
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { phase: true },
+        });
+        const currentPhase = project?.phase;
+
         queue.push({
           type: "log",
-          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings...`,
-          metadata: { stage: "event", firedEvents },
+          delta: `[Events] Fired events: [${firedEvents.join(", ")}]. Checking SkillEventMappings (phase: ${currentPhase})...`,
+          metadata: { stage: "event", firedEvents, currentPhase },
         });
         void flush();
 
         const matchedMappings = await prisma.skillEventMapping.findMany({
           where: { eventType: { in: firedEvents }, active: true },
+          include: { skill: { select: { phase: true } } },
           orderBy: { id: "asc" }, // admin's creation order = priority
         });
 
-        // First match wins — fully admin-driven, no static priority in code
-        const nextMapping = matchedMappings[0] ?? null;
+        // Intra-phase only. Actual phase advancement is always a manual,
+        // founder-gated "Continue" click (HARDIK doc Q10) — a mapping whose
+        // target skill's phase differs from currentPhase is never
+        // auto-executed here, even if one exists in the DB. Cross-phase
+        // mappings exist purely for workspace-flow.service.ts's getOrCreate()
+        // to look up "which skill starts the next phase" once the founder
+        // actually clicks Continue — see seed-drive-skills.ts's comment.
+        const nextMapping = matchedMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
 
         if (nextMapping) {
           // ── NEXT SKILL FOUND → pin it + auto-enqueue immediately ─────────
@@ -425,8 +491,7 @@ export async function handleConversation(payload: Payload) {
               `[worker:conversation] next skill auto-enqueued triggeredBy=${nextMapping.eventType} nextSkill=${nextMapping.skillId} conversation=${conversationId} jobId=${nextBossJobId}`,
             );
           }
-
-        } else {
+      } else {
           // ── NO SKILL-TO-SKILL MATCH → run DB mapper, fire DB events, check again ──
           const dbFiredEvents: string[] = [];
 
@@ -443,15 +508,18 @@ export async function handleConversation(payload: Payload) {
                 const rawSchema = (result.skill as any).outputSchema;
                 let allowedActionsMap: Record<string, string[]> | undefined;
                 if (rawSchema?.type === "table" && typeof rawSchema.value === "object" && rawSchema.value !== null) {
+                  // Stored value is the generated JSON schema, not the raw
+                  // per-entity map — reconstruct it before reading actions.
+                  const tableConfig = jsonSchemaToTableConfig(rawSchema.value) ?? (rawSchema.value as Record<string, any>);
                   allowedActionsMap = {};
-                  for (const [entity, entry] of Object.entries(rawSchema.value as Record<string, any>)) {
+                  for (const [entity, entry] of Object.entries(tableConfig as Record<string, any>)) {
                     allowedActionsMap[entity] = Array.isArray(entry) ? ["create", "update", "delete"] : (entry?.actions ?? ["create", "update", "delete"]);
                   }
                 }
-                const ops = await applyOperationsExtract(projectId, jsonParsed, allowedActionsMap);
+                const ops = await applyOperationsExtract(projectId, userId, jsonParsed, allowedActionsMap);
                 dbFiredEvents.push(...ops);
               } else {
-                await applyGenericExtractMappings(projectId, jsonParsed);
+                await applyGenericExtractMappings(projectId, userId, jsonParsed);
                 // generic mapper does not return granular events — use structured_extract.create
                 dbFiredEvents.push("structured_extract.create");
               }
@@ -462,21 +530,6 @@ export async function handleConversation(payload: Payload) {
                 metadata: { stage: "mapper_success", dbFiredEvents },
               });
               void flush();
-              // Push live Product Pack snapshot to SSE stream after entity DB writes
-              try {
-                const freshPack = await assembleProductPackData(projectId);
-                queue.push({
-                  type: "product_pack_update",
-                  snapshot: "",
-                  metadata: { productPack: freshPack },
-                });
-                void flush();
-              } catch (packErr) {
-                console.warn(
-                  `[worker:conversation] product_pack_update assembly failed project=${projectId}:`,
-                  packErr instanceof Error ? packErr.message : String(packErr),
-                );
-              }
             } catch (mapErr) {
               console.warn(`[worker:conversation] mapper error:`, mapErr);
               queue.push({
@@ -488,12 +541,18 @@ export async function handleConversation(payload: Payload) {
           }
 
           // Check DB-level events against SkillEventMapping
-          const dbMapping = dbFiredEvents.length > 0
-            ? (await prisma.skillEventMapping.findFirst({
+          const dbMappings = dbFiredEvents.length > 0
+            ? (await prisma.skillEventMapping.findMany({
                 where: { eventType: { in: dbFiredEvents }, active: true },
+                include: { skill: { select: { phase: true } } },
                 orderBy: { id: "asc" },
               }))
-            : null;
+            : [];
+
+          // Intra-phase only — same rule as the skill.completed matching
+          // above: phase advancement never happens as a side effect of a
+          // skill turn, no matter what the mapping targets.
+          const dbMapping = dbMappings.find((m: any) => m.skill.phase === currentPhase) ?? null;
 
           if (dbMapping) {
             // ── DB EVENT MATCH → activate next skill ─────────────────────────
@@ -569,8 +628,14 @@ export async function handleConversation(payload: Payload) {
                 `[worker:conversation] next skill auto-enqueued via DB event triggeredBy=${dbMapping.eventType} nextSkill=${dbMapping.skillId} conversation=${conversationId}`,
               );
             }
-          } else {
-            // ── NOTHING MATCHED → unpin + close session gracefully ───────────
+        } else {
+            // ── NOTHING MATCHED → unpin & close session gracefully. No phase
+            // change here: phase advancement is a founder-initiated action
+            // (the "Continue to X" button, gated on the discover_complete/
+            // pass_criteria_met flag — HARDIK doc Q10), never an automatic
+            // side effect of a skill turn. If admin hasn't configured a
+            // SkillEventMapping for this event, nothing more happens than
+            // closing this turn cleanly.
             await prisma.conversation.update({
               where: { id: conversationId },
               data: {
@@ -584,7 +649,7 @@ export async function handleConversation(payload: Payload) {
               "You've completed all the steps — great work! 🎉 " +
               "Everything has been saved. Feel free to ask me anything else.";
 
-            savedAssistantMsg = await prisma.conversationMessage.create({
+            savedClosingMsg = await prisma.conversationMessage.create({
               data: {
                 conversationId,
                 role: "assistant",
@@ -601,7 +666,7 @@ export async function handleConversation(payload: Payload) {
             });
             queue.push({
               type: "log",
-              delta: `[Session] No matching event mappings. Closed session gracefully.`,
+              delta: `[Session] Closed session gracefully.`,
               metadata: { stage: "session_close", completedSkillId: result.skill.id, firedEvents, dbFiredEvents },
             });
             void flush();
@@ -648,6 +713,7 @@ export async function handleConversation(payload: Payload) {
         model: selectedModelFor(result.skill.modelTier ?? "standard"),
         outputTokens: result.text.length / 4,
         skillDone: skillIsDone,
+        draft: draftData,
         rawInput: {
           systemPrompt: result.skill.systemPrompt ?? null,
           userMessage: String(payload.content),
@@ -666,6 +732,12 @@ export async function handleConversation(payload: Payload) {
             role: "assistant",
             content: savedAssistantMsg.content,
             createdAt: savedAssistantMsg.createdAt.toISOString(),
+          } : null,
+          savedClosingMsg ? {
+            id: savedClosingMsg.id,
+            role: "assistant",
+            content: savedClosingMsg.content,
+            createdAt: savedClosingMsg.createdAt.toISOString(),
           } : null,
         ].filter(Boolean),
       },

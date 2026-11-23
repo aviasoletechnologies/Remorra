@@ -15,6 +15,8 @@ export function AdminSupport({
   totalPages,
   setPage,
   isLoading,
+  onFreezeProject,
+  onUnfreezeProject,
 }: {
   projects: any[];
   selectedProjectId: string | null;
@@ -26,6 +28,8 @@ export function AdminSupport({
   totalPages: number;
   setPage: (updater: (page: number) => number) => void;
   isLoading?: boolean;
+  onFreezeProject?: (id: string) => void;
+  onUnfreezeProject?: (id: string) => void;
 }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -69,6 +73,7 @@ export function AdminSupport({
                 cell: (row: any) => (
                   <div className="flex items-center gap-2">
                     <strong>{row.name}</strong>
+                    {row.frozen ? <Badge tone="amber">Frozen</Badge> : null}
                     {row.isSupportRisk ? <Badge tone="red">At risk</Badge> : null}
                   </div>
                 ),
@@ -78,9 +83,9 @@ export function AdminSupport({
                 key: "health",
                 header: "Health",
                 cell: (row: any) =>
-                  row.latestViabilityScore !== null ? (
-                    <Badge tone={row.latestViabilityScore >= 70 ? "green" : row.latestViabilityScore >= 50 ? "amber" : "red"}>
-                      {row.latestViabilityScore}
+                  row.latestHealthScore !== null ? (
+                    <Badge tone={row.latestHealthScore >= 70 ? "green" : row.latestHealthScore >= 50 ? "amber" : "red"}>
+                      {row.latestHealthScore}
                     </Badge>
                   ) : "-",
               },
@@ -199,6 +204,68 @@ export function AdminSupport({
                 </div>
               </div>
             </div>
+
+            <section className="grid gap-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-base font-semibold">Token Usage & Cost Control</h3>
+                {projectDetails && (
+                  <Button
+                    variant={projectDetails.frozen ? "secondary" : "destructive"}
+                    size="sm"
+                    onClick={() => {
+                      if (projectDetails.frozen) {
+                        onUnfreezeProject?.(projectDetails.id);
+                      } else {
+                        if (confirm("Are you sure you want to freeze this project? All write access will be disabled immediately.")) {
+                          onFreezeProject?.(projectDetails.id);
+                        }
+                      }
+                    }}
+                  >
+                    {projectDetails.frozen ? "Unfreeze Project" : "Freeze Project"}
+                  </Button>
+                )}
+              </div>
+              <div className="border border-border rounded-xl p-4 bg-muted/10">
+                <div className="grid gap-3">
+                  {/* System usage */}
+                  <div className="flex justify-between items-center text-xs pb-2 border-b">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground">System User</span>
+                      <span className="text-[10px] text-muted-foreground">Automated tasks (drift, health check)</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-foreground">${((projectDetails?.tokenBreakdown?.system?.costMinor ?? 0) / 100).toFixed(4)}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {projectDetails?.tokenBreakdown?.system?.inputTokens ?? 0} in / {projectDetails?.tokenBreakdown?.system?.outputTokens ?? 0} out
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Users breakdown */}
+                  {(projectDetails?.tokenBreakdown?.users ?? []).length ? (
+                    (projectDetails.tokenBreakdown.users as any[]).map((u) => (
+                      <div className="flex justify-between items-center text-xs py-2 border-b last:border-0" key={u.userId}>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-foreground">{u.name || "Unnamed User"}</span>
+                          <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-foreground">${((u.costMinor ?? 0) / 100).toFixed(4)}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {u.inputTokens} in / {u.outputTokens} out
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-2 text-xs text-muted-foreground">
+                      No user-triggered token consumption recorded for this account.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
 
             <section className="grid gap-3">
               <h3>Team membership roles</h3>

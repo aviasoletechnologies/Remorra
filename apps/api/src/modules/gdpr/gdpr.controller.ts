@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Post } from "@nestjs/common";
 import { CurrentActor, type Actor } from "../../shared/request-context.js";
 import { GdprService } from "./gdpr.service.js";
 
@@ -29,5 +29,10 @@ export class GdprController {
   @Post("purge-data")
   purgeData(@CurrentActor() actor: Actor) {
     return this.gdpr.purgeUserData(actor.userId);
+  }
+
+  @Post("subscription/cancel")
+  cancelSubscription(@CurrentActor() actor: Actor, @Body() body: { reason: string }) {
+    return this.gdpr.cancelSubscription(actor.userId, body);
   }
 }

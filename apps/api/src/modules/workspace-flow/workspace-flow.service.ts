@@ -5,6 +5,7 @@ import mammoth from "mammoth";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
+import { PhaseCompletionService } from "../../shared/phase-completion.service.js";
 import { IntentRouterService } from "./intent-router.service.js";
 
 const MAX_DOCUMENT_CHARS = 20_000;
@@ -64,16 +65,171 @@ export class WorkspaceFlowService {
     private readonly access: ProjectAccessService,
     private readonly queue: QueueService,
     private readonly intentRouter: IntentRouterService,
+    private readonly phaseCompletion: PhaseCompletionService,
   ) {}
 
   async getOrCreate(projectId: string, userId: string) {
     await this.access.require(projectId, userId, ["founder", "team"]);
-    const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);
-    return this.serialize(conversation);
+    const kind = await this.resolveSessionKind(projectId);
+    const existing = await this.loadConversation(projectId, kind);
+    let kickoffJobId: string | null = null;
+
+    const conversation = existing ?? await (async () => {
+      const created = await this.createConversation(projectId, kind);
+      // A brand-new phase conversation (e.g. just advanced Discover -> Refine,
+      // or the project's very first Discover conversation) has zero messages
+      // and no active skill — nothing prompts the founder to do anything
+      // next. Force-pin the phase's entry-point facilitator here rather than
+      // leaving the founder's first message to the Intent Router: that's an
+      // LLM call that can silently fail (rate limit, provider error, no
+      // fallback client configured) and drop straight into general chat with
+      // zero visible error — confirmed live for Discover, which had no
+      // kickoff at all and relied on Intent Router classifying the very
+      // first message.
+      const kickoffSkillId = await this.resolveKickoffSkillId(kind);
+      if (kickoffSkillId) {
+        kickoffJobId = await this.triggerPhaseKickoff(projectId, userId, created.id, kickoffSkillId);
+      }
+      return created;
+    })();
+
+    const phaseComplete = await this.phaseCompletion.isComplete(projectId, kind);
+    return { ...this.serialize(conversation), phaseComplete, kickoffJobId };
+  }
+
+  private async triggerPhaseKickoff(projectId: string, userId: string, conversationId: string, skillId: string): Promise<string> {
+    const version = await this.prisma.client.skillVersion.findFirstOrThrow({
+      where: { skillId, active: true },
+      orderBy: { version: "desc" },
+    });
+    await this.prisma.client.conversation.update({
+      where: { id: conversationId },
+      data: {
+        activeSkillId: skillId,
+        activeSkillVersionId: version.id,
+        activeSkillPinnedAt: new Date(),
+      },
+    });
+    // No user ConversationMessage is created for this — conversation.ts only
+    // looks one up (findFirst matching this content) for its own completed
+    // SSE event, it never creates one itself. So this synthetic content is
+    // just an internal instruction for the model, and the founder only ever
+    // sees the skill's resulting greeting/question.
+    const job = await this.enqueueConversationTurn({
+      conversationId,
+      projectId,
+      userId,
+      skillId,
+      skillVersionId: version.id,
+      content: "The founder has just moved into this phase. Greet them briefly and ask your first question to get started.",
+    });
+    return job.id;
+  }
+
+  // Determines which skill starts a brand-new phase conversation, purely
+  // from existing SkillEventMapping config — no separate flag/column. A
+  // phase's entry-point skill is the one no active mapping targets FROM
+  // WITHIN the same phase (Refine's entry is targeted only by Discover's
+  // last skill completing; Discover's entry is targeted by nothing at all,
+  // since nothing precedes the first phase). This mirrors conversation.ts's
+  // rule that a cross-phase mapping is data used for lookup only — it is
+  // never auto-executed there, since phase advancement stays a manual,
+  // founder-gated "Continue" click (HARDIK doc Q10).
+  private async resolveKickoffSkillId(kind: "discover" | "refine"): Promise<string | null> {
+    const phaseSkills = await this.prisma.client.skill.findMany({
+      where: { phase: kind as any },
+      select: { id: true },
+    });
+    if (phaseSkills.length === 0) return null;
+
+    const mappings = await this.prisma.client.skillEventMapping.findMany({
+      where: { active: true, skill: { phase: kind as any } },
+      select: { eventType: true, skillId: true },
+    });
+
+    const sourceSkillIds = mappings
+      .map((m: any) => m.eventType.match(/^skill\.(.+)\.completed$/)?.[1])
+      .filter((id: any): id is string => Boolean(id));
+    const sourceSkills = sourceSkillIds.length > 0
+      ? await this.prisma.client.skill.findMany({
+          where: { id: { in: sourceSkillIds } },
+          select: { id: true, phase: true },
+        })
+      : [];
+    const sourcePhaseById = new Map(sourceSkills.map((s: any) => [s.id, s.phase]));
+
+    const disqualified = new Set<string>();
+    for (const m of mappings) {
+      const srcId = (m as any).eventType.match(/^skill\.(.+)\.completed$/)?.[1];
+      const srcPhase = srcId ? sourcePhaseById.get(srcId) : undefined;
+      // A mapping with no resolvable source skill (an entity event like
+      // "epic.create") is treated as same-phase — every entity event in
+      // this app is produced by a skill in the same phase as its target.
+      if (!srcId || srcPhase === kind) disqualified.add((m as any).skillId);
+    }
+
+    return phaseSkills.find((s: any) => !disqualified.has(s.id))?.id ?? null;
+  }
+
+  // HARDIK doc Q12 — Refine Summary Assembler. Server-side, no LLM call:
+  // queries current entity state and computes linkage/pass-criteria
+  // deterministically. Live entity summary panel reads this directly.
+  async getRefineSummary(projectId: string, userId: string) {
+    await this.access.require(projectId, userId, ["founder", "team"]);
+
+    const goals = await this.prisma.client.goal.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "asc" },
+      include: { epics: { include: { stories: true } } },
+    });
+    const personas = await this.prisma.client.persona.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "asc" },
+      include: { painPoints: true },
+    });
+
+    let epicCount = 0;
+    let storyCount = 0;
+    let completeThreads = 0;
+    const goalSummaries = goals.map((goal: any) => {
+      epicCount += goal.epics.length;
+      const epicSummaries = goal.epics.map((epic: any) => {
+        storyCount += epic.stories.length;
+        if (epic.stories.length > 0) completeThreads += 1;
+        return {
+          id: epic.id,
+          title: epic.title,
+          storyCount: epic.stories.length,
+          stories: epic.stories.map((story: any) => ({
+            id: story.id,
+            title: story.title,
+            hasAcceptance: Array.isArray(story.acceptance) && story.acceptance.length > 0,
+          })),
+        };
+      });
+      return { id: goal.id, title: goal.title, epics: epicSummaries };
+    });
+
+    const personaSummaries = personas.map((persona: any) => ({
+      id: persona.id,
+      name: persona.name,
+      painPointCount: persona.painPoints.length,
+    }));
+
+    return {
+      goalCount: goals.length,
+      epicCount,
+      storyCount,
+      personaCount: personas.length,
+      completeThreads,
+      passCriteriaMet: completeThreads >= 1,
+      goals: goalSummaries,
+      personas: personaSummaries,
+    };
   }
 
   async message(projectId: string, userId: string, rawContent: string, file?: Express.Multer.File) {
-    await this.access.require(projectId, userId, ["founder", "team"]);
+    await this.access.require(projectId, userId, ["founder", "team"], true);
     const content = rawContent.trim();
     if (!content) throw new BadRequestException("Message content is required.");
 
@@ -105,7 +261,8 @@ export class WorkspaceFlowService {
       }
     }
 
-    const conversation = await this.loadConversation(projectId) ?? await this.createConversation(projectId);
+    const kind = await this.resolveSessionKind(projectId);
+    const conversation = await this.loadConversation(projectId, kind) ?? await this.createConversation(projectId, kind);
     this.logger.debug(
       `Incoming workspace message project=${projectId} conversation=${conversation.id} user=${userId} activeSkill=${conversation.activeSkill?.id ?? "none"} contentPreview=${content.slice(0, 120)}`,
     );
@@ -194,7 +351,7 @@ export class WorkspaceFlowService {
     userId: string,
     body: { outputs?: Record<string, unknown>; note?: string },
   ) {
-    await this.access.require(projectId, userId, ["founder"]);
+    await this.access.require(projectId, userId, ["founder"], true);
     const note = body.note?.trim();
     if (!note) {
       throw new BadRequestException("Workspace actions now use message routing. Send a message instead.");
@@ -229,36 +386,80 @@ export class WorkspaceFlowService {
     });
   }
 
-  private async loadConversation(projectId: string) {
+  // One resumable active session per DRIVE phase per project (Discover/Refine).
+  // Conversation.kind mirrors the project's current phase — Discover and
+  // Refine each get their own session, satisfying "one active session per
+  // phase per project, resumed on return" without a separate table.
+  private async resolveSessionKind(projectId: string): Promise<"discover" | "refine"> {
+    const project = await this.prisma.client.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { phase: true },
+    });
+    if (project.phase !== "discover" && project.phase !== "refine") {
+      throw new BadRequestException(
+        `The AI product guide is only available during Discover and Refine. Current phase: ${project.phase}.`,
+      );
+    }
+    return project.phase;
+  }
+
+  private async loadConversation(projectId: string, kind: "discover" | "refine") {
     const conversation = await this.prisma.client.conversation.findFirst({
-      where: { projectId, kind: "workspace", status: "active" },
+      where: { projectId, kind, status: "active" },
       orderBy: { updatedAt: "desc" },
       include: {
         activeSkill: true,
         activeSkillVersion: true,
-        messages: { orderBy: { createdAt: "asc" } },
       },
     });
-    return conversation ? this.normalizeConversation(conversation) : null;
+    if (!conversation) return null;
+
+    const allMessages = await this.prisma.client.conversationMessage.findMany({
+      where: {
+        conversation: {
+          projectId,
+          kind: { in: ["discover", "refine", "evolve", "workspace"] },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return this.normalizeConversation(conversation, allMessages);
   }
 
-  private async createConversation(projectId: string) {
+  private async createConversation(projectId: string, kind: "discover" | "refine") {
+    const policy = await this.prisma.client.retentionPolicy.findUnique({
+      where: { id: "active-conversations" },
+    });
+    const retentionDays = policy?.enabled && policy.retentionDays !== null ? policy.retentionDays : 90;
+    const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+
     const conversation = await this.prisma.client.conversation.create({
       data: {
         projectId,
-        kind: "workspace",
-        retentionUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        kind,
+        retentionUntil,
       },
       include: {
         activeSkill: true,
         activeSkillVersion: true,
-        messages: { orderBy: { createdAt: "asc" } },
       },
     });
-    return this.normalizeConversation(conversation);
+
+    const allMessages = await this.prisma.client.conversationMessage.findMany({
+      where: {
+        conversation: {
+          projectId,
+          kind: { in: ["discover", "refine", "evolve", "workspace"] },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return this.normalizeConversation(conversation, allMessages);
   }
 
-  private normalizeConversation(conversation: any): WorkspaceConversation {
+  private normalizeConversation(conversation: any, allMessages: any[]): WorkspaceConversation {
     return {
       id: conversation.id,
       status: conversation.status,
@@ -271,11 +472,11 @@ export class WorkspaceFlowService {
             versionId: conversation.activeSkillVersionId ?? conversation.activeSkillVersion?.id ?? "",
           }
         : null,
-      messages: (conversation.messages ?? []).map((message: any) => ({
+      messages: allMessages.map((message: any) => ({
         id: message.id,
         role: message.role,
         content: message.content,
-        createdAt: message.createdAt,
+        createdAt: message.createdAt.toISOString(),
       })),
     };
   }

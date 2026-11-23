@@ -2,21 +2,6 @@ import { Prisma } from "@remorra/database/generated/client";
 import { prisma } from "../lib/prisma";
 import { generateEmbedding } from "../services/embedding";
 
-export async function projectContext(projectId: string) {
-  return prisma.project.findUniqueOrThrow({
-    where: { id: projectId },
-    include: {
-      ambitions: { include: { okrs: true } },
-      personas: { include: { painPoints: true, userNeeds: true } },
-      userStories: true,
-      tasks: true,
-      cycles: true,
-      raidItems: true,
-      financeEntries: true,
-    },
-  });
-}
-
 const KB_THRESHOLDS = {
   veryShort: 0.50, // 1-6 words
   short: 0.55,     // 7-15 words
@@ -99,6 +84,39 @@ export async function injectKnowledgeBases(
   }
 }
 
+function toSnakeCase(str: string): string {
+  return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`).replace(/^_/, "");
+}
+
+function toYaml(obj: any): string {
+  if (Array.isArray(obj)) {
+    return obj.map(item => toYaml(item).split("\n").map(line => `  ${line}`).join("\n")).join("\n---\n");
+  }
+  if (obj && typeof obj === "object") {
+    return Object.entries(obj)
+      .map(([k, v]) => {
+        if (typeof v === "object" && v !== null) {
+          return `${k}:\n${toYaml(v).split("\n").map(line => `  ${line}`).join("\n")}`;
+        }
+        return `${k}: ${v ?? "null"}`;
+      })
+      .join("\n");
+  }
+  return String(obj);
+}
+
+function filterColumns(rec: any, columns: string[], forceColumns: string[] = []) {
+  if (!columns || columns.length === 0) return rec;
+  const filtered: Record<string, any> = {};
+  const allowed = new Set([...columns, ...forceColumns]);
+  for (const key of Object.keys(rec)) {
+    if (allowed.has(key)) {
+      filtered[key] = rec[key];
+    }
+  }
+  return filtered;
+}
+
 export async function assembleContext(
   projectId: string,
   inputSourceMap: {
@@ -107,28 +125,21 @@ export async function assembleContext(
   },
   previousSkillId?: string,
   currentSkillId?: string,
+  userId?: string,
 ) {
   const sections: { tag: string; trust: "trusted" | "application" | "user"; content: string }[] = [];
 
-  // 1. Fetch other skills' conversations if configured
-  if (inputSourceMap.skills && inputSourceMap.skills.length > 0) {
-    const resolvedSkills: string[] = [];
+  // 1. Fetch other skills' conversations
+  const resolvedSkills = new Set<string>();
+  if (previousSkillId) resolvedSkills.add(previousSkillId);
+  for (const skillId of inputSourceMap.skills ?? []) {
+    if (skillId !== "@previous") resolvedSkills.add(skillId);
+  }
 
-    if (previousSkillId) {
-      resolvedSkills.push(previousSkillId);
-    } else {
-      for (const skillId of inputSourceMap.skills) {
-        if (skillId !== "@previous") {
-          resolvedSkills.push(skillId);
-        }
-      }
-    }
-
+  if (resolvedSkills.size > 0) {
     for (const skillId of resolvedSkills) {
-      // Skip current skill — conversation_history in skills.ts already covers it
       if (skillId === currentSkillId) continue;
 
-      // Find most recent conversation for this skill in this project
       const lastMsg = await prisma.conversationMessage.findFirst({
         where: { conversation: { projectId }, skillId },
         orderBy: { createdAt: "desc" },
@@ -137,29 +148,29 @@ export async function assembleContext(
 
       if (!lastMsg) continue;
 
-      // Prefer structured JSON output (entity-extractor style skills)
       const extract = await prisma.structuredExtract.findFirst({
         where: { conversationId: lastMsg.conversationId },
         orderBy: { createdAt: "desc" },
       });
 
+      const tag = `skill_output_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
       if (extract?.payload) {
         sections.push({
-          tag: `skill_output_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`,
+          tag,
           trust: "trusted",
-          content: `Output from skill ${skillId}:\n\n${JSON.stringify(extract.payload, null, 2)}`,
+          content: `<${tag}>\n${JSON.stringify(extract.payload, null, 2)}\n</${tag}>`,
         });
       } else {
-        // Fallback: last assistant message only (conversational skills)
         const lastAssistant = await prisma.conversationMessage.findFirst({
           where: { conversationId: lastMsg.conversationId, skillId, role: "assistant" },
           orderBy: { createdAt: "desc" },
         });
         if (lastAssistant?.content?.trim()) {
           sections.push({
-            tag: `skill_output_${skillId.replace(/[^a-zA-Z0-9]/g, "_")}`,
+            tag,
             trust: "trusted",
-            content: `Output from skill ${skillId}:\n\n${lastAssistant.content}`,
+            content: `<${tag}>\n${lastAssistant.content}\n</${tag}>`,
           });
         }
       }
@@ -168,57 +179,244 @@ export async function assembleContext(
 
   // 2. Fetch and filter project tables dynamically
   if (inputSourceMap.tables && Object.keys(inputSourceMap.tables).length > 0) {
-    const filteredData: Record<string, any> = {};
-
     for (const [tableName, columns] of Object.entries(inputSourceMap.tables)) {
       if (tableName === "Project") {
         const rawProject = await prisma.project.findUniqueOrThrow({
           where: { id: projectId },
         });
+
+        if (columns.includes("context")) {
+          sections.push({
+            tag: "project_context",
+            trust: "application",
+            content: `<project_context>\n${
+              rawProject.context
+                ? typeof rawProject.context === "string"
+                  ? rawProject.context
+                  : JSON.stringify(rawProject.context, null, 2)
+                : ""
+            }\n</project_context>`,
+          });
+        }
+
+        const metadataCols = columns.length > 0 ? columns.filter(c => c !== "context") : ["name", "summary", "phase", "version"];
         const projData: Record<string, any> = {};
-        const selectedCols = Array.isArray(columns) && columns.length > 0
-          ? columns
-          : ["id", "name", "summary", "phase", "version"];
-        for (const col of selectedCols) {
+        for (const col of metadataCols) {
           if (col in rawProject) {
             projData[col] = (rawProject as any)[col];
           }
         }
-        filteredData["Project"] = projData;
-      } else {
-        const delegateName = tableName.charAt(0).toLowerCase() + tableName.slice(1);
-        if (delegateName in prisma) {
-          const records = await (prisma as any)[delegateName].findMany({
-            where: { projectId },
+
+        if (Object.keys(projData).length > 0) {
+          sections.push({
+            tag: "project_metadata",
+            trust: "application",
+            content: `<project_metadata>\n${toYaml(projData)}\n</project_metadata>`,
           });
-
+        }
+      } else if (tableName === "Goal") {
+        const records = await prisma.goal.findMany({ where: { projectId } });
+        const formatted = records.map((rec: any) => filterColumns(rec, columns)).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "goals_all",
+          trust: "application",
+          content: `<goals_all>\n${formatted}\n</goals_all>`,
+        });
+      } else if (tableName === "Epic") {
+        const records = await prisma.epic.findMany({ where: { projectId } });
+        // No forced "goalId" — unlike Story/PainPoint, no current skill needs it,
+        // and force-including it alongside "id" caused a real bug: a skill asking
+        // for Epic "id" (to link a Story to it) saw two UUID-looking fields per
+        // Epic and grabbed the wrong one (goalId instead of id). Only include a
+        // field here if a skill's own inputSourceMap explicitly asks for it.
+        const formatted = records.map((rec: any) => filterColumns(rec, columns)).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "epics_all",
+          trust: "application",
+          content: `<epics_all>\n${formatted}\n</epics_all>`,
+        });
+      } else if (tableName === "Story") {
+        const records = await prisma.story.findMany({
+          where: { projectId },
+          include: { personas: { include: { persona: { select: { name: true } } } } },
+        });
+        const formatted = records.map((rec: any) => {
+          const base = filterColumns(rec, columns, ["epicId", "buildPhaseId"]);
+          const linkedPersonas = rec.personas.map((p: any) => p.persona.name).join(", ");
+          return {
+            ...base,
+            linkedPersonas: linkedPersonas || "None",
+          };
+        }).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "stories_all",
+          trust: "application",
+          content: `<stories_all>\n${formatted}\n</stories_all>`,
+        });
+      } else if (tableName === "Persona") {
+        const records = await prisma.persona.findMany({
+          where: { projectId },
+          include: { painPoints: true },
+        });
+        const formatted = records.map((rec: any) => {
+          const base = filterColumns(rec, columns);
+          const painPointsList = rec.painPoints.map((pt: any) => `- ${pt.statement}`).join("\n");
+          return {
+            ...base,
+            painPoints: painPointsList || "None",
+          };
+        }).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "personas_all_with_pain_points",
+          trust: "application",
+          content: `<personas_all_with_pain_points>\n${formatted}\n</personas_all_with_pain_points>`,
+        });
+      } else if (tableName === "PainPoint") {
+        const records = await prisma.painPoint.findMany({ where: { projectId } });
+        const formatted = records.map((rec: any) => filterColumns(rec, columns, ["personaId"])).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "pain_point_all",
+          trust: "application",
+          content: `<pain_point_all>\n${formatted}\n</pain_point_all>`,
+        });
+      } else if (tableName === "RaidItem") {
+        const records = await prisma.raidItem.findMany({ where: { projectId } });
+        const formatted = records.map((rec: any) => filterColumns(rec, columns)).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "raid_all",
+          trust: "application",
+          content: `<raid_all>\n${formatted}\n</raid_all>`,
+        });
+      } else if (tableName === "ProjectMembership") {
+        // project.team — members with names and roles
+        const members = await prisma.projectMembership.findMany({
+          where: { projectId },
+          include: { user: { select: { id: true, preferredName: true, email: true } } },
+        });
+        const formatted = members.map((m: any) => ({
+          userId: m.userId,
+          name: m.user.preferredName ?? m.user.email,
+          role: m.role,
+        })).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "project_team",
+          trust: "application",
+          content: `<project_team>\n${formatted}\n</project_team>`,
+        });
+      } else if (tableName === "HealthScore") {
+        // health_score.current — latest health score with components
+        const latest = await prisma.healthScore.findFirst({
+          where: { projectId },
+          orderBy: { calculatedAt: "desc" },
+          include: { components: true },
+        });
+        if (latest) {
+          const data = {
+            overallScore: latest.overallScore,
+            readinessAssessment: latest.readinessAssessment,
+            calculatedAt: latest.calculatedAt,
+            components: latest.components.map((c: any) => ({
+              component: c.component,
+              weight: c.weight,
+              score: c.score,
+              rationale: c.rationale,
+            })),
+          };
+          sections.push({
+            tag: "health_score_current",
+            trust: "application",
+            content: `<health_score_current>\n${toYaml(data)}\n</health_score_current>`,
+          });
+        }
+      } else if (tableName === "AuditEvent") {
+        // audit.recent — last 20 audit events with source attribution
+        const events = await prisma.auditEvent.findMany({
+          where: { projectId },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: {
+            eventType: true,
+            entityType: true,
+            entityId: true,
+            source: true,
+            createdAt: true,
+            metadata: true,
+          },
+        });
+        const formatted = events.map((e: any) => ({
+          eventType: e.eventType,
+          entityType: e.entityType ?? null,
+          entityId: e.entityId ?? null,
+          source: e.source ?? null,
+          createdAt: e.createdAt,
+          metadata: e.metadata,
+        })).map(toYaml).join("\n---\n");
+        sections.push({
+          tag: "audit_recent",
+          trust: "application",
+          content: `<audit_recent>\n${formatted}\n</audit_recent>`,
+        });
+      } else if (tableName === "BuildPhase") {
+        // build_phase.current — active build phase with stories and statuses
+        const phase = await prisma.buildPhase.findFirst({
+          where: { projectId, status: "active" },
+          include: {
+            stories: {
+              select: { id: true, title: true, status: true, priority: true },
+            },
+          },
+        });
+        if (phase) {
+          const data = {
+            id: phase.id,
+            name: phase.name,
+            description: phase.description ?? null,
+            status: phase.status,
+            stories: (phase as any).stories.map((s: any) => ({
+              id: s.id,
+              title: s.title,
+              status: s.status,
+              priority: s.priority,
+            })),
+          };
+          sections.push({
+            tag: "build_phase_current",
+            trust: "application",
+            content: `<build_phase_current>\n${toYaml(data)}\n</build_phase_current>`,
+          });
+        }
+      } else if (tableName === "UserPreferredName") {
+        // user.preferred_name — calling user's name for personalised responses
+        if (userId) {
+          const profile = await prisma.profile.findUnique({
+            where: { id: userId },
+            select: { preferredName: true, email: true },
+          });
+          if (profile) {
+            sections.push({
+              tag: "user_preferred_name",
+              trust: "application",
+              content: `<user_preferred_name>${profile.preferredName ?? profile.email}</user_preferred_name>`,
+            });
+          }
+        }
+      } else {
+        // Generic fallback for any other database tables
+        const delegateName = tableName.charAt(0).toLowerCase() + tableName.slice(1);
+        const delegate = (prisma as any)[delegateName];
+        if (delegate?.findMany) {
+          const records = await delegate.findMany({ where: { projectId } });
           if (Array.isArray(records)) {
-            filteredData[tableName] = records.map((rec: any) => {
-              const hasNoSelectedColumns = !Array.isArray(columns) || columns.length === 0;
-              if (hasNoSelectedColumns) {
-                // Return full record: "yes if admin select only table then pass all columns"
-                return rec;
-              }
-
-              const filteredRec: Record<string, any> = {};
-              for (const col of columns) {
-                if (col in rec) {
-                  filteredRec[col] = rec[col];
-                }
-              }
-              return filteredRec;
+            const formatted = records.map((rec: any) => filterColumns(rec, columns)).map(toYaml).join("\n---\n");
+            const tag = `${toSnakeCase(tableName)}_all`;
+            sections.push({
+              tag,
+              trust: "application",
+              content: `<${tag}>\n${formatted}\n</${tag}>`,
             });
           }
         }
       }
-    }
-
-    if (Object.keys(filteredData).length > 0) {
-      sections.push({
-        tag: "application_context",
-        trust: "application",
-        content: JSON.stringify(filteredData, null, 2),
-      });
     }
   }
 

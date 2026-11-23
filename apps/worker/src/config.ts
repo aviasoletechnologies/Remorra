@@ -29,12 +29,17 @@ export const config = {
       return [
         "ai.conversation",
         "ai.report",
-        "ai.summary",
         "document.render",
         "gdpr.export",
         "gdpr.delete",
         "retention.cleanup",
         "storage.expire",
+        "build-pack.generate",
+        "build-sync.ingest",
+        "build-sync.export",
+        "health-score.calculate",
+        "evolve.message",
+        "context.review",
       ];
     }
     return val.split(",").map((q) => q.trim());

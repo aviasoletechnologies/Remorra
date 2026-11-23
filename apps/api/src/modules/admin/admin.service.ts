@@ -3,7 +3,18 @@ import Ajv from "ajv";
 import type { Actor } from "../../shared/request-context.js";
 import { PrismaService } from "../../infrastructure/prisma.service.js";
 import { QueueService, QUEUES } from "../../infrastructure/queue.service.js";
-import { skillVersionInputSchema } from "@remorra/contracts";
+import { skillVersionInputSchema, drivePhaseSchema, modelTierSchema, tableConfigToJsonSchema, jsonSchemaToTableConfig, type DrivePhase } from "@remorra/contracts";
+
+// Skill Output Schema config UI sends the raw per-entity column/action map
+// for type "table" — convert it to the JSON schema shape before storing so
+// the stored outputSchema is always what generation/validation actually
+// consumes. Idempotent: a value that's already schema-shaped (has
+// properties.operations) passes through untouched.
+function normalizeOutputSchemaForStorage(outputSchema: any): any {
+  if (!outputSchema || outputSchema.type !== "table" || !outputSchema.value) return outputSchema;
+  if (outputSchema.value?.properties?.operations) return outputSchema;
+  return { type: "table", value: tableConfigToJsonSchema(outputSchema.value) };
+}
 
 async function generateKbEmbedding(text: string): Promise<number[]> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -143,7 +154,7 @@ export class AdminService {
 
   async createSkill(
     actor: Actor,
-    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean },
+    body: { id: string; name: string; description: string; systemPrompt: string; inputSourceMap?: any; outputSchema?: any; kbEligible?: boolean; phase?: string; modelTier?: string },
   ) {
     this.requireAdmin(actor);
     this.requireWriteAdmin(actor);
@@ -151,10 +162,13 @@ export class AdminService {
     const id = body.id?.trim();
     const name = body.name?.trim();
     const description = body.description?.trim();
-    const { systemPrompt, inputSourceMap, outputSchema, kbEligible } = body;
+    const { systemPrompt, inputSourceMap, outputSchema, kbEligible, phase, modelTier } = body;
     if (!id || !name || !description || !systemPrompt) {
       throw new BadRequestException("Missing required fields for skill creation.");
     }
+
+    const validatedPhase = phase ? drivePhaseSchema.parse(phase) : "discover";
+    const validatedModelTier = modelTier ? modelTierSchema.parse(modelTier) : "standard";
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Check if skill already exists
@@ -170,6 +184,7 @@ export class AdminService {
           name,
           description,
           kbEligible: kbEligible ?? false,
+          phase: validatedPhase,
         },
       });
 
@@ -180,8 +195,9 @@ export class AdminService {
           version: 1,
           active: true,
           systemPrompt,
+          modelTier: validatedModelTier,
           inputSourceMap: inputSourceMap ?? {},
-          outputSchema: outputSchema ?? null,
+          outputSchema: normalizeOutputSchemaForStorage(outputSchema) ?? null,
           constraints: [],
           examples: [],
           retryPolicy: {},
@@ -225,6 +241,9 @@ export class AdminService {
     if (typeof body.name === "string") data.name = body.name.trim();
     if (typeof body.description === "string") data.description = body.description.trim();
     if (typeof body.kbEligible === "boolean") data.kbEligible = body.kbEligible;
+    if (typeof body.phase === "string") {
+      data.phase = drivePhaseSchema.parse(body.phase);
+    }
 
     const skill = await this.prisma.client.skill.update({
       where: { id },
@@ -272,13 +291,14 @@ export class AdminService {
       throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(parseResult.error.issues)}`);
     }
     const parsed = parseResult.data;
-    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined || parsed.phase !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
           ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
+          ...(parsed.phase !== undefined ? { phase: parsed.phase } : {}),
         },
       });
     }
@@ -294,8 +314,9 @@ export class AdminService {
           version: current.version + 1,
           active: false,
           systemPrompt: String(parsed.systemPrompt ?? current.systemPrompt),
+          modelTier: parsed.modelTier ?? current.modelTier,
           inputSourceMap: parsed.inputSourceMap !== undefined ? parsed.inputSourceMap : current.inputSourceMap,
-          outputSchema: parsed.outputSchema !== undefined ? parsed.outputSchema : current.outputSchema,
+          outputSchema: parsed.outputSchema !== undefined ? normalizeOutputSchemaForStorage(parsed.outputSchema) : current.outputSchema,
           constraints: parsed.constraints ?? current.constraints,
           examples: parsed.examples ?? current.examples,
           retryPolicy: parsed.retryPolicy ?? current.retryPolicy,
@@ -328,13 +349,14 @@ export class AdminService {
       throw new BadRequestException(`Invalid skill version input: ${JSON.stringify(result.error.issues)}`);
     }
     const parsed = result.data;
-    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined) {
+    if (parsed.name !== undefined || parsed.description !== undefined || parsed.kbEligible !== undefined || parsed.phase !== undefined) {
       await this.prisma.client.skill.update({
         where: { id: skillId },
         data: {
           ...(parsed.name !== undefined ? { name: String(parsed.name).trim() } : {}),
           ...(parsed.description !== undefined ? { description: String(parsed.description).trim() } : {}),
           ...(parsed.kbEligible !== undefined ? { kbEligible: parsed.kbEligible } : {}),
+          ...(parsed.phase !== undefined ? { phase: parsed.phase } : {}),
         },
       });
     }
@@ -349,8 +371,9 @@ export class AdminService {
       where: { id: versionId },
       data: {
         ...(parsed.systemPrompt !== undefined ? { systemPrompt: String(parsed.systemPrompt) } : {}),
+        ...(parsed.modelTier !== undefined ? { modelTier: parsed.modelTier } : {}),
         ...(parsed.inputSourceMap !== undefined ? { inputSourceMap: parsed.inputSourceMap } : {}),
-        ...(parsed.outputSchema !== undefined ? { outputSchema: parsed.outputSchema } : {}),
+        ...(parsed.outputSchema !== undefined ? { outputSchema: normalizeOutputSchemaForStorage(parsed.outputSchema) } : {}),
         ...(parsed.constraints !== undefined ? { constraints: parsed.constraints } : {}),
         ...(parsed.examples !== undefined ? { examples: parsed.examples } : {}),
         ...(parsed.retryPolicy !== undefined ? { retryPolicy: parsed.retryPolicy } : {}),
@@ -872,6 +895,109 @@ export class AdminService {
     });
   }
 
+  // --- Health Score weight configuration (RemoraDocument §20) ---
+
+  async getHealthScoreWeights(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.healthScoreWeightConfig.findMany({
+      orderBy: [{ weight: "desc" }, { component: "asc" }],
+    });
+  }
+
+  async updateHealthScoreWeight(actor: Actor, component: string, body: { weight: number }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    if (!Number.isInteger(body.weight) || body.weight < 0 || body.weight > 100) {
+      throw new BadRequestException("weight must be an integer between 0 and 100.");
+    }
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const config = await tx.healthScoreWeightConfig.findUniqueOrThrow({ where: { component } });
+      const updated = await tx.healthScoreWeightConfig.update({
+        where: { component },
+        data: { weight: body.weight, updatedBy: actor.userId },
+      });
+      await tx.platformAuditEvent.create({
+        data: {
+          actorId: actor.userId,
+          eventType: "health_score_weight.updated",
+          targetType: "health_score_weight_config",
+          targetId: updated.id,
+          metadata: { component, from: config.weight, to: body.weight },
+        },
+      });
+      return updated;
+    });
+  }
+
+  // --- Phase 6: Project Context Automation configuration ---
+
+  async getContextAutoCaptureRules(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.contextAutoCaptureRule.findMany({ orderBy: { createdAt: "desc" } });
+  }
+
+  async createContextAutoCaptureRule(
+    actor: Actor,
+    body: { pattern: string; entityTypes: string[]; contextText: string; minOccurrences?: number },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    if (!body.pattern?.trim() || !body.contextText?.trim() || !Array.isArray(body.entityTypes) || body.entityTypes.length === 0) {
+      throw new BadRequestException("pattern, contextText, and at least one entityType are required.");
+    }
+    return this.prisma.client.contextAutoCaptureRule.create({
+      data: {
+        pattern: body.pattern.trim(),
+        entityTypes: body.entityTypes,
+        contextText: body.contextText.trim(),
+        minOccurrences: body.minOccurrences && body.minOccurrences > 0 ? body.minOccurrences : 2,
+      },
+    });
+  }
+
+  async updateContextAutoCaptureRule(
+    actor: Actor,
+    id: string,
+    body: { pattern?: string; entityTypes?: string[]; contextText?: string; minOccurrences?: number; active?: boolean },
+  ) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.contextAutoCaptureRule.update({
+      where: { id },
+      data: {
+        ...(body.pattern !== undefined ? { pattern: body.pattern.trim() } : {}),
+        ...(body.entityTypes !== undefined ? { entityTypes: body.entityTypes } : {}),
+        ...(body.contextText !== undefined ? { contextText: body.contextText.trim() } : {}),
+        ...(body.minOccurrences !== undefined ? { minOccurrences: body.minOccurrences } : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
+  }
+
+  async deleteContextAutoCaptureRule(actor: Actor, id: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    await this.prisma.client.contextAutoCaptureRule.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
+  async getContextReviewConfig(actor: Actor) {
+    this.requireAdmin(actor);
+    return this.prisma.client.contextReviewConfig.findFirst({ orderBy: { updatedAt: "desc" } });
+  }
+
+  async updateContextReviewConfig(actor: Actor, id: string, body: { cronExpression?: string; active?: boolean }) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    return this.prisma.client.contextReviewConfig.update({
+      where: { id },
+      data: {
+        ...(body.cronExpression !== undefined ? { cronExpression: body.cronExpression.trim() } : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
+  }
+
   // --- Phase 2: Metrics Endpoints ---
 
   async getOverviewMetrics(actor: Actor, from?: Date, to?: Date) {
@@ -898,6 +1024,94 @@ export class AdminService {
         _sum: { sizeBytes: true },
       }),
     ]);
+
+    const activeUsersGroup = await this.prisma.client.tokenUsage.groupBy({
+      by: ["userId"],
+      where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined,
+    });
+    const activeUsersCount = activeUsersGroup.length;
+
+    const tiers = await this.prisma.client.profile.groupBy({
+      by: ["tier"],
+      _count: true,
+    });
+    const tierBreakdown = Object.fromEntries(tiers.map((t: any) => [t.tier, t._count]));
+
+    const allProfiles = await this.prisma.client.profile.findMany({
+      include: {
+        ownedProjects: {
+          select: { phase: true, conversations: { take: 1, select: { id: true } } },
+        },
+      },
+    });
+
+    let signedUpCount = 0;
+    let inceptionCount = 0;
+    let deliveryCount = 0;
+
+    for (const profile of allProfiles) {
+      if (profile.ownedProjects.length === 0) {
+        signedUpCount++;
+      } else {
+        const hasReachedDelivery = profile.ownedProjects.some((p: any) => p.phase === "venture" || p.phase === "evolve");
+        const hasStartedDRI = profile.ownedProjects.some((p: any) => p.conversations.length > 0);
+        if (hasReachedDelivery) {
+          deliveryCount++;
+        } else if (hasStartedDRI) {
+          inceptionCount++;
+        } else {
+          signedUpCount++;
+        }
+      }
+    }
+
+    const statusBreakdown = {
+      signedUp: signedUpCount,
+      inception: inceptionCount,
+      delivery: deliveryCount,
+    };
+
+    const tokenExtremes = await this.prisma.client.tokenUsage.groupBy({
+      by: ["userId"],
+      where: dateRange.createdAt ? { createdAt: dateRange.createdAt } : undefined,
+      _sum: { costMinor: true },
+      orderBy: { _sum: { costMinor: "desc" } },
+    });
+
+    let highestUser: any = null;
+    let lowestUser: any = null;
+
+    if (tokenExtremes.length > 0) {
+      const highestId = tokenExtremes[0]!.userId;
+      const lowestId = tokenExtremes[tokenExtremes.length - 1]!.userId;
+
+      const [highestProfile, lowestProfile] = await Promise.all([
+        this.prisma.client.profile.findUnique({ where: { id: highestId }, select: { email: true, preferredName: true } }),
+        this.prisma.client.profile.findUnique({ where: { id: lowestId }, select: { email: true, preferredName: true } }),
+      ]);
+
+      highestUser = {
+        userId: highestId,
+        email: highestProfile?.email ?? "unknown",
+        name: highestProfile?.preferredName ?? "unknown",
+        costMinor: tokenExtremes[0]!._sum.costMinor ?? 0,
+      };
+
+      lowestUser = {
+        userId: lowestId,
+        email: lowestProfile?.email ?? "unknown",
+        name: lowestProfile?.preferredName ?? "unknown",
+        costMinor: tokenExtremes[tokenExtremes.length - 1]!._sum.costMinor ?? 0,
+      };
+    }
+
+    const tokenUsageExtremes = { highest: highestUser, lowest: lowestUser };
+
+    const cancellations = await this.prisma.client.cancellation.findMany({
+      where: dateRange.createdAt ? { cancelledAt: dateRange.createdAt } : undefined,
+      include: { user: { select: { email: true, preferredName: true } } },
+      orderBy: { cancelledAt: "desc" },
+    });
 
     const pdfConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "pdf-render" } });
     const storageConfig = await this.prisma.client.costConfig.findFirst({ where: { key: "storage-per-mb" } });
@@ -926,6 +1140,11 @@ export class AdminService {
       configuredRevenue,
       margin,
       riskProjectsCount,
+      activeUsersCount,
+      tierBreakdown,
+      statusBreakdown,
+      tokenUsageExtremes,
+      cancellations,
     };
   }
 
@@ -1067,6 +1286,7 @@ export class AdminService {
         raidItems: { where: { severity: "critical", status: { not: "done" } } },
       },
     });
+    const healthScores = await this.latestHealthScoresFor(projects.map((p: any) => p.id));
 
     return projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
@@ -1080,11 +1300,25 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: null,
+        latestHealthScore: healthScores.get(p.id) ?? null,
         isSupportRisk: isRisk,
         updatedAt: p.updatedAt,
       };
     });
+  }
+
+  private async latestHealthScoresFor(projectIds: string[]): Promise<Map<string, number>> {
+    if (projectIds.length === 0) return new Map();
+    const scores = await this.prisma.client.healthScore.findMany({
+      where: { projectId: { in: projectIds } },
+      orderBy: { calculatedAt: "desc" },
+      select: { projectId: true, overallScore: true },
+    });
+    const byProject = new Map<string, number>();
+    for (const score of scores) {
+      if (!byProject.has(score.projectId)) byProject.set(score.projectId, score.overallScore);
+    }
+    return byProject;
   }
 
   // --- Support Workspace Endpoints ---
@@ -1108,6 +1342,7 @@ export class AdminService {
       }),
       this.prisma.client.project.count(),
     ]);
+    const healthScores = await this.latestHealthScoresFor(projects.map((p: any) => p.id));
 
     const items = projects.map((p: any) => {
       const hasFailedJob = p.jobs.length > 0;
@@ -1121,9 +1356,10 @@ export class AdminService {
         membersCount: p.memberships.length,
         failedJobsCount: p.jobs.length,
         criticalRisksCount: p.raidItems.length,
-        latestViabilityScore: null,
+        latestHealthScore: healthScores.get(p.id) ?? null,
         isSupportRisk: isRisk,
         createdAt: p.createdAt,
+        frozen: p.frozen,
       };
     });
 
@@ -1205,20 +1441,85 @@ export class AdminService {
     const prevTotal = (prevUsage._sum.inputTokens ?? 0) + (prevUsage._sum.outputTokens ?? 0);
     const usageSpikePercent = prevTotal > 0 ? Math.round(((recentTotal - prevTotal) / prevTotal) * 100) : 0;
 
+    // Health Score fires once at Initiate — no trend/delta per V4.4 (doc §12),
+    // so this is the single latest record, not a history series.
+    const healthScore = await this.prisma.client.healthScore.findFirst({
+      where: { projectId },
+      orderBy: { calculatedAt: "desc" },
+      include: { components: { orderBy: [{ weight: "desc" }, { component: "asc" }] } },
+    });
+
+    const tokenUsageRecords = await this.prisma.client.tokenUsage.findMany({
+      where: { projectId },
+      include: {
+        user: { select: { email: true, preferredName: true } },
+        skillVersion: { select: { skillId: true } },
+      },
+    });
+
+    const userBreakdownMap = new Map<string, { email: string; name: string | null; costMinor: number; inputTokens: number; outputTokens: number }>();
+    let systemCostMinor = 0;
+    let systemInputTokens = 0;
+    let systemOutputTokens = 0;
+    const systemSkillIds = ["project-context-reviewer", "health-score-calculator"];
+
+    for (const record of tokenUsageRecords) {
+      const isSystem = record.skillVersion && systemSkillIds.includes(record.skillVersion.skillId);
+      if (isSystem) {
+        systemCostMinor += record.costMinor;
+        systemInputTokens += record.inputTokens;
+        systemOutputTokens += record.outputTokens;
+      } else {
+        const uId = record.userId;
+        let existing = userBreakdownMap.get(uId);
+        if (!existing) {
+          existing = {
+            email: record.user?.email ?? "unknown",
+            name: record.user?.preferredName ?? null,
+            costMinor: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+          };
+          userBreakdownMap.set(uId, existing);
+        }
+        existing.costMinor += record.costMinor;
+        existing.inputTokens += record.inputTokens;
+        existing.outputTokens += record.outputTokens;
+      }
+    }
+
+    const tokenBreakdown = {
+      users: Array.from(userBreakdownMap.entries()).map(([userId, data]) => ({
+        userId,
+        email: data.email,
+        name: data.name,
+        costMinor: data.costMinor,
+        inputTokens: data.inputTokens,
+        outputTokens: data.outputTokens,
+      })),
+      system: {
+        costMinor: systemCostMinor,
+        inputTokens: systemInputTokens,
+        outputTokens: systemOutputTokens,
+      },
+    };
+
     return {
       id: project.id,
       name: project.name,
       ownerEmail: project.owner.email,
+      frozen: project.frozen,
       members: project.memberships.map((m: any) => ({
         userId: m.user.id,
         email: m.user.email,
         name: m.user.preferredName,
         role: m.role,
       })),
-      viabilityHistory: [],
+      healthScore,
       recentJobs: redactedJobs,
       recentAudits: redactedAudits,
       usageSpikePercent,
+      tokenBreakdown,
     };
   }
 
@@ -1232,22 +1533,16 @@ export class AdminService {
       { table: "project", group: "Project" },
       { table: "conversation", group: "Conversation" },
       { table: "conversation_message", group: "Conversation" },
-      // Discover/Refine entities
-      { table: "ambition", group: "Entity" },
-      { table: "okr", group: "Entity" },
+      // Discover/Refine entities (V4.4: Goal -> Epic -> Story)
+      { table: "goal", group: "Entity" },
+      { table: "epic", group: "Entity" },
+      { table: "story", group: "Entity" },
       { table: "persona", group: "Entity" },
-      { table: "okr_persona", group: "Entity" },
       { table: "pain_point", group: "Entity" },
-      { table: "user_need", group: "Entity" },
-      { table: "user_story", group: "Entity" },
-      { table: "task", group: "Entity" },
       // Refine
       { table: "structured_extract", group: "Refine" },
-      // Cycle management
-      { table: "cycle", group: "Cycle" },
-      { table: "raid_item", group: "Cycle" },
-      { table: "daily_meeting", group: "Cycle" },
-      { table: "retrospective", group: "Cycle" },
+      // Venture
+      { table: "raid_item", group: "Venture" },
     ];
 
     const operations = ["create", "update", "delete"];
@@ -1280,19 +1575,25 @@ export class AdminService {
     return { items: [...tableItems, ...skillItems] };
   }
 
-  async eventMappings(actor: Actor, page: number = 1, limit: number = 10) {
+  async eventMappings(actor: Actor, page: number = 1, limit: number = 10, phase?: string) {
     this.requireAdmin(actor);
     const skip = (page - 1) * limit;
     const take = limit;
 
+    const where: any = {};
+    if (phase) {
+      where.skill = { phase };
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.client.skillEventMapping.findMany({
+        where,
         orderBy: { eventType: "asc" },
         include: { skill: true },
         skip,
         take,
       }),
-      this.prisma.client.skillEventMapping.count(),
+      this.prisma.client.skillEventMapping.count({ where }),
     ]);
 
     return {
@@ -1302,6 +1603,81 @@ export class AdminService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  // Detects cycles in the skill-completion routing chain (skill.<id>.completed → skill),
+  // AND the entity-event self-loop class that caused a real incident: a skill mapped to
+  // fire on "<entity>.<action>" whose own outputSchema can write that same entity+action
+  // re-fires its own trigger every run — confirmed live as 19 duplicate Goal rows created
+  // in one minute before an external API rate limit accidentally broke the loop.
+  private async assertNoEntityEventSelfLoop(eventType: string, skillId: string) {
+    const entityMatch = eventType.match(/^([a-z_]+)\.(create|update|delete)$/);
+    if (!entityMatch) return;
+    const [, entitySnakeCase, action] = entityMatch;
+
+    const version = await this.prisma.client.skillVersion.findFirst({
+      where: { skillId, active: true },
+      select: { outputSchema: true },
+    });
+    const schema = version?.outputSchema as any;
+    if (!schema || schema.type !== "table") return;
+
+    const tableConfig = jsonSchemaToTableConfig(schema.value);
+    if (!tableConfig) return;
+
+    for (const [entityName, entry] of Object.entries(tableConfig)) {
+      const delegateName = entityName.charAt(0).toLowerCase() + entityName.slice(1);
+      const snakeCase = delegateName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+      if (snakeCase === entitySnakeCase && entry.actions?.includes(action as any)) {
+        throw new BadRequestException(
+          `Circular mapping: skill "${skillId}" can itself ${action} "${entityName}" — mapping it to fire on "${eventType}" ` +
+          `would let every run re-trigger itself (this exact bug created 19 duplicate rows once). ` +
+          `Remove "${action}" access to "${entityName}" from this skill's output schema, or trigger it from a different event.`,
+        );
+      }
+    }
+  }
+
+  // Detects cycles in the skill-completion routing chain (skill.<id>.completed → skill).
+  private async assertNoCircularMapping(eventType: string, skillId: string, excludeMappingId?: string) {
+    await this.assertNoEntityEventSelfLoop(eventType, skillId);
+
+    const completionMatch = eventType.match(/^skill\.(.+)\.completed$/);
+    if (!completionMatch) return;
+    const sourceSkillId = completionMatch[1]!;
+    if (sourceSkillId === skillId) {
+      throw new BadRequestException(
+        `Circular mapping: skill "${skillId}" cannot be triggered by its own completion event.`,
+      );
+    }
+
+    const mappings = await this.prisma.client.skillEventMapping.findMany({
+      where: { active: true, ...(excludeMappingId ? { id: { not: excludeMappingId } } : {}) },
+    });
+    const edges = new Map<string, Set<string>>();
+    for (const m of mappings) {
+      const match = m.eventType.match(/^skill\.(.+)\.completed$/);
+      if (!match) continue;
+      const from = match[1]!;
+      if (!edges.has(from)) edges.set(from, new Set());
+      edges.get(from)!.add(m.skillId);
+    }
+    if (!edges.has(sourceSkillId)) edges.set(sourceSkillId, new Set());
+    edges.get(sourceSkillId)!.add(skillId);
+
+    const visited = new Set<string>();
+    const stack = [skillId];
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === sourceSkillId) {
+        throw new BadRequestException(
+          `Circular mapping detected: this would let skill "${sourceSkillId}" eventually re-trigger itself via "${skillId}".`,
+        );
+      }
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of edges.get(current) ?? []) stack.push(next);
+    }
   }
 
   async createEventMapping(
@@ -1316,6 +1692,7 @@ export class AdminService {
     }
     const targetQueue = body.targetQueue?.trim() || "ai.conversation";
     await this.prisma.client.skill.findUniqueOrThrow({ where: { id: skillId } });
+    await this.assertNoCircularMapping(eventType, skillId);
 
     const mapping = await this.prisma.client.skillEventMapping.create({
       data: {
@@ -1337,6 +1714,7 @@ export class AdminService {
     body: { active?: boolean; skillId?: string; targetQueue?: string; conditions?: Record<string, unknown> },
   ) {
     this.requireWriteAdmin(actor);
+    const current = await this.prisma.client.skillEventMapping.findUniqueOrThrow({ where: { id } });
     const data: Record<string, any> = {};
     if (typeof body.active === "boolean") data.active = body.active;
     if (typeof body.skillId === "string") {
@@ -1349,6 +1727,11 @@ export class AdminService {
     }
     if (body.conditions !== undefined) {
       data.conditions = body.conditions;
+    }
+
+    const effectiveActive = data.active ?? current.active;
+    if (effectiveActive) {
+      await this.assertNoCircularMapping(current.eventType, data.skillId ?? current.skillId, id);
     }
 
     const mapping = await this.prisma.client.skillEventMapping.update({
@@ -1368,6 +1751,44 @@ export class AdminService {
     });
     await this.auditPlatform(actor, "platform.event_mapping.deleted", "event_mapping", id, { eventType: mapping.eventType });
     return { success: true };
+  }
+
+  async freezeProject(actor: Actor, projectId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const updated = await this.prisma.client.project.update({
+      where: { id: projectId },
+      data: { frozen: true },
+    });
+    await this.prisma.client.platformAuditEvent.create({
+      data: {
+        actorId: actor.userId,
+        eventType: "platform.project.frozen",
+        targetType: "project",
+        targetId: projectId,
+        metadata: { projectId, frozen: true },
+      },
+    });
+    return updated;
+  }
+
+  async unfreezeProject(actor: Actor, projectId: string) {
+    this.requireAdmin(actor);
+    this.requireWriteAdmin(actor);
+    const updated = await this.prisma.client.project.update({
+      where: { id: projectId },
+      data: { frozen: false },
+    });
+    await this.prisma.client.platformAuditEvent.create({
+      data: {
+        actorId: actor.userId,
+        eventType: "platform.project.unfrozen",
+        targetType: "project",
+        targetId: projectId,
+        metadata: { projectId, frozen: false },
+      },
+    });
+    return updated;
   }
 
   private auditPlatform(

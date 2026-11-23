@@ -24,18 +24,30 @@ export class EventRouterService {
     const { eventType, projectId, userId, payload = {}, idempotencyKey } = input;
     this.logger.log(`Routing event: ${eventType} for project: ${projectId}`);
 
-    // 1. Find ALL active mappings for this event type
+    // 1. Resolve project phase
+    const projectRecord = await this.prisma.client.project.findUnique({
+      where: { id: projectId },
+      select: { phase: true },
+    });
+    const projectPhase = projectRecord?.phase ?? "discover";
+
+    // 2. Find active mappings for this event type whose Skill phase matches the project phase
     const mappings = await this.prisma.client.skillEventMapping.findMany({
-      where: { eventType, active: true },
+      where: {
+        eventType,
+        active: true,
+        skill: { phase: projectPhase },
+      },
     });
 
     if (mappings.length === 0) {
-      this.logger.debug(`No active event mapping found for event: ${eventType}`);
+      this.logger.debug(
+        `No active event mapping found for event: ${eventType} in phase: ${projectPhase}`,
+      );
       return [];
     }
 
-    // 2. Filter by conditions — commented out for now (trigger all active mappings)
-    /*
+    // 2. Filter by conditions — mappings with no conditions ({}) always pass
     const matched = mappings.filter((mapping: any) => {
       const conditions = (mapping.conditions ?? {}) as Record<string, unknown>;
       return Object.entries(conditions).every(
@@ -47,8 +59,6 @@ export class EventRouterService {
       this.logger.debug(`Event ${eventType} matched ${mappings.length} mapping(s) but none passed conditions filter`);
       return [];
     }
-    */
-    const matched = mappings;
 
     // 3. Enqueue a job for EACH matched mapping
     const jobs = [];
@@ -66,6 +76,16 @@ export class EventRouterService {
         },
       });
       jobs.push({ skillId: mapping.skillId, jobId: job.id });
+
+      await this.prisma.client.auditEvent.create({
+        data: {
+          projectId,
+          actorId: userId,
+          eventType: "event_router.routed",
+          source: "auto_detection",
+          metadata: { eventType, phase: projectPhase, skillId: mapping.skillId, queue: mapping.targetQueue, jobId: job.id },
+        },
+      });
     }
 
     return jobs;

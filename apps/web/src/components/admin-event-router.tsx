@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Plus, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "./ui";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./ui/select";
@@ -11,7 +12,10 @@ type Skill = {
   id: string;
   name: string;
   description: string;
+  phase: string;
 };
+
+const DRIVE_PHASE_ORDER = ["discover", "refine", "initiate", "venture", "evolve"];
 
 type EventMapping = {
   id: string;
@@ -70,6 +74,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
       setConditions([]);
       setShowAddForm(false);
     },
+    onError: (err: any) => toast.error(err?.message || "Failed to save event route."),
   });
 
   const updateMapping = useMutation({
@@ -79,6 +84,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
         body: JSON.stringify({ active, skillId, conditions }),
       }),
     onSuccess: refresh,
+    onError: (err: any) => toast.error(err?.message || "Failed to update event route."),
   });
 
   const deleteMapping = useMutation({
@@ -87,6 +93,7 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
         method: "DELETE",
       }),
     onSuccess: refresh,
+    onError: (err: any) => toast.error(err?.message || "Failed to delete event route."),
   });
 
   const addCondition = () => {
@@ -122,6 +129,37 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
     return acc;
   }, {} as Record<string, typeof eventTypes>);
 
+
+  // flow-issues.md #12 — if the source skill (parsed from a "skill.<id>.completed"
+  // event) writes directly to the database (table-type output), wiring it
+  // straight to a next skill skips the entity-write step entirely for that
+  // turn (see conversation.ts: the DB mapper only runs when NO skill-completed
+  // mapping matches). Advisory only — Admin can still save as-is.
+  const sourceSkillWritesDb = (() => {
+    const match = newEventType.match(/^skill\.(.+)\.completed$/);
+    if (!match) return null;
+    const sourceSkill = skills.find((s: any) => s.id === match[1]);
+    const activeVersion = sourceSkill?.versions?.find((v: any) => v.active) ?? sourceSkill?.versions?.[0];
+    return activeVersion?.outputSchema?.type === "table" ? sourceSkill : null;
+  })();
+
+  // DRIVE phases progress one step at a time (Discover -> Refine -> Initiate ->
+  // Venture -> Evolve). Routing a skill-completion event straight to a skill in
+  // a non-adjacent phase (skipping ahead, or going backward) skips the phases
+  // between and is almost never intentional. Advisory only — Admin can still
+  // save as-is.
+  const phaseSkipWarning = (() => {
+    const match = newEventType.match(/^skill\.(.+)\.completed$/);
+    if (!match || !newSkillId) return null;
+    const sourceSkill = skills.find((s: any) => s.id === match[1]);
+    const targetSkill = skills.find((s: any) => s.id === newSkillId);
+    if (!sourceSkill || !targetSkill) return null;
+    const sourceIdx = DRIVE_PHASE_ORDER.indexOf(sourceSkill.phase);
+    const targetIdx = DRIVE_PHASE_ORDER.indexOf(targetSkill.phase);
+    if (sourceIdx === -1 || targetIdx === -1) return null;
+    if (targetIdx === sourceIdx || targetIdx === sourceIdx + 1) return null;
+    return { sourceSkill, targetSkill };
+  })();
 
   const handleSave = () => {
     const conditionsObj = conditions.reduce((acc, curr) => {
@@ -219,6 +257,27 @@ export function AdminEventRouter({ canWrite }: { canWrite: boolean }) {
                   </Select>
                 </div>
               </div>
+
+              {sourceSkillWritesDb ? (
+                <div className="rounded-lg border border-warning/30 bg-warning-soft/30 p-2.5 text-[11px] text-warning">
+                  <strong>{sourceSkillWritesDb.name ?? sourceSkillWritesDb.id}</strong> writes directly to the database
+                  (table-type output) — routing it straight to a next skill on its completion event skips the entity-write
+                  step for that turn entirely. Consider routing via the resulting database event instead (e.g.{" "}
+                  <code>goal.create</code>) so the data actually gets saved before the next skill runs. You can still save
+                  this as-is if that's intentional.
+                </div>
+              ) : null}
+
+              {phaseSkipWarning ? (
+                <div className="rounded-lg border border-warning/30 bg-warning-soft/30 p-2.5 text-[11px] text-warning">
+                  <strong>{phaseSkipWarning.sourceSkill.name ?? phaseSkipWarning.sourceSkill.id}</strong> is a{" "}
+                  <strong className="capitalize">{phaseSkipWarning.sourceSkill.phase}</strong>-phase skill, but{" "}
+                  <strong>{phaseSkipWarning.targetSkill.name ?? phaseSkipWarning.targetSkill.id}</strong> is a{" "}
+                  <strong className="capitalize">{phaseSkipWarning.targetSkill.phase}</strong>-phase skill. DRIVE phases
+                  normally progress one step at a time (Discover → Refine → Initiate → Venture → Evolve) — this route
+                  skips phases in between (or goes backward). You can still save this as-is if that's intentional.
+                </div>
+              ) : null}
 
               <div className="grid gap-2">
                 <span className="text-xs font-semibold text-muted-foreground">Routing Conditions (Optional)</span>

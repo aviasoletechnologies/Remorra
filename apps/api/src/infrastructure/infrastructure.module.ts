@@ -7,6 +7,9 @@ import { PrismaService } from "./prisma.service.js";
 import { QueueService } from "./queue.service.js";
 import { StorageService } from "./storage.service.js";
 import { ProjectAccessService } from "./project-access.service.js";
+import { PhaseGuard } from "../shared/phase.guard.js";
+import { PhaseCompletionService } from "../shared/phase-completion.service.js";
+import { ContextAutomationService } from "../shared/context-automation.service.js";
 
 @Global()
 @Module({
@@ -16,6 +19,9 @@ import { ProjectAccessService } from "./project-access.service.js";
     QueueService,
     AnthropicService,
     ProjectAccessService,
+    PhaseGuard,
+    PhaseCompletionService,
+    ContextAutomationService,
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
@@ -25,6 +31,9 @@ import { ProjectAccessService } from "./project-access.service.js";
     QueueService,
     AnthropicService,
     ProjectAccessService,
+    PhaseGuard,
+    PhaseCompletionService,
+    ContextAutomationService,
   ],
 })
 export class InfrastructureModule {}

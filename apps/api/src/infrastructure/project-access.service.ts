@@ -26,11 +26,21 @@ export class ProjectAccessService {
   async require(
     projectId: string,
     userId: string,
-    allowed: ProjectRole[] = ["founder", "team", "supplier"],
+    allowed: ProjectRole[] = ["founder", "team"],
+    isWrite = false,
   ) {
     const role = await this.role(projectId, userId);
     if (!role || !allowed.includes(role)) {
       throw new ForbiddenException("You do not have permission for this project.");
+    }
+    if (isWrite) {
+      const project = await this.prisma.client.project.findUnique({
+        where: { id: projectId },
+        select: { frozen: true },
+      });
+      if (project?.frozen) {
+        throw new ForbiddenException("This project is frozen. Write access is disabled.");
+      }
     }
     return role;
   }

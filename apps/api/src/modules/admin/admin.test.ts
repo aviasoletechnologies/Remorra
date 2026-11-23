@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AdminService } from "./admin.service.js";
 import { ForbiddenException, BadRequestException } from "@nestjs/common";
+import { GdprService } from "../gdpr/gdpr.service.js";
+import { ProjectAccessService } from "../../infrastructure/project-access.service.js";
 
 describe("Admin & Support Ops Console Tests", () => {
   let prismaMock: any;
@@ -16,11 +18,15 @@ describe("Admin & Support Ops Console Tests", () => {
           count: vi.fn(),
           findMany: vi.fn(),
           update: vi.fn(),
+          groupBy: vi.fn(),
+          findUniqueOrThrow: vi.fn(),
         },
         project: {
           count: vi.fn(),
           findMany: vi.fn(),
           findUniqueOrThrow: vi.fn(),
+          findUnique: vi.fn(),
+          update: vi.fn(),
         },
         jobRecord: {
           count: vi.fn(),
@@ -30,6 +36,11 @@ describe("Admin & Support Ops Console Tests", () => {
         tokenUsage: {
           aggregate: vi.fn(),
           groupBy: vi.fn(),
+          findMany: vi.fn(),
+        },
+        cancellation: {
+          findMany: vi.fn(),
+          create: vi.fn(),
         },
         generatedDocument: {
           count: vi.fn(),
@@ -85,12 +96,26 @@ describe("Admin & Support Ops Console Tests", () => {
           count: vi.fn(),
           update: vi.fn(),
         },
+        healthScore: {
+          findFirst: vi.fn(),
+          findMany: vi.fn(),
+        },
       },
     };
 
     queueMock = {
       enqueue: vi.fn(),
     };
+
+    prismaMock.client.tokenUsage.groupBy.mockResolvedValue([]);
+    prismaMock.client.profile.groupBy.mockResolvedValue([]);
+    prismaMock.client.tokenUsage.findMany.mockResolvedValue([]);
+    prismaMock.client.profile.findMany.mockResolvedValue([]);
+    prismaMock.client.profile.findUniqueOrThrow.mockResolvedValue({});
+    prismaMock.client.project.findUnique.mockResolvedValue({});
+    prismaMock.client.project.update.mockResolvedValue({});
+    prismaMock.client.cancellation.create.mockResolvedValue({});
+    prismaMock.client.cancellation.findMany.mockResolvedValue([]);
 
     adminService = new AdminService(prismaMock as any, queueMock as any);
   });
@@ -415,6 +440,7 @@ describe("Admin & Support Ops Console Tests", () => {
           name: "Test Skill",
           description: "Test Desc",
           kbEligible: false,
+          phase: "discover",
         },
       });
       expect(prismaMock.client.skillVersion.create).toHaveBeenCalledWith({
@@ -423,6 +449,7 @@ describe("Admin & Support Ops Console Tests", () => {
           version: 1,
           active: true,
           systemPrompt: "Test Prompt",
+          modelTier: "standard",
           inputSourceMap: {},
           constraints: [],
           examples: [],
@@ -652,5 +679,92 @@ describe("Admin & Support Ops Console Tests", () => {
       });
     });
 
+  });
+
+  describe("Project Freezing & Subscription Cancellation Flows", () => {
+    let projectAccessService: ProjectAccessService;
+    let gdprService: GdprService;
+
+    beforeEach(() => {
+      projectAccessService = new ProjectAccessService(prismaMock as any);
+      gdprService = new GdprService(prismaMock as any, queueMock as any, {} as any);
+    });
+
+    it("can freeze and unfreeze a project", async () => {
+      prismaMock.client.project.update.mockResolvedValue({ id: "proj-123", frozen: true });
+      prismaMock.client.platformAuditEvent.create.mockResolvedValue({});
+
+      const frozenRes = await adminService.freezeProject(
+        { userId: "admin-1", platformRole: "admin" } as any,
+        "proj-123",
+      );
+      expect(frozenRes.frozen).toBe(true);
+      expect(prismaMock.client.project.update).toHaveBeenCalledWith({
+        where: { id: "proj-123" },
+        data: { frozen: true },
+      });
+
+      prismaMock.client.project.update.mockResolvedValue({ id: "proj-123", frozen: false });
+      const unfrozenRes = await adminService.unfreezeProject(
+        { userId: "admin-1", platformRole: "admin" } as any,
+        "proj-123",
+      );
+      expect(unfrozenRes.frozen).toBe(false);
+      expect(prismaMock.client.project.update).toHaveBeenCalledWith({
+        where: { id: "proj-123" },
+        data: { frozen: false },
+      });
+    });
+
+    it("ProjectAccessService.require blocks write access when project is frozen", async () => {
+      // Mock project findUnique for both role and frozen checks
+      prismaMock.client.project.findUnique.mockImplementation(async () => {
+        return {
+          ownerId: "founder-1",
+          memberships: [],
+          frozen: true,
+        };
+      });
+
+      // With isWrite = false (read operations) -> should pass
+      const role = await projectAccessService.require("proj-123", "founder-1", ["founder", "team"], false);
+      expect(role).toBe("founder");
+
+      // With isWrite = true (write operations) -> should throw ForbiddenException
+      await expect(
+        projectAccessService.require("proj-123", "founder-1", ["founder", "team"], true),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("can cancel user subscription and record a reason", async () => {
+      const createdAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 days ago
+      prismaMock.client.profile.findUniqueOrThrow.mockResolvedValue({
+        id: "user-1",
+        tier: "paid",
+        createdAt,
+      });
+      prismaMock.client.cancellation.create.mockResolvedValue({
+        id: "cancel-123",
+        userId: "user-1",
+        reason: "Too expensive",
+        subscriberDuration: 5,
+        tierAtCancellation: "paid",
+      });
+      prismaMock.client.profile.update.mockResolvedValue({
+        id: "user-1",
+        tier: "free",
+      });
+
+      const res = await gdprService.cancelSubscription("user-1", { reason: "Too expensive" });
+      expect(res.profile.tier).toBe("free");
+      expect(prismaMock.client.cancellation.create).toHaveBeenCalledWith({
+        data: {
+          userId: "user-1",
+          reason: "Too expensive",
+          subscriberDuration: 5,
+          tierAtCancellation: "paid",
+        },
+      });
+    });
   });
 });

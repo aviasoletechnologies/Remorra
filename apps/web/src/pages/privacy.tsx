@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, ShieldCheck, Trash2, Undo2 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../lib/api";
 import { Badge, Button, Card } from "../components/ui";
 import { Page, PageHeader, SectionCard } from "../components/app-ui";
@@ -27,6 +29,20 @@ export function PrivacyPage() {
       window.location.reload();
     },
   });
+  const cancelSubMutation = useMutation({
+    mutationFn: (body: { reason: string }) =>
+      api("/users/me/subscription/cancel", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      toast.success("Subscription cancelled successfully!");
+      setCancelReason("");
+      void refetch();
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to cancel subscription.");
+    },
+  });
+
+  const [cancelReason, setCancelReason] = useState("");
   const deletionPending = profile?.status === "deletion_pending";
 
   return (
@@ -36,7 +52,7 @@ export function PrivacyPage() {
         title="Privacy and your data"
         description="Export your information, reset chat history, or schedule account deletion with a 30-day grace period."
       />
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <SectionCard title="Portable data export" description="A complete, encrypted archive of your Remorra data">
           <div className="grid min-h-64 gap-5">
             <div className="grid size-11 place-items-center rounded-xl bg-accent-soft text-primary"><ShieldCheck size={21} /></div>
@@ -56,6 +72,60 @@ export function PrivacyPage() {
           </div>
         </SectionCard>
 
+        <SectionCard title="Subscription management" description="View and manage your service level and billing">
+          <div className="grid min-h-64 gap-5">
+            <div className="grid size-11 place-items-center rounded-xl bg-accent-soft text-primary">
+              <ShieldCheck size={21} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Current Plan</span>
+              <span className="text-lg font-bold capitalize text-foreground">{profile?.tier ?? "Free"} Tier</span>
+            </div>
+            <p className="m-0 text-sm leading-6 text-muted-foreground">
+              {profile?.tier === "free"
+                ? "You are currently on the Free plan. Upgrade to access premium AI reasoning models, unlimited documents generation, and advanced integrations."
+                : "Your paid subscription is active. You have full access to high-fidelity AI models and collaborative features."}
+            </p>
+            <div className="mt-auto">
+              {profile?.tier !== "free" ? (
+                <AlertDialog>
+                  <AlertDialogTrigger render={<Button variant="outline" className="w-full border-destructive/25 text-destructive" />}>
+                    Cancel subscription
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel subscription?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Please let us know why you are cancelling. This is required to process the cancellation:
+                      </AlertDialogDescription>
+                      <textarea
+                        className="w-full min-h-[80px] p-2 mt-2 border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="Reason for cancellation (required)..."
+                        value={cancelReason}
+                        onChange={(e) => setCancelReason(e.target.value)}
+                      />
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={() => setCancelReason("")}>Keep subscription</AlertDialogCancel>
+                      <AlertDialogAction
+                        variant="destructive"
+                        disabled={!cancelReason.trim() || cancelSubMutation.isPending}
+                        onClick={() => cancelSubMutation.mutate({ reason: cancelReason })}
+                      >
+                        {cancelSubMutation.isPending ? "Cancelling..." : "Confirm cancellation"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : (
+                <Button className="w-full" onClick={() => alert("Stripe payments are skipped for now.")}>
+                  Upgrade to premium
+                </Button>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+
         <Card className="border-amber-500/20 bg-amber-500/5 p-0">
           <div className="section-card-header border-amber-500/15 bg-amber-500/10">
             <div>
@@ -69,7 +139,7 @@ export function PrivacyPage() {
               <Undo2 className="rotate-180" size={21} />
             </div>
             <p className="m-0 text-sm leading-6 text-muted-foreground">
-              This will permanently delete all message histories, AI invocation logs, token usage, and background jobs across your projects. Your account details and projects will remain intact.
+              This will permanently delete all message histories, AI invocation logs, token usage, background jobs, and all product/delivery data (Goals, Epics, Stories, Personas, RAID items, Build Phases, Health Scores, audit history) across your projects. Each project resets to the Discover phase. Only your account and the project itself remain.
             </p>
             <div className="mt-auto">
               <AlertDialog>
@@ -80,7 +150,7 @@ export function PrivacyPage() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Clean chat history and data?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This action cannot be undone. All active chat messages, AI outputs, and background run logs will be permanently deleted across your projects.
+                      This action cannot be undone. All chat messages, AI outputs, background run logs, and all product/delivery data (Goals, Epics, Stories, Personas, RAID items, Build Phases, Health Scores, audit history) will be permanently deleted, and each project resets to the Discover phase.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

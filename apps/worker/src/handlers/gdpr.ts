@@ -29,42 +29,28 @@ export async function handleGdprExport(payload: Payload) {
   const where = { projectId: { in: projectIds } };
   const [
     projects,
-    ambitions,
-    okrs,
+    goals,
+    epics,
+    stories,
     personas,
     painPoints,
-    userNeeds,
-    stories,
-    tasks,
-    conversations,
-    cycles,
     raidItems,
-    financeCategories,
-    financeEntries,
-    meetings,
-    retrospectives,
+    conversations,
     reports,
     documents,
     jobs,
   ] = await Promise.all([
     prisma.project.findMany({ where: { id: { in: projectIds } } }),
-    prisma.ambition.findMany({ where }),
-    prisma.okr.findMany({ where }),
+    prisma.goal.findMany({ where }),
+    prisma.epic.findMany({ where }),
+    prisma.story.findMany({ where }),
     prisma.persona.findMany({ where }),
     prisma.painPoint.findMany({ where }),
-    prisma.userNeed.findMany({ where }),
-    prisma.userStory.findMany({ where }),
-    prisma.task.findMany({ where }),
+    prisma.raidItem.findMany({ where }),
     prisma.conversation.findMany({
       where,
       include: { messages: { orderBy: { createdAt: "asc" } }, extracts: true },
     }),
-    prisma.cycle.findMany({ where }),
-    prisma.raidItem.findMany({ where }),
-    prisma.financeCategory.findMany({ where }),
-    prisma.financeEntry.findMany({ where }),
-    prisma.dailyMeeting.findMany({ where, include: { participants: true } }),
-    prisma.retrospective.findMany({ where }),
     prisma.reportGeneration.findMany({
       where,
       include: { sourceSnapshot: true, content: true, document: true },
@@ -80,26 +66,14 @@ export async function handleGdprExport(payload: Payload) {
     profile,
     projects,
     product: {
-      ambitions,
-      okrs,
+      goals,
+      epics,
+      stories,
       personas,
       painPoints,
-      userNeeds,
-      stories,
-      tasks,
-      founderPacks: [],
-      productPacks: [],
-      refineSessions: [],
-      evolveSessions: [],
-      viability: [],
     },
     delivery: {
-      cycles,
       raidItems,
-      financeCategories,
-      financeEntries,
-      meetings,
-      retrospectives,
     },
     conversations: conversations.map((conversation: any) => ({
       ...conversation,
@@ -162,21 +136,7 @@ export async function handleGdprDelete(payload: Payload) {
     await supabase.storage.from(bucket).remove(objects.map((item: any) => item.path));
   }
   await prisma.$transaction(async (tx: any) => {
-    await tx.project.deleteMany({ where: { ownerId: request.userId } });
-    await tx.projectMembership.deleteMany({ where: { userId: request.userId } });
-    await tx.conversationMessage.updateMany({
-      where: { actorId: request.userId },
-      data: { actorId: null, content: "[deleted]" },
-    });
-    await tx.profile.update({
-      where: { id: request.userId },
-      data: {
-        email: `deleted-${request.userId}@invalid`,
-        preferredName: null,
-        status: "deleted",
-        deletedAt: new Date(),
-      },
-    });
+    await tx.$executeRawUnsafe(`SELECT public.wipe_user($1::uuid)`, request.userId);
     await tx.deletionRequest.update({
       where: { id: requestId },
       data: { status: "completed", completedAt: new Date() },
